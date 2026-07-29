@@ -1,5 +1,6 @@
 import type { Board } from "../shared/types";
-import { currentYear, fetchBoard, GitHubError, MIN_YEAR } from "./github";
+import type { ArchiveTotals } from "./github";
+import { currentYear, fetchArchiveTotals, fetchBoard, GitHubError, MIN_YEAR } from "./github";
 
 export interface Env {
   /** Worker secret in production, `.dev.vars` locally. Never sent to the client. */
@@ -10,6 +11,12 @@ export interface Env {
 /** Synthetic key prefixes — edge cache entries are not tied to the public URL. */
 const JSON_CACHE_PREFIX = "https://ynga-git-board.internal/board/v2/";
 const MARKDOWN_CACHE_PREFIX = "https://ynga-git-board.internal/board-md/v1/";
+/** Bumped from v1: the all-time render is now assembled from a different source. */
+const ALL_MARKDOWN_CACHE_KEY = "https://ynga-git-board.internal/board-md/v2/all";
+/** Per-login totals for every finished year, in one entry. */
+const ARCHIVE_CACHE_PREFIX = "https://ynga-git-board.internal/board-md-src/archive/v1/";
+
+const TOKEN_MISSING = "The board is missing its GitHub token. Set the GITHUB_TOKEN secret.";
 /** The year in progress keeps moving. */
 const LIVE_TTL_SECONDS = 30 * 60;
 /** Finished years never change again. */
@@ -78,7 +85,7 @@ async function boardJson(
   if (!env.GITHUB_TOKEN) {
     return {
       response: json(
-        { error: "The board is missing its GitHub token. Set the GITHUB_TOKEN secret.", status: 500 },
+        { error: TOKEN_MISSING, status: 500 },
         { status: 500, headers: { "Cache-Control": "no-store" } },
       ),
       cache: "MISS",
@@ -197,59 +204,118 @@ function renderAllTimeMarkdown(
   return lines.join("\n");
 }
 
+/**
+ * Every finished year in one cached aggregate. Fetched with a handful of
+ * batched queries rather than one request per year, which is what keeps the
+ * whole route inside the 50-subrequest budget.
+ */
+async function archiveTotals(
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<{ ok: true; archive: ArchiveTotals } | { ok: false; status: number; message: string }> {
+  const lastYear = currentYear() - 1;
+  if (lastYear < MIN_YEAR) {
+    return {
+      ok: true,
+      archive: {
+        generatedAt: new Date().toISOString(),
+        firstYear: MIN_YEAR,
+        lastYear,
+        users: [],
+        missing: [],
+      },
+    };
+  }
+
+  const cache = caches.default;
+  // The last finished year is in the key, so the aggregate rolls over on Jan 1
+  // instead of serving a stale span for up to a week.
+  const cacheKey = new Request(`${ARCHIVE_CACHE_PREFIX}${lastYear}`, { method: "GET" });
+
+  const hit = await cache.match(cacheKey);
+  if (hit) return { ok: true, archive: (await hit.json()) as ArchiveTotals };
+
+  if (!env.GITHUB_TOKEN) return { ok: false, status: 500, message: TOKEN_MISSING };
+
+  try {
+    const archive = await fetchArchiveTotals(env.GITHUB_TOKEN, MIN_YEAR, lastYear);
+    const fresh = json(archive, {
+      headers: { "Cache-Control": `public, max-age=${ARCHIVE_TTL_SECONDS}` },
+    });
+    ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
+    return { ok: true, archive };
+  } catch (error) {
+    const status = error instanceof GitHubError ? error.status : 500;
+    const message = error instanceof Error ? error.message : "The archive could not be assembled.";
+    console.error("archive failed", { message, status, lastYear });
+    return { ok: false, status, message };
+  }
+}
+
 async function handleAllMarkdown(env: Env, ctx: ExecutionContext): Promise<Response> {
   const cache = caches.default;
-  const cacheKey = new Request(`${MARKDOWN_CACHE_PREFIX}all`, { method: "GET" });
+  const cacheKey = new Request(ALL_MARKDOWN_CACHE_KEY, { method: "GET" });
 
   const hit = await cache.match(cacheKey);
   if (hit) return withBrowserHeaders(hit, "HIT");
 
-  const years: number[] = [];
-  for (let year = MIN_YEAR; year <= currentYear(); year += 1) years.push(year);
-
-  // Each year reads through the same per-year cache, so a cold render warms
-  // every archive entry and later renders mostly hit the edge.
-  const results = await Promise.all(years.map((year) => boardJson(year, env, ctx)));
-
-  // A partial table would quietly understate someone's all-time total.
-  const failed = results.find((result) => !result.response.ok);
-  if (failed) {
-    const body = (await failed.response.json().catch(() => null)) as { error?: string } | null;
-    return text(`${body?.error ?? "The board could not be assembled."}\n`, {
-      status: failed.response.status,
+  // A partial table would quietly understate someone's all-time total, so any
+  // failure fails the whole page.
+  const archiveResult = await archiveTotals(env, ctx);
+  if (!archiveResult.ok) {
+    return text(`${archiveResult.message}\n`, {
+      status: archiveResult.status,
       headers: { "Cache-Control": "no-store" },
     });
   }
 
-  const missing = new Set<string>();
-  let oldestStamp: string | null = null;
-  for (const { response } of results) {
-    for (const login of (response.headers.get("X-Board-Missing") ?? "").split(",").filter(Boolean)) {
-      missing.add(login);
-    }
-    const stamp = response.headers.get("X-Board-Generated");
-    if (stamp && (oldestStamp === null || stamp < oldestStamp)) oldestStamp = stamp;
+  // The year in progress still comes through the shared per-year JSON cache.
+  const live = await boardJson(currentYear(), env, ctx);
+  if (!live.response.ok) {
+    const body = (await live.response.json().catch(() => null)) as { error?: string } | null;
+    return text(`${body?.error ?? "The board could not be assembled."}\n`, {
+      status: live.response.status,
+      headers: { "Cache-Control": "no-store" },
+    });
   }
 
-  const boards = await Promise.all(
-    results.map(({ response }) => response.json() as Promise<Board>),
-  );
+  const { archive } = archiveResult;
+  const liveBoard = (await live.response.json()) as Board;
+  const liveStamp = live.response.headers.get("X-Board-Generated");
+
+  const missing = new Set(archive.missing);
+  for (const login of (live.response.headers.get("X-Board-Missing") ?? "").split(",").filter(Boolean)) {
+    missing.add(login);
+  }
+
+  const years: number[] = [];
+  for (let year = MIN_YEAR; year <= currentYear(); year += 1) years.push(year);
 
   // Year boards rank differently, so rows are keyed by login, not position.
   const rows = new Map<string, AllTimeRow>();
-  boards.forEach((board, index) => {
-    const year = years[index];
-    for (const user of board) {
-      let row = rows.get(user.login);
-      if (!row) {
-        row = { login: user.login, url: user.url, byYear: new Map(), total: 0 };
-        rows.set(user.login, row);
-      }
-      row.url = user.url;
-      row.byYear.set(year, user.totalContributions);
-      row.total += user.totalContributions;
+  const rowFor = (login: string, url: string) => {
+    let row = rows.get(login);
+    if (!row) {
+      row = { login, url, byYear: new Map(), total: 0 };
+      rows.set(login, row);
     }
-  });
+    row.url = url;
+    return row;
+  };
+
+  for (const user of archive.users) {
+    const row = rowFor(user.login, user.url);
+    for (const [year, total] of Object.entries(user.byYear)) {
+      row.byYear.set(Number(year), total);
+      row.total += total;
+    }
+  }
+
+  for (const user of liveBoard) {
+    const row = rowFor(user.login, user.url);
+    row.byYear.set(currentYear(), user.totalContributions);
+    row.total += user.totalContributions;
+  }
 
   const ranked = [...rows.values()].sort(
     (a, b) => b.total - a.total || a.login.localeCompare(b.login),
@@ -258,7 +324,9 @@ async function handleAllMarkdown(env: Env, ctx: ExecutionContext): Promise<Respo
     ranked.some((row) => (row.byYear.get(year) ?? 0) > 0),
   );
 
-  const generatedAt = oldestStamp ?? new Date().toISOString();
+  // The oldest stamp, so the line never overstates freshness.
+  const generatedAt =
+    liveStamp && liveStamp < archive.generatedAt ? liveStamp : archive.generatedAt;
   const fresh = new Response(
     renderAllTimeMarkdown(ranked, activeYears, generatedAt, [...missing]),
     {
@@ -341,7 +409,23 @@ export default {
       if (!readOnly) {
         return text("Use GET for markdown views.\n", { status: 405 });
       }
-      if (url.pathname === "/all.md") return handleAllMarkdown(env, ctx);
+      // An unexpected throw here would surface as a bare 1101 page.
+      const guard = async (render: () => Promise<Response>) => {
+        try {
+          return await render();
+        } catch (error) {
+          console.error("markdown failed", {
+            path: url.pathname,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          return text("The board could not be assembled.\n", {
+            status: 500,
+            headers: { "Cache-Control": "no-store" },
+          });
+        }
+      };
+
+      if (url.pathname === "/all.md") return guard(() => handleAllMarkdown(env, ctx));
 
       const match = /^\/(\d{4})\.md$/.exec(url.pathname);
       const year = match ? parseYear(match[1]) : null;
@@ -351,7 +435,7 @@ export default {
           headers: { "Cache-Control": "no-store" },
         });
       }
-      return handleMarkdown(year, env, ctx);
+      return guard(() => handleMarkdown(year, env, ctx));
     }
 
     // Static assets (and the SPA fallback) are served by the assets binding.

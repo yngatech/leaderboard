@@ -65,8 +65,8 @@ interface RawUser {
   };
 }
 
-interface GraphQLResponse {
-  data?: Record<string, RawUser | null> | null;
+interface GraphQLResponse<T> {
+  data?: Record<string, T | null> | null;
   errors?: { message: string; type?: string; path?: (string | number)[] }[];
 }
 
@@ -127,13 +127,8 @@ export interface BoardResult {
   missing: string[];
 }
 
-export async function fetchBoard(
-  token: string,
-  year: number,
-  logins: readonly string[] = LOGINS,
-): Promise<BoardResult> {
-  const { from, to } = yearRange(year);
-
+/** One GraphQL round trip, with the HTTP-level failures normalised. */
+async function graphql<T>(token: string, body: unknown): Promise<GraphQLResponse<T>> {
   const res = await fetch(GITHUB_GRAPHQL, {
     method: "POST",
     headers: {
@@ -142,7 +137,7 @@ export async function fetchBoard(
       Accept: "application/json",
       "User-Agent": "ynga-git-board",
     },
-    body: JSON.stringify({ query: buildQuery(logins), variables: { from, to } }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -156,7 +151,20 @@ export async function fetchBoard(
     );
   }
 
-  const payload = (await res.json()) as GraphQLResponse;
+  return (await res.json()) as GraphQLResponse<T>;
+}
+
+export async function fetchBoard(
+  token: string,
+  year: number,
+  logins: readonly string[] = LOGINS,
+): Promise<BoardResult> {
+  const { from, to } = yearRange(year);
+
+  const payload = await graphql<RawUser>(token, {
+    query: buildQuery(logins),
+    variables: { from, to },
+  });
 
   // GraphQL returns partial data alongside errors when one login is missing:
   // keep every user that resolved and report the rest.
@@ -197,4 +205,124 @@ export async function fetchBoard(
   board.sort((a, b) => b.totalContributions - a.totalContributions || a.login.localeCompare(b.login));
 
   return { board, missing };
+}
+
+/* ---------- archive totals: many years, one query per chunk ---------- */
+
+export interface ArchiveUser {
+  login: string;
+  url: string;
+  /** Year (as a string key, so the shape survives JSON caching) to total. */
+  byYear: Record<string, number>;
+}
+
+export interface ArchiveTotals {
+  generatedAt: string;
+  firstYear: number;
+  lastYear: number;
+  users: ArchiveUser[];
+  missing: string[];
+}
+
+/**
+ * Years per request. 9 users x 5 aliased collections = 45 collections per
+ * query, which keeps each request comfortably cheap.
+ */
+const ARCHIVE_YEARS_PER_QUERY = 5;
+
+interface RawArchiveUser {
+  login: string;
+  url: string;
+  /** `y2019`, `y2020`, … aliases. */
+  [alias: string]: unknown;
+}
+
+/**
+ * `contributionsCollection` takes from/to per alias, so one user selection can
+ * carry a whole run of years — the same range mechanism as the single-year query.
+ */
+function buildArchiveQuery(logins: readonly string[], years: readonly number[]): string {
+  const collections = years
+    .map((year) => {
+      const { from, to } = yearRange(year);
+      // Both bounds are derived from a validated integer, never from input.
+      return `    y${year}: contributionsCollection(from: ${JSON.stringify(from)}, to: ${JSON.stringify(to)}) { contributionCalendar { totalContributions } }`;
+    })
+    .join("\n");
+
+  const users = logins
+    .map(
+      (login, i) =>
+        `  u${i}: user(login: ${JSON.stringify(login)}) {\n    login\n    url\n${collections}\n  }`,
+    )
+    .join("\n");
+
+  return `query Archive {\n${users}\n}`;
+}
+
+function yearTotal(raw: RawArchiveUser, year: number): number {
+  const collection = raw[`y${year}`] as
+    | { contributionCalendar?: { totalContributions?: number } }
+    | undefined;
+  return collection?.contributionCalendar?.totalContributions ?? 0;
+}
+
+/** Per-login totals for every year in `firstYear..lastYear`, inclusive. */
+export async function fetchArchiveTotals(
+  token: string,
+  firstYear: number,
+  lastYear: number,
+  logins: readonly string[] = LOGINS,
+): Promise<ArchiveTotals> {
+  const years: number[] = [];
+  for (let year = firstYear; year <= lastYear; year += 1) years.push(year);
+
+  const chunks: number[][] = [];
+  for (let i = 0; i < years.length; i += ARCHIVE_YEARS_PER_QUERY) {
+    chunks.push(years.slice(i, i + ARCHIVE_YEARS_PER_QUERY));
+  }
+
+  const payloads = await Promise.all(
+    chunks.map(async (chunk) => ({
+      chunk,
+      payload: await graphql<RawArchiveUser>(token, { query: buildArchiveQuery(logins, chunk) }),
+    })),
+  );
+
+  const byLogin = new Map<string, ArchiveUser>();
+  const missing = new Set<string>();
+
+  for (const { chunk, payload } of payloads) {
+    const data = payload.data;
+    if (!data) {
+      throw new GitHubError(payload.errors?.[0]?.message ?? "GitHub returned no data.", 502);
+    }
+
+    logins.forEach((login, i) => {
+      const raw = data[`u${i}`];
+      if (!raw) {
+        missing.add(login);
+        return;
+      }
+      let entry = byLogin.get(raw.login);
+      if (!entry) {
+        entry = { login: raw.login, url: raw.url, byYear: {} };
+        byLogin.set(raw.login, entry);
+      }
+      entry.url = raw.url;
+      for (const year of chunk) entry.byYear[String(year)] = yearTotal(raw, year);
+    });
+  }
+
+  if (byLogin.size === 0 && years.length > 0) {
+    throw new GitHubError("GitHub returned no users.", 502);
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    firstYear,
+    lastYear,
+    users: [...byLogin.values()],
+    missing: [...missing],
+  };
 }
