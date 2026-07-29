@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "ynga-git-board",
+  "name": "leaderboard",
   "account_id": "c758a534d893ea05ed051851bacabeb7",
   "main": "worker/index.ts",
   "compatibility_date": "2026-07-01",
