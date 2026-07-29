@@ -1,4 +1,4 @@
-import type { Board } from "../shared/types";
+import type { AllTime, AllTimeUser, Board } from "../shared/types";
 import type { ArchiveTotals } from "./github";
 import { currentYear, fetchArchiveTotals, fetchBoard, GitHubError, MIN_YEAR } from "./github";
 
@@ -13,6 +13,8 @@ const JSON_CACHE_PREFIX = "https://ynga-git-board.internal/board/v2/";
 const MARKDOWN_CACHE_PREFIX = "https://ynga-git-board.internal/board-md/v1/";
 /** Bumped from v1: the all-time render is now assembled from a different source. */
 const ALL_MARKDOWN_CACHE_KEY = "https://ynga-git-board.internal/board-md/v2/all";
+/** Rendered all-time JSON for the SPA. */
+const ALL_JSON_CACHE_KEY = "https://ynga-git-board.internal/board-all/v1";
 /** Per-login totals for every finished year, in one entry. */
 const ARCHIVE_CACHE_PREFIX = "https://ynga-git-board.internal/board-md-src/archive/v1/";
 
@@ -167,6 +169,11 @@ function renderMarkdown(board: Board, year: number, generatedAt: string, missing
 interface AllTimeRow {
   login: string;
   url: string;
+  /** Profile fields come from the live board; null for archive-only accounts. */
+  name: string | null;
+  avatarUrl: string;
+  followers: number | null;
+  following: number | null;
   byYear: Map<number, number>;
   total: number;
 }
@@ -252,31 +259,39 @@ async function archiveTotals(
   }
 }
 
-async function handleAllMarkdown(env: Env, ctx: ExecutionContext): Promise<Response> {
-  const cache = caches.default;
-  const cacheKey = new Request(ALL_MARKDOWN_CACHE_KEY, { method: "GET" });
+interface AllTimeData {
+  /** Ranked by all-time total, then login. */
+  rows: AllTimeRow[];
+  /** Every year, oldest first, that anyone was active in. */
+  activeYears: number[];
+  /** First active year through the current one, with no gaps. */
+  spanYears: number[];
+  missing: string[];
+  generatedAt: string;
+}
 
-  const hit = await cache.match(cacheKey);
-  if (hit) return withBrowserHeaders(hit, "HIT");
-
+/**
+ * The archive aggregate plus the year in progress, merged by login. Shared by
+ * `/all.md` and `/api/all` so both read exactly the same numbers.
+ */
+async function allTimeData(
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<{ ok: true; data: AllTimeData } | { ok: false; status: number; message: string }> {
   // A partial table would quietly understate someone's all-time total, so any
   // failure fails the whole page.
   const archiveResult = await archiveTotals(env, ctx);
-  if (!archiveResult.ok) {
-    return text(`${archiveResult.message}\n`, {
-      status: archiveResult.status,
-      headers: { "Cache-Control": "no-store" },
-    });
-  }
+  if (!archiveResult.ok) return archiveResult;
 
   // The year in progress still comes through the shared per-year JSON cache.
   const live = await boardJson(currentYear(), env, ctx);
   if (!live.response.ok) {
     const body = (await live.response.json().catch(() => null)) as { error?: string } | null;
-    return text(`${body?.error ?? "The board could not be assembled."}\n`, {
+    return {
+      ok: false,
       status: live.response.status,
-      headers: { "Cache-Control": "no-store" },
-    });
+      message: body?.error ?? "The board could not be assembled.",
+    };
   }
 
   const { archive } = archiveResult;
@@ -296,7 +311,17 @@ async function handleAllMarkdown(env: Env, ctx: ExecutionContext): Promise<Respo
   const rowFor = (login: string, url: string) => {
     let row = rows.get(login);
     if (!row) {
-      row = { login, url, byYear: new Map(), total: 0 };
+      row = {
+        login,
+        url,
+        name: null,
+        // Archive-only accounts still get an avatar from GitHub's redirect.
+        avatarUrl: `https://github.com/${login}.png`,
+        followers: null,
+        following: null,
+        byYear: new Map(),
+        total: 0,
+      };
       rows.set(login, row);
     }
     row.url = url;
@@ -313,6 +338,10 @@ async function handleAllMarkdown(env: Env, ctx: ExecutionContext): Promise<Respo
 
   for (const user of liveBoard) {
     const row = rowFor(user.login, user.url);
+    row.name = user.name;
+    row.avatarUrl = user.avatarUrl;
+    row.followers = user.followers;
+    row.following = user.following;
     row.byYear.set(currentYear(), user.totalContributions);
     row.total += user.totalContributions;
   }
@@ -323,22 +352,86 @@ async function handleAllMarkdown(env: Env, ctx: ExecutionContext): Promise<Respo
   const activeYears = years.filter((year) =>
     ranked.some((row) => (row.byYear.get(year) ?? 0) > 0),
   );
+  const spanYears =
+    activeYears.length > 0 ? years.filter((year) => year >= activeYears[0]) : [];
 
   // The oldest stamp, so the line never overstates freshness.
   const generatedAt =
     liveStamp && liveStamp < archive.generatedAt ? liveStamp : archive.generatedAt;
-  const fresh = new Response(
-    renderAllTimeMarkdown(ranked, activeYears, generatedAt, [...missing]),
-    {
-      headers: {
-        "Content-Type": "text/markdown; charset=utf-8",
-        // Includes the year in progress, so it expires on the live schedule.
-        "Cache-Control": `public, max-age=${LIVE_TTL_SECONDS}`,
-        "X-Board-Generated": generatedAt,
-        "X-Board-Year": "all",
-      },
+
+  return { ok: true, data: { rows: ranked, activeYears, spanYears, missing: [...missing], generatedAt } };
+}
+
+async function handleAllMarkdown(env: Env, ctx: ExecutionContext): Promise<Response> {
+  const cache = caches.default;
+  const cacheKey = new Request(ALL_MARKDOWN_CACHE_KEY, { method: "GET" });
+
+  const hit = await cache.match(cacheKey);
+  if (hit) return withBrowserHeaders(hit, "HIT");
+
+  const result = await allTimeData(env, ctx);
+  if (!result.ok) {
+    return text(`${result.message}\n`, {
+      status: result.status,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+
+  const { rows, activeYears, missing, generatedAt } = result.data;
+  const fresh = new Response(renderAllTimeMarkdown(rows, activeYears, generatedAt, missing), {
+    headers: {
+      "Content-Type": "text/markdown; charset=utf-8",
+      // Includes the year in progress, so it expires on the live schedule.
+      "Cache-Control": `public, max-age=${LIVE_TTL_SECONDS}`,
+      "X-Board-Generated": generatedAt,
+      "X-Board-Year": "all",
     },
-  );
+  });
+
+  ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
+  return withBrowserHeaders(fresh, "MISS");
+}
+
+async function handleAllApi(env: Env, ctx: ExecutionContext): Promise<Response> {
+  const cache = caches.default;
+  const cacheKey = new Request(ALL_JSON_CACHE_KEY, { method: "GET" });
+
+  const hit = await cache.match(cacheKey);
+  if (hit) return withBrowserHeaders(hit, "HIT");
+
+  const result = await allTimeData(env, ctx);
+  if (!result.ok) {
+    return json(
+      { error: result.message, status: result.status },
+      { status: result.status, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  const { rows, spanYears, missing, generatedAt } = result.data;
+  const body: AllTime = {
+    years: spanYears,
+    firstYear: spanYears[0] ?? currentYear(),
+    lastYear: currentYear(),
+    users: rows.map<AllTimeUser>((row) => ({
+      login: row.login,
+      name: row.name,
+      avatarUrl: row.avatarUrl,
+      url: row.url,
+      followers: row.followers,
+      following: row.following,
+      byYear: Object.fromEntries([...row.byYear].map(([year, total]) => [String(year), total])),
+      total: row.total,
+    })),
+  };
+
+  const fresh = json(body, {
+    headers: {
+      "Cache-Control": `public, max-age=${LIVE_TTL_SECONDS}`,
+      "X-Board-Generated": generatedAt,
+      "X-Board-Missing": missing.join(","),
+      "X-Board-Year": "all",
+    },
+  });
 
   ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
   return withBrowserHeaders(fresh, "MISS");
@@ -399,6 +492,23 @@ export default {
         return json({ error: "Use GET for /api/board.", status: 405 }, { status: 405 });
       }
       return handleBoard(request, env, ctx);
+    }
+
+    if (url.pathname === "/api/all") {
+      if (!readOnly) {
+        return json({ error: "Use GET for /api/all.", status: 405 }, { status: 405 });
+      }
+      try {
+        return await handleAllApi(env, ctx);
+      } catch (error) {
+        console.error("all-time api failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return json(
+          { error: "The board could not be assembled.", status: 500 },
+          { status: 500, headers: { "Cache-Control": "no-store" } },
+        );
+      }
     }
 
     if (url.pathname.startsWith("/api/")) {

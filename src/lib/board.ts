@@ -1,4 +1,4 @@
-import type { Board, ContributionWeek } from "../../shared/types";
+import type { AllTimeUser, Board, ContributionWeek } from "../../shared/types";
 
 export type CellState =
   /** A day in the year that has already happened. */
@@ -81,8 +81,17 @@ export function userGrid(weeks: ContributionWeek[], year: number, today: string)
   return buildGrid(year, values, today);
 }
 
-/** Quartile thresholds over the non-zero days, mirroring GitHub's own levelling. */
-function levelFor(count: number, thresholds: [number, number, number]): 0 | 1 | 2 | 3 | 4 {
+export type Thresholds = [number, number, number];
+
+/** Quartile thresholds over the non-zero values, mirroring GitHub's own levelling. */
+export function quartiles(values: number[]): Thresholds {
+  const sorted = values.filter((n) => n > 0).sort((a, b) => a - b);
+  const at = (fraction: number) =>
+    sorted.length === 0 ? 0 : sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))];
+  return [at(0.25), at(0.5), at(0.75)];
+}
+
+export function levelFor(count: number, thresholds: Thresholds): 0 | 1 | 2 | 3 | 4 {
   if (count <= 0) return 0;
   if (count <= thresholds[0]) return 1;
   if (count <= thresholds[1]) return 2;
@@ -101,17 +110,67 @@ export function groupGrid(board: Board, year: number, today: string): Grid {
     }
   }
 
-  const counts = [...totals.values()].filter((n) => n > 0).sort((a, b) => a - b);
-  const at = (fraction: number) =>
-    counts.length === 0
-      ? 0
-      : counts[Math.min(counts.length - 1, Math.floor(counts.length * fraction))];
-  const thresholds: [number, number, number] = [at(0.25), at(0.5), at(0.75)];
+  const thresholds = quartiles([...totals.values()]);
 
   const values = new Map<string, DayValue>();
   for (const [date, count] of totals) values.set(date, { count, level: levelFor(count, thresholds) });
 
   return buildGrid(year, values, today);
+}
+
+/* ---------- all-time: one cell per year ---------- */
+
+export interface YearCell {
+  year: number;
+  count: number;
+  level: 0 | 1 | 2 | 3 | 4;
+}
+
+export interface PeakYear {
+  year: number;
+  count: number;
+}
+
+/**
+ * Levels are quartiles over every account's yearly totals, so cells compare
+ * across the whole board — a 34-contribution career shouldn't glow gold.
+ */
+export function boardYearThresholds(users: AllTimeUser[]): Thresholds {
+  return quartiles(users.flatMap((user) => Object.values(user.byYear)));
+}
+
+export function userYearStrip(
+  user: AllTimeUser,
+  years: number[],
+  thresholds: Thresholds,
+): YearCell[] {
+  return years.map((year) => {
+    const count = user.byYear[String(year)] ?? 0;
+    return { year, count, level: levelFor(count, thresholds) };
+  });
+}
+
+/** Every account summed per year, levelled against its own spread. */
+export function groupYearStrip(users: AllTimeUser[], years: number[]): YearCell[] {
+  const totals = years.map((year) =>
+    users.reduce((sum, user) => sum + (user.byYear[String(year)] ?? 0), 0),
+  );
+  const thresholds = quartiles(totals);
+  return years.map((year, index) => ({
+    year,
+    count: totals[index],
+    level: levelFor(totals[index], thresholds),
+  }));
+}
+
+export function peakYear(cells: YearCell[]): PeakYear | null {
+  let best: PeakYear | null = null;
+  for (const cell of cells) {
+    if (cell.count > 0 && (!best || cell.count > best.count)) {
+      best = { year: cell.year, count: cell.count };
+    }
+  }
+  return best;
 }
 
 export function peakDay(grid: Grid): PeakDay | null {
