@@ -157,6 +157,125 @@ function renderMarkdown(board: Board, year: number, generatedAt: string, missing
   return lines.join("\n");
 }
 
+interface AllTimeRow {
+  login: string;
+  url: string;
+  byYear: Map<number, number>;
+  total: number;
+}
+
+/** One row per account, one column per year that anyone was active in. */
+function renderAllTimeMarkdown(
+  rows: AllTimeRow[],
+  years: number[],
+  generatedAt: string,
+  missing: string[],
+): string {
+  const count = (value: number) => value.toLocaleString("en-GB");
+  const grandTotal = rows.reduce((sum, row) => sum + row.total, 0);
+  const span = years.length > 0 ? `${years[0]}–${years[years.length - 1]}` : "no recorded years";
+
+  const lines = [
+    "# git board — all time",
+    "",
+    `${count(grandTotal)} contributions from ${rows.length} accounts, ${span}.`,
+    "",
+    `| # | user | ${years.join(" | ")} | total |`,
+    `| --: | --- |${years.map(() => " --: |").join("")} --: |`,
+    ...rows.map((row, index) => {
+      const cells = years.map((year) => count(row.byYear.get(year) ?? 0));
+      return `| ${index + 1} | [${row.login}](${row.url}) | ${cells.join(" | ")} | ${count(row.total)} |`;
+    }),
+  ];
+
+  if (missing.length > 0) {
+    lines.push("", `No GitHub data for: ${missing.join(", ")}.`);
+  }
+
+  lines.push("", `Generated ${generatedAt}.`, `${SITE}/`, "");
+
+  return lines.join("\n");
+}
+
+async function handleAllMarkdown(env: Env, ctx: ExecutionContext): Promise<Response> {
+  const cache = caches.default;
+  const cacheKey = new Request(`${MARKDOWN_CACHE_PREFIX}all`, { method: "GET" });
+
+  const hit = await cache.match(cacheKey);
+  if (hit) return withBrowserHeaders(hit, "HIT");
+
+  const years: number[] = [];
+  for (let year = MIN_YEAR; year <= currentYear(); year += 1) years.push(year);
+
+  // Each year reads through the same per-year cache, so a cold render warms
+  // every archive entry and later renders mostly hit the edge.
+  const results = await Promise.all(years.map((year) => boardJson(year, env, ctx)));
+
+  // A partial table would quietly understate someone's all-time total.
+  const failed = results.find((result) => !result.response.ok);
+  if (failed) {
+    const body = (await failed.response.json().catch(() => null)) as { error?: string } | null;
+    return text(`${body?.error ?? "The board could not be assembled."}\n`, {
+      status: failed.response.status,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+
+  const missing = new Set<string>();
+  let oldestStamp: string | null = null;
+  for (const { response } of results) {
+    for (const login of (response.headers.get("X-Board-Missing") ?? "").split(",").filter(Boolean)) {
+      missing.add(login);
+    }
+    const stamp = response.headers.get("X-Board-Generated");
+    if (stamp && (oldestStamp === null || stamp < oldestStamp)) oldestStamp = stamp;
+  }
+
+  const boards = await Promise.all(
+    results.map(({ response }) => response.json() as Promise<Board>),
+  );
+
+  // Year boards rank differently, so rows are keyed by login, not position.
+  const rows = new Map<string, AllTimeRow>();
+  boards.forEach((board, index) => {
+    const year = years[index];
+    for (const user of board) {
+      let row = rows.get(user.login);
+      if (!row) {
+        row = { login: user.login, url: user.url, byYear: new Map(), total: 0 };
+        rows.set(user.login, row);
+      }
+      row.url = user.url;
+      row.byYear.set(year, user.totalContributions);
+      row.total += user.totalContributions;
+    }
+  });
+
+  const ranked = [...rows.values()].sort(
+    (a, b) => b.total - a.total || a.login.localeCompare(b.login),
+  );
+  const activeYears = years.filter((year) =>
+    ranked.some((row) => (row.byYear.get(year) ?? 0) > 0),
+  );
+
+  const generatedAt = oldestStamp ?? new Date().toISOString();
+  const fresh = new Response(
+    renderAllTimeMarkdown(ranked, activeYears, generatedAt, [...missing]),
+    {
+      headers: {
+        "Content-Type": "text/markdown; charset=utf-8",
+        // Includes the year in progress, so it expires on the live schedule.
+        "Cache-Control": `public, max-age=${LIVE_TTL_SECONDS}`,
+        "X-Board-Generated": generatedAt,
+        "X-Board-Year": "all",
+      },
+    },
+  );
+
+  ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
+  return withBrowserHeaders(fresh, "MISS");
+}
+
 async function handleMarkdown(year: number, env: Env, ctx: ExecutionContext): Promise<Response> {
   const cache = caches.default;
   const cacheKey = new Request(`${MARKDOWN_CACHE_PREFIX}${year}`, { method: "GET" });
@@ -222,6 +341,8 @@ export default {
       if (!readOnly) {
         return text("Use GET for markdown views.\n", { status: 405 });
       }
+      if (url.pathname === "/all.md") return handleAllMarkdown(env, ctx);
+
       const match = /^\/(\d{4})\.md$/.exec(url.pathname);
       const year = match ? parseYear(match[1]) : null;
       if (year === null) {
