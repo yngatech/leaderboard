@@ -14,8 +14,8 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // Everything under /api is handled by the Worker, never the asset router.
-    "run_worker_first": ["/api/*"]
+    // The API and the markdown views are handled by the Worker, never the asset router.
+    "run_worker_first": ["/api/*", "/*.md"]
   },
   "observability": {
     "enabled": true
