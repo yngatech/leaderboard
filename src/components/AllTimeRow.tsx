@@ -30,9 +30,16 @@ export default function AllTimeRow(props: AllTimeRowProps) {
       </a>
 
       <div class="row__id">
-        <a class="row__login" href={props.user.url} target="_blank" rel="noreferrer noopener">
-          {props.user.login}
-        </a>
+        <div class="row__title">
+          <a class="row__login" href={props.user.url} target="_blank" rel="noreferrer noopener">
+            {props.user.login}
+          </a>
+          <Show when={props.rank === 1 && props.user.total > 0}>
+            <span class="row__crown" aria-hidden="true">
+              👑
+            </span>
+          </Show>
+        </div>
         <p class="row__name">{props.user.name ?? "—"}</p>
         <Show when={props.user.followers !== null}>
           <p class="row__meta">
