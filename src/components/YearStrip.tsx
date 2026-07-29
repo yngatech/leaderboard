@@ -1,6 +1,6 @@
 import { For, Show, createMemo } from "solid-js";
 import type { YearCell } from "../lib/board";
-import { formatNumber } from "../lib/format";
+import { formatNumber, formatOrdinal } from "../lib/format";
 
 export interface YearStripProps {
   cells: YearCell[];
@@ -9,11 +9,14 @@ export interface YearStripProps {
   gap?: number;
   /** Print the year above each cell. */
   labels?: boolean;
+  /** Print 1, 2, 3 inside the cells that placed that year. */
+  podium?: boolean;
   /** Accessible summary of the strip. */
   label: string;
 }
 
 const LABEL_BAND = 17;
+const PODIUM = 3;
 
 /** The all-time counterpart to Heatmap: one row, one cell per year. */
 export default function YearStrip(props: YearStripProps) {
@@ -24,6 +27,12 @@ export default function YearStrip(props: YearStripProps) {
 
   const width = createMemo(() => Math.max(0, props.cells.length * pitch() - gap()));
   const height = createMemo(() => cell() + top());
+
+  const tooltip = (item: YearCell) => {
+    const count = item.count === 1 ? "1 contribution" : `${formatNumber(item.count)} contributions`;
+    const placing = item.rank ? ` · ${formatOrdinal(item.rank)} that year` : "";
+    return `${count} in ${item.year}${placing}`;
+  };
 
   return (
     <svg
@@ -56,14 +65,30 @@ export default function YearStrip(props: YearStripProps) {
             height={cell()}
             rx={Math.max(1, Math.round(cell() * 0.22))}
           >
-            <title>
-              {item.count === 1
-                ? `1 contribution in ${item.year}`
-                : `${formatNumber(item.count)} contributions in ${item.year}`}
-            </title>
+            <title>{tooltip(item)}</title>
           </rect>
         )}
       </For>
+      {/* Drawn after the squares so the digits sit on top of their own cell. */}
+      <Show when={props.podium}>
+        <For each={props.cells}>
+          {(item, index) => (
+            <Show when={item.rank && item.rank <= PODIUM}>
+              <text
+                class="heatmap__rank"
+                data-level={item.level}
+                x={index() * pitch() + cell() / 2}
+                y={top() + cell() / 2}
+                font-size={String(Math.round(cell() * 0.46))}
+                text-anchor="middle"
+                dominant-baseline="central"
+              >
+                {item.rank}
+              </text>
+            </Show>
+          )}
+        </For>
+      </Show>
     </svg>
   );
 }

@@ -26,9 +26,17 @@ export default function UserRow(props: UserRowProps) {
       </a>
 
       <div class="row__id">
-        <a class="row__login" href={props.user.url} target="_blank" rel="noreferrer noopener">
-          {props.user.login}
-        </a>
+        <div class="row__title">
+          <a class="row__login" href={props.user.url} target="_blank" rel="noreferrer noopener">
+            {props.user.login}
+          </a>
+          {/* An all-zero year crowns nobody. */}
+          <Show when={props.rank === 1 && props.user.totalContributions > 0}>
+            <span class="row__crown" aria-hidden="true">
+              👑
+            </span>
+          </Show>
+        </div>
         <p class="row__name">{props.user.name ?? "—"}</p>
         <p class="row__meta">
           <span>{formatNumber(props.user.followers)} followers</span>

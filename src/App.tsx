@@ -15,6 +15,7 @@ import Heatmap from "./components/Heatmap";
 import UserRow from "./components/UserRow";
 import YearStrip from "./components/YearStrip";
 import {
+  boardYearRanks,
   boardYearThresholds,
   currentYear,
   groupGrid,
@@ -159,6 +160,7 @@ export default function App() {
     [...allUsers()].sort((a, b) => b.total - a.total || a.login.localeCompare(b.login)),
   );
   const allThresholds = createMemo(() => boardYearThresholds(allUsers()));
+  const allRanks = createMemo(() => boardYearRanks(allUsers(), allYears()));
   const allTotal = createMemo(() => allUsers().reduce((sum, user) => sum + user.total, 0));
   const allPulse = createMemo(() => groupYearStrip(allUsers(), allYears()));
   const allBest = createMemo(() => peakYear(allPulse()));
@@ -323,6 +325,7 @@ export default function App() {
                   rank={index() + 1}
                   years={allYears()}
                   thresholds={allThresholds()}
+                  ranks={allRanks()}
                 />
               )}
             </For>

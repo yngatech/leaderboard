@@ -124,6 +124,8 @@ export interface YearCell {
   year: number;
   count: number;
   level: 0 | 1 | 2 | 3 | 4;
+  /** Placing among the accounts that were active that year. Zero years have none. */
+  rank?: number;
 }
 
 export interface PeakYear {
@@ -139,14 +141,41 @@ export function boardYearThresholds(users: AllTimeUser[]): Thresholds {
   return quartiles(users.flatMap((user) => Object.values(user.byYear)));
 }
 
+/** Each year's non-zero totals, high to low — enough to place any count in it. */
+export type YearRanks = Map<number, number[]>;
+
+export function boardYearRanks(users: AllTimeUser[], years: number[]): YearRanks {
+  const ranks: YearRanks = new Map();
+  for (const year of years) {
+    const counts = users
+      .map((user) => user.byYear[String(year)] ?? 0)
+      .filter((count) => count > 0)
+      .sort((a, b) => b - a);
+    ranks.set(year, counts);
+  }
+  return ranks;
+}
+
+/** Competition ranking: two accounts tied for first are both 1st, the next 3rd. */
+function rankIn(counts: number[] | undefined, count: number): number | undefined {
+  if (!counts || count <= 0) return undefined;
+  return counts.filter((other) => other > count).length + 1;
+}
+
 export function userYearStrip(
   user: AllTimeUser,
   years: number[],
   thresholds: Thresholds,
+  ranks?: YearRanks,
 ): YearCell[] {
   return years.map((year) => {
     const count = user.byYear[String(year)] ?? 0;
-    return { year, count, level: levelFor(count, thresholds) };
+    return {
+      year,
+      count,
+      level: levelFor(count, thresholds),
+      rank: rankIn(ranks?.get(year), count),
+    };
   });
 }
 

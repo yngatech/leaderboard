@@ -1,6 +1,6 @@
 import { Show, createMemo } from "solid-js";
 import type { AllTimeUser } from "../../shared/types";
-import type { Thresholds } from "../lib/board";
+import type { Thresholds, YearRanks } from "../lib/board";
 import { peakYear, userYearStrip } from "../lib/board";
 import { formatNumber } from "../lib/format";
 import YearStrip from "./YearStrip";
@@ -10,10 +10,13 @@ export interface AllTimeRowProps {
   rank: number;
   years: number[];
   thresholds: Thresholds;
+  ranks: YearRanks;
 }
 
 export default function AllTimeRow(props: AllTimeRowProps) {
-  const cells = createMemo(() => userYearStrip(props.user, props.years, props.thresholds));
+  const cells = createMemo(() =>
+    userYearStrip(props.user, props.years, props.thresholds, props.ranks),
+  );
   const best = createMemo(() => peakYear(cells()));
 
   return (
@@ -45,6 +48,7 @@ export default function AllTimeRow(props: AllTimeRowProps) {
           cells={cells()}
           cell={34}
           gap={5}
+          podium
           label={`${props.user.login} made ${formatNumber(props.user.total)} contributions from ${props.years[0]} to ${props.years[props.years.length - 1]}`}
         />
       </div>

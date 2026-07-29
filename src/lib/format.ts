@@ -20,6 +20,14 @@ export function formatNumber(value: number): string {
   return numberFmt.format(value);
 }
 
+/** 1st, 2nd, 3rd, 4th… 11th–13th take "th" whatever their last digit says. */
+export function formatOrdinal(value: number): string {
+  const teen = value % 100;
+  const suffix =
+    teen >= 11 && teen <= 13 ? "th" : (["th", "st", "nd", "rd"][value % 10] ?? "th");
+  return `${value}${suffix}`;
+}
+
 /** Parses an ISO calendar date (no time component) as UTC. */
 export function parseDay(date: string): Date {
   return new Date(`${date}T00:00:00Z`);

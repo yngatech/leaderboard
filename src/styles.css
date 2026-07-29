@@ -248,6 +248,20 @@ rect:focus-visible {
   stroke-width: 1px;
 }
 
+/* Placing digits inside all-time year cells. Never swallow the cell's hover. */
+.heatmap__rank {
+  fill: var(--text);
+  font-family: var(--mono);
+  font-weight: 500;
+  pointer-events: none;
+}
+
+/* The two brightest steps of the ramp need a dark digit to read. */
+.heatmap__rank[data-level="3"],
+.heatmap__rank[data-level="4"] {
+  fill: var(--void);
+}
+
 .heatmap__month {
   fill: var(--dimmer);
   font-family: var(--mono);
@@ -337,6 +351,19 @@ rect:focus-visible {
 .row__id {
   grid-area: id;
   min-width: 0;
+}
+
+.row__title {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.row__crown {
+  flex-shrink: 0;
+  font-size: 0.85rem;
+  line-height: 1;
 }
 
 .row__login {
