@@ -1,4 +1,4 @@
-import { fetchBoard, GitHubError } from "./github";
+import { currentYear, fetchBoard, GitHubError, MIN_YEAR } from "./github";
 
 export interface Env {
   /** Worker secret in production, `.dev.vars` locally. Never sent to the client. */
@@ -6,9 +6,12 @@ export interface Env {
   ASSETS: Fetcher;
 }
 
-/** Synthetic key — the edge cache entry is not tied to the public URL. */
-const CACHE_KEY = "https://ynga-git-board.internal/board/v1";
-const EDGE_TTL_SECONDS = 30 * 60;
+/** Synthetic key prefix — edge cache entries are not tied to the public URL. */
+const CACHE_PREFIX = "https://ynga-git-board.internal/board/v2/";
+/** The year in progress keeps moving. */
+const LIVE_TTL_SECONDS = 30 * 60;
+/** Finished years never change again. */
+const ARCHIVE_TTL_SECONDS = 7 * 24 * 60 * 60;
 const BROWSER_TTL_SECONDS = 5 * 60;
 
 function json(body: unknown, init: ResponseInit = {}): Response {
@@ -21,9 +24,31 @@ function json(body: unknown, init: ResponseInit = {}): Response {
   });
 }
 
+/**
+ * Accepts only a four-digit year inside the supported range and returns it as a
+ * number, so the cache key below can never be shaped by visitor input.
+ */
+function parseYear(raw: string | null): number | null {
+  if (raw === null) return currentYear();
+  if (!/^\d{4}$/.test(raw)) return null;
+  const year = Number(raw);
+  if (!Number.isInteger(year) || year < MIN_YEAR || year > currentYear()) return null;
+  return year;
+}
+
 async function handleBoard(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const year = parseYear(new URL(request.url).searchParams.get("year"));
+  if (year === null) {
+    return json(
+      { error: `Year must be a whole number between ${MIN_YEAR} and ${currentYear()}.`, status: 400 },
+      { status: 400, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  const isLive = year === currentYear();
   const cache = caches.default;
-  const cacheKey = new Request(CACHE_KEY, { method: "GET" });
+  // `year` is a validated integer, so the key set is bounded and enumerable.
+  const cacheKey = new Request(`${CACHE_PREFIX}${year}`, { method: "GET" });
 
   const hit = await cache.match(cacheKey);
   if (hit) return withBrowserHeaders(hit, "HIT");
@@ -36,14 +61,15 @@ async function handleBoard(request: Request, env: Env, ctx: ExecutionContext): P
   }
 
   try {
-    const { board, missing } = await fetchBoard(env.GITHUB_TOKEN);
+    const { board, missing } = await fetchBoard(env.GITHUB_TOKEN, year);
 
     const fresh = json(board, {
       headers: {
         // Drives how long `caches.default` keeps the entry.
-        "Cache-Control": `public, max-age=${EDGE_TTL_SECONDS}`,
+        "Cache-Control": `public, max-age=${isLive ? LIVE_TTL_SECONDS : ARCHIVE_TTL_SECONDS}`,
         "X-Board-Generated": new Date().toISOString(),
         "X-Board-Missing": missing.join(","),
+        "X-Board-Year": String(year),
       },
     });
 
@@ -66,7 +92,7 @@ function withBrowserHeaders(response: Response, cacheState: "HIT" | "MISS"): Res
   const headers = new Headers(response.headers);
   headers.set(
     "Cache-Control",
-    `public, max-age=${BROWSER_TTL_SECONDS}, stale-while-revalidate=${EDGE_TTL_SECONDS}`,
+    `public, max-age=${BROWSER_TTL_SECONDS}, stale-while-revalidate=${LIVE_TTL_SECONDS}`,
   );
   headers.set("X-Board-Cache", cacheState);
   return new Response(response.body, { status: response.status, headers });

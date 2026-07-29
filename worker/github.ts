@@ -15,6 +15,27 @@ export const LOGINS = [
 
 const GITHUB_GRAPHQL = "https://api.github.com/graphql";
 
+/** GitHub contribution graphs start in 2008. */
+export const MIN_YEAR = 2008;
+
+export function currentYear(now: Date = new Date()): number {
+  return now.getUTCFullYear();
+}
+
+/**
+ * Jan 1 to Dec 31 of `year`, clamped to now for the year in progress.
+ * GitHub rejects ranges that end in the future or span more than a year.
+ */
+export function yearRange(year: number, now: Date = new Date()): { from: string; to: string } {
+  const start = Date.UTC(year, 0, 1, 0, 0, 0);
+  const end = Date.UTC(year, 11, 31, 23, 59, 59);
+  const to = new Date(Math.min(end, now.getTime()));
+  return {
+    from: new Date(start).toISOString().replace(".000Z", "Z"),
+    to: to.toISOString().replace(/\.\d{3}Z$/, "Z"),
+  };
+}
+
 const LEVELS: Record<string, 0 | 1 | 2 | 3 | 4> = {
   NONE: 0,
   FIRST_QUARTILE: 1,
@@ -64,7 +85,7 @@ function buildQuery(logins: readonly string[]): string {
     .map((login, i) => `  u${i}: user(login: ${JSON.stringify(login)}) { ...Card }`)
     .join("\n");
 
-  return `query Board {
+  return `query Board($from: DateTime!, $to: DateTime!) {
 ${aliases}
 }
 
@@ -75,7 +96,7 @@ fragment Card on User {
   url
   followers { totalCount }
   following { totalCount }
-  contributionsCollection {
+  contributionsCollection(from: $from, to: $to) {
     contributionCalendar {
       totalContributions
       weeks {
@@ -106,7 +127,13 @@ export interface BoardResult {
   missing: string[];
 }
 
-export async function fetchBoard(token: string, logins: readonly string[] = LOGINS): Promise<BoardResult> {
+export async function fetchBoard(
+  token: string,
+  year: number,
+  logins: readonly string[] = LOGINS,
+): Promise<BoardResult> {
+  const { from, to } = yearRange(year);
+
   const res = await fetch(GITHUB_GRAPHQL, {
     method: "POST",
     headers: {
@@ -115,7 +142,7 @@ export async function fetchBoard(token: string, logins: readonly string[] = LOGI
       Accept: "application/json",
       "User-Agent": "ynga-git-board",
     },
-    body: JSON.stringify({ query: buildQuery(logins) }),
+    body: JSON.stringify({ query: buildQuery(logins), variables: { from, to } }),
   });
 
   if (!res.ok) {

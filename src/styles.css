@@ -11,6 +11,7 @@
   --panel-hover: #171c36;
   --line: #262c4c;
   --line-soft: #1a1f38;
+  --future-line: rgba(236, 234, 247, 0.09);
   --text: #eceaf7;
   --dim: #918fb4;
   --dimmer: #605e83;
@@ -101,6 +102,37 @@ rect:focus-visible {
   letter-spacing: -0.045em;
 }
 
+/* ---------- year navigation ---------- */
+
+.years {
+  display: flex;
+  align-items: baseline;
+  gap: clamp(0.6rem, 2vw, 1.2rem);
+  justify-self: end;
+}
+
+.years__step {
+  min-width: 4rem;
+  text-align: center;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  color: var(--dim);
+  text-decoration: none;
+}
+
+.years__step:hover {
+  color: var(--accent);
+}
+
+.years__current {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(1.9rem, 5vw, 2.6rem);
+  line-height: 1;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- group pulse (hero) ---------- */
 
 .pulse {
@@ -124,7 +156,7 @@ rect:focus-visible {
 
 .pulse__label {
   margin: 0.9rem 0 0;
-  max-width: 34ch;
+  max-width: 44ch;
   font-family: var(--mono);
   font-size: 0.8rem;
   font-weight: 400;
@@ -177,6 +209,15 @@ rect:focus-visible {
 .legend__swatch[data-level="3"] { background: var(--heat-3); }
 .legend__swatch[data-level="4"] { background: var(--heat-4); }
 
+.legend__swatch[data-state="future"] {
+  background: transparent;
+  border: 1px solid var(--future-line);
+}
+
+.legend__gap {
+  width: 0.5rem;
+}
+
 /* ---------- heatmap ---------- */
 
 .heatmap {
@@ -195,7 +236,14 @@ rect:focus-visible {
 .heatmap__day[data-level="3"] { fill: var(--heat-3); }
 .heatmap__day[data-level="4"] { fill: var(--heat-4); }
 
-.heatmap__day:hover {
+/* Days that haven't happened yet: an outline, not a filled square. */
+.heatmap__day[data-state="future"] {
+  fill: none;
+  stroke: var(--future-line);
+  stroke-width: 1px;
+}
+
+.heatmap__day[data-state="day"]:hover {
   stroke: rgba(255, 255, 255, 0.7);
   stroke-width: 1px;
 }
@@ -376,14 +424,21 @@ rect:focus-visible {
   color: var(--dim);
 }
 
-.state--error {
+.state--error,
+.state--empty {
   padding: 1.6rem;
   border: 1px solid rgba(226, 96, 58, 0.45);
   border-radius: 16px;
   background: rgba(226, 96, 58, 0.08);
 }
 
-.state--error .state__title {
+.state--empty {
+  border-color: var(--line);
+  background: var(--panel);
+}
+
+.state--error .state__title,
+.state--empty .state__title {
   font-family: var(--display);
   font-weight: 600;
   font-size: 1.3rem;
@@ -400,7 +455,9 @@ rect:focus-visible {
 }
 
 .button {
+  display: inline-block;
   margin-top: 1.1rem;
+  text-decoration: none;
   padding: 0.55rem 1.1rem;
   font-family: var(--mono);
   font-size: 0.75rem;
@@ -502,6 +559,15 @@ rect:focus-visible {
   .head {
     grid-template-columns: minmax(0, 1fr);
     align-items: start;
+  }
+
+  .years {
+    justify-self: start;
+    gap: 0.9rem;
+  }
+
+  .years__step {
+    min-width: 3.4rem;
   }
 
   .row {

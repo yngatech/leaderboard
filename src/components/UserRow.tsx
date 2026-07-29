@@ -1,16 +1,19 @@
 import { Show, createMemo } from "solid-js";
 import type { BoardUser } from "../../shared/types";
-import { peakDay } from "../lib/board";
+import { peakDay, userGrid } from "../lib/board";
 import { formatDayShort, formatNumber } from "../lib/format";
 import Heatmap from "./Heatmap";
 
 export interface UserRowProps {
   user: BoardUser;
   rank: number;
+  year: number;
+  today: string;
 }
 
 export default function UserRow(props: UserRowProps) {
-  const peak = createMemo(() => peakDay(props.user.weeks));
+  const grid = createMemo(() => userGrid(props.user.weeks, props.year, props.today));
+  const peak = createMemo(() => peakDay(grid()));
 
   return (
     <article class="row" classList={{ "row--lead": props.rank === 1 }} style={{ "--i": props.rank }}>
@@ -36,10 +39,10 @@ export default function UserRow(props: UserRowProps) {
 
       <div class="row__plot">
         <Heatmap
-          weeks={props.user.weeks}
+          weeks={grid()}
           cell={8}
           gap={2}
-          label={`${props.user.login} made ${formatNumber(props.user.totalContributions)} contributions in the last 52 weeks`}
+          label={`${props.user.login} made ${formatNumber(props.user.totalContributions)} contributions in ${props.year}`}
         />
       </div>
 
