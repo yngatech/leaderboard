@@ -21,9 +21,10 @@ const ARCHIVE_CACHE_PREFIX = "https://ynga-git-board.internal/board-md-src/archi
 const TOKEN_MISSING = "The board is missing its GitHub token. Set the GITHUB_TOKEN secret.";
 /** The year in progress keeps moving. */
 const LIVE_TTL_SECONDS = 30 * 60;
-/** Finished years never change again. */
-const ARCHIVE_TTL_SECONDS = 7 * 24 * 60 * 60;
+/** Finished years only shift if someone retoggles private-contribution visibility. */
+const ARCHIVE_TTL_SECONDS = 30 * 24 * 60 * 60;
 const BROWSER_TTL_SECONDS = 5 * 60;
+const BROWSER_ARCHIVE_TTL_SECONDS = 24 * 60 * 60;
 
 const SITE = "https://leaderboard.ynga.tech";
 
@@ -131,7 +132,7 @@ async function handleBoard(request: Request, env: Env, ctx: ExecutionContext): P
 
   const { response, cache } = await boardJson(year, env, ctx);
   if (!response.ok) return response;
-  return withBrowserHeaders(response, cache);
+  return withBrowserHeaders(response, cache, year);
 }
 
 /** Rankings and totals only — no daily breakdown. */
@@ -442,7 +443,7 @@ async function handleMarkdown(year: number, env: Env, ctx: ExecutionContext): Pr
   const cacheKey = new Request(`${MARKDOWN_CACHE_PREFIX}${year}`, { method: "GET" });
 
   const hit = await cache.match(cacheKey);
-  if (hit) return withBrowserHeaders(hit, "HIT");
+  if (hit) return withBrowserHeaders(hit, "HIT", year);
 
   const { response } = await boardJson(year, env, ctx);
 
@@ -468,16 +469,24 @@ async function handleMarkdown(year: number, env: Env, ctx: ExecutionContext): Pr
   });
 
   ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
-  return withBrowserHeaders(fresh, "MISS");
+  return withBrowserHeaders(fresh, "MISS", year);
 }
 
-/** Re-issue a cached/fresh response with client-facing cache headers. */
-function withBrowserHeaders(response: Response, cacheState: "HIT" | "MISS"): Response {
+/**
+ * Re-issue a cached/fresh response with client-facing cache headers. Finished
+ * years can sit in the visitor's browser for a day; anything touching the year
+ * in progress stays on the short schedule.
+ */
+function withBrowserHeaders(
+  response: Response,
+  cacheState: "HIT" | "MISS",
+  year: number | null = null,
+): Response {
+  const archived = year !== null && year !== currentYear();
+  const maxAge = archived ? BROWSER_ARCHIVE_TTL_SECONDS : BROWSER_TTL_SECONDS;
+  const staleFor = archived ? ARCHIVE_TTL_SECONDS : LIVE_TTL_SECONDS;
   const headers = new Headers(response.headers);
-  headers.set(
-    "Cache-Control",
-    `public, max-age=${BROWSER_TTL_SECONDS}, stale-while-revalidate=${LIVE_TTL_SECONDS}`,
-  );
+  headers.set("Cache-Control", `public, max-age=${maxAge}, stale-while-revalidate=${staleFor}`);
   headers.set("X-Board-Cache", cacheState);
   return new Response(response.body, { status: response.status, headers });
 }
