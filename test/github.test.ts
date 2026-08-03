@@ -31,7 +31,7 @@ test("parses a contribution fragment into ordered weekly days", async () => {
 test("falls back to GraphQL when a public contribution fragment fails", async () => {
   const originalFetch = globalThis.fetch;
   const originalError = console.error;
-  const errors = [];
+  const errors: unknown[][] = [];
   globalThis.fetch = async (input, init) => {
     const url = String(input);
     if (url === "https://api.github.com/graphql") {
@@ -96,7 +96,7 @@ test("uses public contribution fragments for archive years and falls back per fa
   const originalFetch = globalThis.fetch;
   const originalError = console.error;
   const fixture = await readFile(fixtureUrl, "utf8");
-  const errors = [];
+  const errors: unknown[][] = [];
   globalThis.fetch = async (input, init) => {
     const url = String(input);
     if (url === "https://api.github.com/graphql") {
