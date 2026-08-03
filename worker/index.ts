@@ -11,12 +11,12 @@ export interface Env {
 /** Synthetic key prefixes — edge cache entries are not tied to the public URL. */
 const JSON_CACHE_PREFIX = "https://ynga-git-board.internal/board/v2/";
 const MARKDOWN_CACHE_PREFIX = "https://ynga-git-board.internal/board-md/v1/";
-/** Bumped from v1: the all-time render is now assembled from a different source. */
-const ALL_MARKDOWN_CACHE_KEY = "https://ynga-git-board.internal/board-md/v2/all";
+/** Bumped for all-time totals sourced from public contribution fragments. */
+const ALL_MARKDOWN_CACHE_KEY = "https://ynga-git-board.internal/board-md/v3/all";
 /** Rendered all-time JSON for the SPA. */
-const ALL_JSON_CACHE_KEY = "https://ynga-git-board.internal/board-all/v1";
+const ALL_JSON_CACHE_KEY = "https://ynga-git-board.internal/board-all/v2";
 /** Per-login totals for every finished year, in one entry. */
-const ARCHIVE_CACHE_PREFIX = "https://ynga-git-board.internal/board-md-src/archive/v1/";
+const ARCHIVE_CACHE_PREFIX = "https://ynga-git-board.internal/board-md-src/archive/v2/";
 
 const TOKEN_MISSING = "The board is missing its GitHub token. Set the GITHUB_TOKEN secret.";
 /** The year in progress keeps moving. */
@@ -213,9 +213,8 @@ function renderAllTimeMarkdown(
 }
 
 /**
- * Every finished year in one cached aggregate. Fetched with a handful of
- * batched queries rather than one request per year, which is what keeps the
- * whole route inside the 50-subrequest budget.
+ * Every finished year in one cached aggregate. On a cache miss, bounded public
+ * HTML fetches stay well inside this Workers Paid plan's 1,000-subrequest limit.
  */
 async function archiveTotals(
   env: Env,
