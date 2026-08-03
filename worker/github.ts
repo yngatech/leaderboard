@@ -50,6 +50,11 @@ interface RawDay {
   contributionLevel: string;
 }
 
+interface ContributionCalendar {
+  totalContributions: number;
+  weeks: { contributionDays: RawDay[] }[];
+}
+
 interface RawUser {
   login: string;
   name: string | null;
@@ -57,11 +62,11 @@ interface RawUser {
   url: string;
   followers: { totalCount: number };
   following: { totalCount: number };
+}
+
+interface RawCalendarUser {
   contributionsCollection: {
-    contributionCalendar: {
-      totalContributions: number;
-      weeks: { contributionDays: RawDay[] }[];
-    };
+    contributionCalendar: ContributionCalendar;
   };
 }
 
@@ -85,7 +90,7 @@ function buildQuery(logins: readonly string[]): string {
     .map((login, i) => `  u${i}: user(login: ${JSON.stringify(login)}) { ...Card }`)
     .join("\n");
 
-  return `query Board($from: DateTime!, $to: DateTime!) {
+  return `query Board {
 ${aliases}
 }
 
@@ -96,18 +101,6 @@ fragment Card on User {
   url
   followers { totalCount }
   following { totalCount }
-  contributionsCollection(from: $from, to: $to) {
-    contributionCalendar {
-      totalContributions
-      weeks {
-        contributionDays {
-          date
-          contributionCount
-          contributionLevel
-        }
-      }
-    }
-  }
 }`;
 }
 
@@ -119,6 +112,136 @@ function toWeeks(weeks: { contributionDays: RawDay[] }[]): ContributionWeek[] {
       level: LEVELS[day.contributionLevel] ?? 0,
     })),
   }));
+}
+
+interface HtmlCalendar {
+  totalContributions: number;
+  weeks: ContributionWeek[];
+}
+
+/** Attribute values we use from GitHub's server-rendered calendar fragment. */
+function attribute(tag: string, name: string): string | null {
+  const match = new RegExp(`(?:^|\\s)${name}\\s*=\\s*(["'])(.*?)\\1`, "i").exec(tag);
+  return match?.[2] ?? null;
+}
+
+function plainText(html: string): string {
+  return html.replace(/<[^>]*>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function contributionCount(text: string): number | null {
+  const match = /^(?:No contributions|([\d,]+)\s+contributions?)\s+on\b/i.exec(text);
+  if (!match) return null;
+  return match[1] === undefined ? 0 : Number(match[1].replaceAll(",", ""));
+}
+
+/**
+ * Parses GitHub's public, server-rendered yearly contributions fragment.
+ * The table is row-major, while the cell id carries its weekday and week
+ * indices; rebuilding from those indices keeps the API's column-per-week shape.
+ */
+export function parseContributionHtml(html: string): HtmlCalendar | null {
+  let totalText = "";
+  for (const match of html.matchAll(/<h2\b([^>]*)>([\s\S]*?)<\/h2>/gi)) {
+    if (attribute(match[1], "id") === "js-contribution-activity-description") {
+      totalText = plainText(match[2]);
+      break;
+    }
+  }
+  const total = /^([\d,]+)\s+contributions?\s+in\s+\d{4}$/i.exec(totalText);
+  if (!total) return null;
+
+  const tooltipCounts = new Map<string, number>();
+  for (const match of html.matchAll(/<tool-tip\b([^>]*)>([\s\S]*?)<\/tool-tip>/gi)) {
+    const id = attribute(match[1], "for");
+    const count = contributionCount(plainText(match[2]));
+    if (id && count !== null) tooltipCounts.set(id, count);
+  }
+
+  const byWeek = new Map<number, Map<number, ContributionDay>>();
+  for (const match of html.matchAll(/<td\b[^>]*>/gi)) {
+    const tag = match[0];
+    const date = attribute(tag, "data-date");
+    const id = attribute(tag, "id");
+    const level = attribute(tag, "data-level");
+    const coordinates = id && /^contribution-day-component-(\d+)-(\d+)$/.exec(id);
+    const count = id ? tooltipCounts.get(id) : undefined;
+    const numericLevel = level === null ? NaN : Number(level);
+    if (!date || !coordinates) continue;
+    if (
+      count === undefined ||
+      !Number.isInteger(numericLevel) ||
+      numericLevel < 0 ||
+      numericLevel > 4 ||
+      byWeek.get(Number(coordinates[2]))?.has(Number(coordinates[1]))
+    ) {
+      return null;
+    }
+
+    const weekIndex = Number(coordinates[2]);
+    const weekday = Number(coordinates[1]);
+    let week = byWeek.get(weekIndex);
+    if (!week) {
+      week = new Map();
+      byWeek.set(weekIndex, week);
+    }
+    week.set(weekday, { date, count, level: numericLevel as ContributionDay["level"] });
+  }
+
+  if (byWeek.size === 0) return null;
+  const weeks = [...byWeek.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, days]) => ({ days: [...days.entries()].sort(([a], [b]) => a - b).map(([, day]) => day) }));
+  const totalContributions = Number(total[1].replaceAll(",", ""));
+
+  return weeks.flatMap((week) => week.days).reduce((sum, day) => sum + day.count, 0) === totalContributions
+    ? { totalContributions, weeks }
+    : null;
+}
+
+function buildCalendarQuery(logins: readonly string[], from: string, to: string): string {
+  const aliases = logins
+    .map(
+      (login, i) => `  u${i}: user(login: ${JSON.stringify(login)}) {
+    contributionsCollection(from: ${JSON.stringify(from)}, to: ${JSON.stringify(to)}) {
+      contributionCalendar {
+        totalContributions
+        weeks {
+          contributionDays {
+            date
+            contributionCount
+            contributionLevel
+          }
+        }
+      }
+    }
+  }`,
+    )
+    .join("\n");
+  return `query ContributionFallback {\n${aliases}\n}`;
+}
+
+async function fetchContributionHtml(login: string, from: string, to: string): Promise<HtmlCalendar | null> {
+  const url = new URL(`https://github.com/users/${encodeURIComponent(login)}/contributions`);
+  url.searchParams.set("from", from.slice(0, 10));
+  url.searchParams.set("to", to.slice(0, 10));
+
+  try {
+    const res = await fetch(url, { headers: { "User-Agent": "ynga-git-board", Accept: "text/html" } });
+    if (!res.ok) {
+      console.error("github contributions html error", { login, status: res.status });
+      return null;
+    }
+    const calendar = parseContributionHtml(await res.text());
+    if (!calendar) console.error("github contributions html parse error", { login });
+    return calendar;
+  } catch (error) {
+    console.error("github contributions html fetch error", {
+      login,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
 }
 
 export interface BoardResult {
@@ -161,10 +284,11 @@ export async function fetchBoard(
 ): Promise<BoardResult> {
   const { from, to } = yearRange(year);
 
-  const payload = await graphql<RawUser>(token, {
-    query: buildQuery(logins),
-    variables: { from, to },
-  });
+  // The profile request and all public calendar fragments can run independently.
+  const [payload, htmlCalendars] = await Promise.all([
+    graphql<RawUser>(token, { query: buildQuery(logins) }),
+    Promise.all(logins.map((login) => fetchContributionHtml(login, from, to))),
+  ]);
 
   // GraphQL returns partial data alongside errors when one login is missing:
   // keep every user that resolved and report the rest.
@@ -177,13 +301,34 @@ export async function fetchBoard(
   const board: Board = [];
   const missing: string[] = [];
 
+  const fallbackIndexes = logins.flatMap((_, index) => (data[`u${index}`] && !htmlCalendars[index] ? [index] : []));
+  const fallbackCalendars = new Map<number, ContributionCalendar>();
+  if (fallbackIndexes.length > 0) {
+    const fallbackLogins = fallbackIndexes.map((index) => logins[index]);
+    console.error("github contributions html fallback", { logins: fallbackLogins });
+    const fallback = await graphql<RawCalendarUser>(token, {
+      query: buildCalendarQuery(fallbackLogins, from, to),
+    });
+    if (!fallback.data) {
+      throw new GitHubError(fallback.errors?.[0]?.message ?? "GitHub returned no contribution data.", 502);
+    }
+    fallbackIndexes.forEach((index, fallbackIndex) => {
+      const raw = fallback.data?.[`u${fallbackIndex}`];
+      if (raw) fallbackCalendars.set(index, raw.contributionsCollection.contributionCalendar);
+    });
+  }
+
   logins.forEach((login, i) => {
     const raw = data[`u${i}`];
     if (!raw) {
       missing.push(login);
       return;
     }
-    const calendar = raw.contributionsCollection.contributionCalendar;
+    const htmlCalendar = htmlCalendars[i];
+    const fallbackCalendar = fallbackCalendars.get(i);
+    if (!htmlCalendar && !fallbackCalendar) {
+      throw new GitHubError(`GitHub returned no contribution data for ${login}.`, 502);
+    }
     const user: BoardUser = {
       login: raw.login,
       name: raw.name,
@@ -191,8 +336,8 @@ export async function fetchBoard(
       url: raw.url,
       followers: raw.followers.totalCount,
       following: raw.following.totalCount,
-      totalContributions: calendar.totalContributions,
-      weeks: toWeeks(calendar.weeks),
+      totalContributions: htmlCalendar?.totalContributions ?? fallbackCalendar!.totalContributions,
+      weeks: htmlCalendar?.weeks ?? toWeeks(fallbackCalendar!.weeks),
     };
     board.push(user);
   });
