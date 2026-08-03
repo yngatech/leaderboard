@@ -11,7 +11,7 @@
     }
   ],
   "assets": {
-    "directory": "./dist",
+    // No `directory`: the Vite plugin points it at the client build output.
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     // The API and the markdown views are handled by the Worker, never the asset router.
