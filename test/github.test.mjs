@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { fetchBoard, parseContributionHtml } from "../worker/github.ts";
+import { fetchArchiveUserTotals, fetchBoard, parseContributionHtml } from "../worker/github.ts";
 
 const fixtureUrl = new URL("./fixtures/contributions-fragment.html", import.meta.url);
 
@@ -85,6 +85,52 @@ test("falls back to GraphQL when a public contribution fragment fails", async ()
       { days: [{ date: "2026-01-01", count: 3, level: 1 }] },
     ]);
     assert.ok(errors.some(([message]) => message === "github contributions html fallback"));
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.error = originalError;
+  }
+});
+
+test("uses public contribution fragments for archive years and falls back per failed year", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalError = console.error;
+  const fixture = await readFile(fixtureUrl, "utf8");
+  const errors = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url === "https://api.github.com/graphql") {
+      const { query } = JSON.parse(String(init?.body));
+      assert.match(query, /query Archive/);
+      assert.match(query, /y2024: contributionsCollection/);
+      return Response.json({
+        data: {
+          u0: {
+            login: "alice",
+            url: "https://github.com/alice",
+            y2024: { contributionCalendar: { totalContributions: 3 } },
+          },
+        },
+      });
+    }
+
+    const request = new URL(url);
+    assert.equal(request.pathname, "/users/alice/contributions");
+    assert.equal(new Headers(init?.headers).get("User-Agent"), "ynga-git-board");
+    if (request.searchParams.get("from") === "2024-01-01") {
+      return new Response("unavailable", { status: 503 });
+    }
+    return new Response(fixture.replaceAll("2026", "2025"));
+  };
+  console.error = (...args) => errors.push(args);
+
+  try {
+    const archive = await fetchArchiveUserTotals("token", "alice", 2024, 2025);
+    assert.deepEqual(archive, {
+      login: "alice",
+      url: "https://github.com/alice",
+      byYear: { "2024": 3, "2025": 1249 },
+    });
+    assert.ok(errors.some(([message]) => message === "github archive contributions html fallback"));
   } finally {
     globalThis.fetch = originalFetch;
     console.error = originalError;

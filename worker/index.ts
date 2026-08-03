@@ -1,6 +1,16 @@
 import type { AllTime, AllTimeUser, Board } from "../shared/types";
 import type { ArchiveTotals } from "./github";
-import { currentYear, fetchArchiveTotals, fetchBoard, GitHubError, MIN_YEAR } from "./github";
+import {
+  ARCHIVE_USER_PATH,
+  LOGINS,
+  currentYear,
+  fetchArchiveTotals,
+  fetchArchiveUserTotals,
+  fetchBoard,
+  GitHubError,
+  isArchiveUserRequest,
+  MIN_YEAR,
+} from "./github";
 
 export interface Env {
   /** Worker secret in production, `.dev.vars` locally. Never sent to the client. */
@@ -11,12 +21,12 @@ export interface Env {
 /** Synthetic key prefixes — edge cache entries are not tied to the public URL. */
 const JSON_CACHE_PREFIX = "https://ynga-git-board.internal/board/v2/";
 const MARKDOWN_CACHE_PREFIX = "https://ynga-git-board.internal/board-md/v1/";
-/** Bumped from v1: the all-time render is now assembled from a different source. */
-const ALL_MARKDOWN_CACHE_KEY = "https://ynga-git-board.internal/board-md/v2/all";
+/** Bumped for all-time totals sourced from public contribution fragments. */
+const ALL_MARKDOWN_CACHE_KEY = "https://ynga-git-board.internal/board-md/v3/all";
 /** Rendered all-time JSON for the SPA. */
-const ALL_JSON_CACHE_KEY = "https://ynga-git-board.internal/board-all/v1";
+const ALL_JSON_CACHE_KEY = "https://ynga-git-board.internal/board-all/v2";
 /** Per-login totals for every finished year, in one entry. */
-const ARCHIVE_CACHE_PREFIX = "https://ynga-git-board.internal/board-md-src/archive/v1/";
+const ARCHIVE_CACHE_PREFIX = "https://ynga-git-board.internal/board-md-src/archive/v2/";
 
 const TOKEN_MISSING = "The board is missing its GitHub token. Set the GITHUB_TOKEN secret.";
 /** The year in progress keeps moving. */
@@ -135,6 +145,39 @@ async function handleBoard(request: Request, env: Env, ctx: ExecutionContext): P
   return withBrowserHeaders(response, cache, year);
 }
 
+async function handleArchiveUser(request: Request, env: Env): Promise<Response> {
+  if (!env.GITHUB_TOKEN || !isArchiveUserRequest(request, env.GITHUB_TOKEN)) {
+    return json({ error: "No API route at /api/internal/archive-user.", status: 404 }, { status: 404 });
+  }
+
+  const params = new URL(request.url).searchParams;
+  const login = params.get("login");
+  const firstYear = Number(params.get("firstYear"));
+  const lastYear = Number(params.get("lastYear"));
+  if (
+    !login ||
+    !LOGINS.some((candidate) => candidate === login) ||
+    !Number.isInteger(firstYear) ||
+    !Number.isInteger(lastYear) ||
+    firstYear < MIN_YEAR ||
+    lastYear < firstYear ||
+    lastYear >= currentYear()
+  ) {
+    return json({ error: "Invalid archive request.", status: 400 }, { status: 400 });
+  }
+
+  try {
+    return json(await fetchArchiveUserTotals(env.GITHUB_TOKEN, login, firstYear, lastYear), {
+      headers: { "Cache-Control": "no-store" },
+    });
+  } catch (error) {
+    const status = error instanceof GitHubError ? error.status : 500;
+    const message = error instanceof Error ? error.message : "The archive could not be assembled.";
+    console.error("archive user failed", { login, message, status });
+    return json({ error: message, status }, { status, headers: { "Cache-Control": "no-store" } });
+  }
+}
+
 /** Rankings and totals only — no daily breakdown. */
 function renderMarkdown(board: Board, year: number, generatedAt: string, missing: string[]): string {
   const total = board.reduce((sum, user) => sum + user.totalContributions, 0);
@@ -213,13 +256,14 @@ function renderAllTimeMarkdown(
 }
 
 /**
- * Every finished year in one cached aggregate. Fetched with a handful of
- * batched queries rather than one request per year, which is what keeps the
- * whole route inside the 50-subrequest budget.
+ * Every finished year in one cached aggregate. On a cache miss, the archive
+ * work is sharded by account into child Worker requests so each invocation
+ * stays inside the 50-subrequest budget.
  */
 async function archiveTotals(
   env: Env,
   ctx: ExecutionContext,
+  origin: string,
 ): Promise<{ ok: true; archive: ArchiveTotals } | { ok: false; status: number; message: string }> {
   const lastYear = currentYear() - 1;
   if (lastYear < MIN_YEAR) {
@@ -246,7 +290,7 @@ async function archiveTotals(
   if (!env.GITHUB_TOKEN) return { ok: false, status: 500, message: TOKEN_MISSING };
 
   try {
-    const archive = await fetchArchiveTotals(env.GITHUB_TOKEN, MIN_YEAR, lastYear);
+    const archive = await fetchArchiveTotals(env.GITHUB_TOKEN, MIN_YEAR, lastYear, LOGINS, origin);
     const fresh = json(archive, {
       headers: { "Cache-Control": `public, max-age=${ARCHIVE_TTL_SECONDS}` },
     });
@@ -278,10 +322,11 @@ interface AllTimeData {
 async function allTimeData(
   env: Env,
   ctx: ExecutionContext,
+  origin: string,
 ): Promise<{ ok: true; data: AllTimeData } | { ok: false; status: number; message: string }> {
   // A partial table would quietly understate someone's all-time total, so any
   // failure fails the whole page.
-  const archiveResult = await archiveTotals(env, ctx);
+  const archiveResult = await archiveTotals(env, ctx, origin);
   if (!archiveResult.ok) return archiveResult;
 
   // The year in progress still comes through the shared per-year JSON cache.
@@ -363,14 +408,14 @@ async function allTimeData(
   return { ok: true, data: { rows: ranked, activeYears, spanYears, missing: [...missing], generatedAt } };
 }
 
-async function handleAllMarkdown(env: Env, ctx: ExecutionContext): Promise<Response> {
+async function handleAllMarkdown(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const cache = caches.default;
   const cacheKey = new Request(ALL_MARKDOWN_CACHE_KEY, { method: "GET" });
 
   const hit = await cache.match(cacheKey);
   if (hit) return withBrowserHeaders(hit, "HIT");
 
-  const result = await allTimeData(env, ctx);
+  const result = await allTimeData(env, ctx, new URL(request.url).origin);
   if (!result.ok) {
     return text(`${result.message}\n`, {
       status: result.status,
@@ -393,14 +438,14 @@ async function handleAllMarkdown(env: Env, ctx: ExecutionContext): Promise<Respo
   return withBrowserHeaders(fresh, "MISS");
 }
 
-async function handleAllApi(env: Env, ctx: ExecutionContext): Promise<Response> {
+async function handleAllApi(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const cache = caches.default;
   const cacheKey = new Request(ALL_JSON_CACHE_KEY, { method: "GET" });
 
   const hit = await cache.match(cacheKey);
   if (hit) return withBrowserHeaders(hit, "HIT");
 
-  const result = await allTimeData(env, ctx);
+  const result = await allTimeData(env, ctx, new URL(request.url).origin);
   if (!result.ok) {
     return json(
       { error: result.message, status: result.status },
@@ -496,6 +541,13 @@ export default {
     const url = new URL(request.url);
     const readOnly = request.method === "GET" || request.method === "HEAD";
 
+    if (url.pathname === ARCHIVE_USER_PATH) {
+      if (!readOnly) {
+        return json({ error: "Use GET for /api/internal/archive-user.", status: 405 }, { status: 405 });
+      }
+      return handleArchiveUser(request, env);
+    }
+
     if (url.pathname === "/api/board") {
       if (!readOnly) {
         return json({ error: "Use GET for /api/board.", status: 405 }, { status: 405 });
@@ -508,7 +560,7 @@ export default {
         return json({ error: "Use GET for /api/all.", status: 405 }, { status: 405 });
       }
       try {
-        return await handleAllApi(env, ctx);
+        return await handleAllApi(request, env, ctx);
       } catch (error) {
         console.error("all-time api failed", {
           message: error instanceof Error ? error.message : String(error),
@@ -544,7 +596,7 @@ export default {
         }
       };
 
-      if (url.pathname === "/all.md") return guard(() => handleAllMarkdown(env, ctx));
+      if (url.pathname === "/all.md") return guard(() => handleAllMarkdown(request, env, ctx));
 
       const match = /^\/(\d{4})\.md$/.exec(url.pathname);
       const year = match ? parseYear(match[1]) : null;

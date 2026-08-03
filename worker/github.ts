@@ -352,7 +352,7 @@ export async function fetchBoard(
   return { board, missing };
 }
 
-/* ---------- archive totals: many years, one query per chunk ---------- */
+/* ---------- archive totals: public HTML, sharded through this Worker ---------- */
 
 export interface ArchiveUser {
   login: string;
@@ -370,10 +370,14 @@ export interface ArchiveTotals {
 }
 
 /**
- * Years per request. 9 users x 5 aliased collections = 45 collections per
- * query, which keeps each request comfortably cheap.
+ * A child archive request fetches one account's years. Its HTML fan-out stays
+ * well below the 50-subrequest limit, and this cap avoids hammering GitHub.
  */
-const ARCHIVE_YEARS_PER_QUERY = 5;
+const ARCHIVE_HTML_CONCURRENCY = 6;
+/** Only two child archive requests run together, for at most 12 GitHub fetches. */
+const ARCHIVE_USER_CONCURRENCY = 2;
+export const ARCHIVE_USER_PATH = "/api/internal/archive-user";
+const ARCHIVE_TOKEN_HEADER = "X-Ynga-Archive-Token";
 
 interface RawArchiveUser {
   login: string;
@@ -382,10 +386,7 @@ interface RawArchiveUser {
   [alias: string]: unknown;
 }
 
-/**
- * `contributionsCollection` takes from/to per alias, so one user selection can
- * carry a whole run of years — the same range mechanism as the single-year query.
- */
+/** GraphQL retains its role as a batched fallback for failed HTML years. */
 function buildArchiveQuery(logins: readonly string[], years: readonly number[]): string {
   const collections = years
     .map((year) => {
@@ -412,54 +413,105 @@ function yearTotal(raw: RawArchiveUser, year: number): number {
   return collection?.contributionCalendar?.totalContributions ?? 0;
 }
 
-/** Per-login totals for every year in `firstYear..lastYear`, inclusive. */
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  task: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = Array(values.length);
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      const index = next;
+      next += 1;
+      if (index >= values.length) return;
+      results[index] = await task(values[index]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, worker));
+  return results;
+}
+
+/**
+ * One account's archive, fetched inside a child Worker request so that even a
+ * full 2008–present range remains below that invocation's subrequest limit.
+ */
+export async function fetchArchiveUserTotals(
+  token: string,
+  login: string,
+  firstYear: number,
+  lastYear: number,
+): Promise<ArchiveUser | null> {
+  const years: number[] = [];
+  for (let year = firstYear; year <= lastYear; year += 1) years.push(year);
+
+  const calendars = await mapWithConcurrency(years, ARCHIVE_HTML_CONCURRENCY, async (year) => {
+    const { from, to } = yearRange(year);
+    return fetchContributionHtml(login, from, to);
+  });
+  const fallbackYears = years.filter((_, index) => !calendars[index]);
+  let fallback: RawArchiveUser | null = null;
+
+  if (fallbackYears.length > 0) {
+    console.error("github archive contributions html fallback", { login, years: fallbackYears });
+    const payload = await graphql<RawArchiveUser>(token, {
+      query: buildArchiveQuery([login], fallbackYears),
+    });
+    if (!payload.data) {
+      throw new GitHubError(payload.errors?.[0]?.message ?? "GitHub returned no contribution data.", 502);
+    }
+    fallback = payload.data.u0;
+    if (!fallback) return null;
+  }
+
+  const raw = fallback;
+  const entry: ArchiveUser = {
+    login: raw?.login ?? login,
+    url: raw?.url ?? `https://github.com/${encodeURIComponent(login)}`,
+    byYear: {},
+  };
+  years.forEach((year, index) => {
+    entry.byYear[String(year)] = calendars[index]?.totalContributions ?? yearTotal(raw!, year);
+  });
+  return entry;
+}
+
+async function fetchArchiveUserFromWorker(
+  token: string,
+  origin: string,
+  login: string,
+  firstYear: number,
+  lastYear: number,
+): Promise<ArchiveUser | null> {
+  const url = new URL(ARCHIVE_USER_PATH, origin);
+  url.searchParams.set("login", login);
+  url.searchParams.set("firstYear", String(firstYear));
+  url.searchParams.set("lastYear", String(lastYear));
+  const res = await fetch(url, { headers: { [ARCHIVE_TOKEN_HEADER]: token } });
+  if (!res.ok) {
+    console.error("archive user request failed", { login, status: res.status });
+    throw new GitHubError("GitHub archive data is not answering right now.", 502);
+  }
+  return (await res.json()) as ArchiveUser | null;
+}
+
+/**
+ * Per-login totals for every year in `firstYear..lastYear`, inclusive. The
+ * top-level request makes one internal subrequest per login; each child does
+ * its own bounded GitHub HTML fan-out.
+ */
 export async function fetchArchiveTotals(
   token: string,
   firstYear: number,
   lastYear: number,
   logins: readonly string[] = LOGINS,
+  origin: string,
 ): Promise<ArchiveTotals> {
-  const years: number[] = [];
-  for (let year = firstYear; year <= lastYear; year += 1) years.push(year);
-
-  const chunks: number[][] = [];
-  for (let i = 0; i < years.length; i += ARCHIVE_YEARS_PER_QUERY) {
-    chunks.push(years.slice(i, i + ARCHIVE_YEARS_PER_QUERY));
-  }
-
-  const payloads = await Promise.all(
-    chunks.map(async (chunk) => ({
-      chunk,
-      payload: await graphql<RawArchiveUser>(token, { query: buildArchiveQuery(logins, chunk) }),
-    })),
+  const users = await mapWithConcurrency(logins, ARCHIVE_USER_CONCURRENCY, (login) =>
+    fetchArchiveUserFromWorker(token, origin, login, firstYear, lastYear),
   );
-
-  const byLogin = new Map<string, ArchiveUser>();
-  const missing = new Set<string>();
-
-  for (const { chunk, payload } of payloads) {
-    const data = payload.data;
-    if (!data) {
-      throw new GitHubError(payload.errors?.[0]?.message ?? "GitHub returned no data.", 502);
-    }
-
-    logins.forEach((login, i) => {
-      const raw = data[`u${i}`];
-      if (!raw) {
-        missing.add(login);
-        return;
-      }
-      let entry = byLogin.get(raw.login);
-      if (!entry) {
-        entry = { login: raw.login, url: raw.url, byYear: {} };
-        byLogin.set(raw.login, entry);
-      }
-      entry.url = raw.url;
-      for (const year of chunk) entry.byYear[String(year)] = yearTotal(raw, year);
-    });
-  }
-
-  if (byLogin.size === 0 && years.length > 0) {
+  const knownUsers = users.filter((user): user is ArchiveUser => user !== null);
+  if (knownUsers.length === 0 && firstYear <= lastYear) {
     throw new GitHubError("GitHub returned no users.", 502);
   }
 
@@ -467,7 +519,12 @@ export async function fetchArchiveTotals(
     generatedAt: new Date().toISOString(),
     firstYear,
     lastYear,
-    users: [...byLogin.values()],
-    missing: [...missing],
+    users: knownUsers,
+    missing: logins.filter((_, index) => users[index] === null),
   };
+}
+
+/** Verifies a request from the parent all-time route before releasing archive data. */
+export function isArchiveUserRequest(request: Request, token: string): boolean {
+  return request.headers.get(ARCHIVE_TOKEN_HEADER) === token;
 }
