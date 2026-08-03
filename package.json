@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:worker": "wrangler dev",
+    "preview": "npm run build && vite preview",
     "build": "npm run typecheck && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.worker.json --noEmit",
     "deploy": "npm run build && wrangler deploy"
@@ -13,6 +13,7 @@
     "solid-js": "^1.9.5"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.50.0",
     "@cloudflare/workers-types": "^5.20260722.1",
     "typescript": "^5.8.3",
     "vite": "^8.2.0",

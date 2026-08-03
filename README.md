@@ -35,22 +35,25 @@ move if someone retoggles private-contribution visibility.
 
 ## Development
 
-Run both, in two terminals:
-
 ```sh
 npm install
-npm run dev:worker   # wrangler dev, the API on :8787
-npm run dev          # vite on :5173, /api proxied to the worker
+npm run dev          # vite on :5173, app and Worker together
 ```
 
-Work against `:5173` — you get HMR on the app and real board data from the
-Worker. `wrangler dev` on its own serves the last `npm run build` output from
-`dist/`, so use it alone only to check the markdown views or asset routing.
+`@cloudflare/vite-plugin` runs the Worker in workerd inside the dev server, so
+`:5173` gives you HMR on the app and the real Worker on `/api/*` and the
+markdown views — including the `run_worker_first` and SPA-fallback routing from
+`wrangler.jsonc`, rather than an approximation of it.
 
 ```sh
 npm run typecheck
+npm run preview      # build, then serve the built Worker
 npm run deploy       # typecheck, build, wrangler deploy
 ```
+
+`vite build` writes the client to `dist/client` and the Worker plus a generated
+`wrangler.json` to `dist/leaderboard`; `wrangler deploy` picks that up on its
+own, so `wrangler.jsonc` at the root stays the file you edit.
 
 The Worker needs a GitHub token with `read:user` to reach the contributions API.
 Locally that goes in `.dev.vars` as `GITHUB_TOKEN=...`; in production it is a
