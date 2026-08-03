@@ -352,7 +352,7 @@ export async function fetchBoard(
   return { board, missing };
 }
 
-/* ---------- archive totals: public HTML, sharded through this Worker ---------- */
+/* ---------- archive totals: public HTML ---------- */
 
 export interface ArchiveUser {
   login: string;
@@ -370,14 +370,12 @@ export interface ArchiveTotals {
 }
 
 /**
- * A child archive request fetches one account's years. Its HTML fan-out stays
- * well below the 50-subrequest limit, and this cap avoids hammering GitHub.
+ * Workers Paid permits 1,000 subrequests per invocation. Keep the public HTML
+ * fan-out at 12 concurrent requests so an archive refresh is kinder to GitHub.
  */
 const ARCHIVE_HTML_CONCURRENCY = 6;
-/** Only two child archive requests run together, for at most 12 GitHub fetches. */
+/** Only two archive users run together, for at most 12 GitHub fetches. */
 const ARCHIVE_USER_CONCURRENCY = 2;
-export const ARCHIVE_USER_PATH = "/api/internal/archive-user";
-const ARCHIVE_TOKEN_HEADER = "X-Ynga-Archive-Token";
 
 interface RawArchiveUser {
   login: string;
@@ -433,8 +431,7 @@ async function mapWithConcurrency<T, R>(
 }
 
 /**
- * One account's archive, fetched inside a child Worker request so that even a
- * full 2008–present range remains below that invocation's subrequest limit.
+ * One account's archive, fetched directly from GitHub with bounded concurrency.
  */
 export async function fetchArchiveUserTotals(
   token: string,
@@ -476,39 +473,18 @@ export async function fetchArchiveUserTotals(
   return entry;
 }
 
-async function fetchArchiveUserFromWorker(
-  token: string,
-  origin: string,
-  login: string,
-  firstYear: number,
-  lastYear: number,
-): Promise<ArchiveUser | null> {
-  const url = new URL(ARCHIVE_USER_PATH, origin);
-  url.searchParams.set("login", login);
-  url.searchParams.set("firstYear", String(firstYear));
-  url.searchParams.set("lastYear", String(lastYear));
-  const res = await fetch(url, { headers: { [ARCHIVE_TOKEN_HEADER]: token } });
-  if (!res.ok) {
-    console.error("archive user request failed", { login, status: res.status });
-    throw new GitHubError("GitHub archive data is not answering right now.", 502);
-  }
-  return (await res.json()) as ArchiveUser | null;
-}
-
 /**
- * Per-login totals for every year in `firstYear..lastYear`, inclusive. The
- * top-level request makes one internal subrequest per login; each child does
- * its own bounded GitHub HTML fan-out.
+ * Per-login totals for every year in `firstYear..lastYear`, inclusive. Two
+ * users are fetched at once, each with six concurrent public HTML requests.
  */
 export async function fetchArchiveTotals(
   token: string,
   firstYear: number,
   lastYear: number,
   logins: readonly string[] = LOGINS,
-  origin: string,
 ): Promise<ArchiveTotals> {
   const users = await mapWithConcurrency(logins, ARCHIVE_USER_CONCURRENCY, (login) =>
-    fetchArchiveUserFromWorker(token, origin, login, firstYear, lastYear),
+    fetchArchiveUserTotals(token, login, firstYear, lastYear),
   );
   const knownUsers = users.filter((user): user is ArchiveUser => user !== null);
   if (knownUsers.length === 0 && firstYear <= lastYear) {
@@ -522,9 +498,4 @@ export async function fetchArchiveTotals(
     users: knownUsers,
     missing: logins.filter((_, index) => users[index] === null),
   };
-}
-
-/** Verifies a request from the parent all-time route before releasing archive data. */
-export function isArchiveUserRequest(request: Request, token: string): boolean {
-  return request.headers.get(ARCHIVE_TOKEN_HEADER) === token;
 }

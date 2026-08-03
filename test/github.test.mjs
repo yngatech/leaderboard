@@ -73,6 +73,7 @@ test("falls back to GraphQL when a public contribution fragment fails", async ()
 
     assert.match(url, /^https:\/\/github\.com\/users\/alice\/contributions\?/);
     assert.equal(new Headers(init?.headers).get("User-Agent"), "ynga-git-board");
+    assert.equal(new Headers(init?.headers).get("Authorization"), null);
     return new Response("unavailable", { status: 503 });
   };
   console.error = (...args) => errors.push(args);
@@ -116,6 +117,7 @@ test("uses public contribution fragments for archive years and falls back per fa
     const request = new URL(url);
     assert.equal(request.pathname, "/users/alice/contributions");
     assert.equal(new Headers(init?.headers).get("User-Agent"), "ynga-git-board");
+    assert.equal(new Headers(init?.headers).get("Authorization"), null);
     if (request.searchParams.get("from") === "2024-01-01") {
       return new Response("unavailable", { status: 503 });
     }
