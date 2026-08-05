@@ -11,6 +11,8 @@ export interface AllTimeRowProps {
   years: number[];
   thresholds: Thresholds;
   ranks: YearRanks;
+  highestTotal: number;
+  highestYearTotal: number;
 }
 
 export default function AllTimeRow(props: AllTimeRowProps) {
@@ -18,6 +20,16 @@ export default function AllTimeRow(props: AllTimeRowProps) {
     userYearStrip(props.user, props.years, props.thresholds, props.ranks),
   );
   const best = createMemo(() => peakYear(cells()));
+
+  // Gold marks the all-time biggest total. No contributions marks nobody; exact ties all win,
+  // so this compares values instead of trusting rank 1.
+  const leadsTotal = createMemo(() => props.user.total > 0 && props.user.total === props.highestTotal);
+
+  // Separate award: the biggest single year anyone on the board has posted.
+  const leadsYear = createMemo(() => {
+    const peak = best();
+    return !!peak && props.highestYearTotal > 0 && peak.count === props.highestYearTotal;
+  });
 
   return (
     <article class="row" classList={{ "row--lead": props.rank === 1 }} style={{ "--i": props.rank }}>
@@ -34,11 +46,6 @@ export default function AllTimeRow(props: AllTimeRowProps) {
           <a class="row__login" href={props.user.url} target="_blank" rel="noreferrer noopener">
             {props.user.login}
           </a>
-          <Show when={props.rank === 1 && props.user.total > 0}>
-            <span class="row__crown" aria-hidden="true">
-              👑
-            </span>
-          </Show>
         </div>
         <p class="row__name">{props.user.name ?? "—"}</p>
         <Show when={props.user.followers !== null}>
@@ -61,12 +68,20 @@ export default function AllTimeRow(props: AllTimeRowProps) {
       </div>
 
       <div class="row__score">
-        <span class="row__total">{formatNumber(props.user.total)}</span>
+        <span class="row__total" classList={{ "row__total--best": leadsTotal() }}>
+          {formatNumber(props.user.total)}
+          <Show when={leadsTotal()}>
+            <span class="row__award-note"> — highest total on the board</span>
+          </Show>
+        </span>
         <span class="row__total-label">contributions</span>
         <Show when={best()} fallback={<span class="row__peak">no activity</span>}>
           {(peak) => (
-            <span class="row__peak">
+            <span class="row__peak" classList={{ "row__peak--best": leadsYear() }}>
               best {formatNumber(peak().count)} in {peak().year}
+              <Show when={leadsYear()}>
+                <span class="row__award-note"> — highest single year on the board</span>
+              </Show>
             </span>
           )}
         </Show>

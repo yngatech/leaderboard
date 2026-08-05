@@ -373,12 +373,6 @@ rect:focus-visible {
   min-width: 0;
 }
 
-.row__crown {
-  flex-shrink: 0;
-  font-size: 0.85rem;
-  line-height: 1;
-}
-
 .row__login {
   font-family: var(--display);
   font-weight: 600;
@@ -435,7 +429,8 @@ rect:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-.row--lead .row__total {
+/* Metric awards are keyed off the value, not the rank, so ties are highlighted too. */
+.row__total--best {
   color: var(--accent);
 }
 
@@ -451,6 +446,25 @@ rect:focus-visible {
   margin-top: 0.4rem;
   font-size: 0.68rem;
   color: var(--dim);
+}
+
+/* The busiest single day (or single year) reads gold as a whole line, no badge needed. */
+.row__peak--best {
+  color: var(--accent);
+}
+
+/* Names the award for screen readers, since the gold alone is a colour-only signal. */
+.row__award-note {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ---------- states ---------- */
