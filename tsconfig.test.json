@@ -14,5 +14,5 @@
     "noUnusedParameters": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["test", "worker/github.ts", "shared"]
+  "include": ["test", "worker/github.ts", "src/lib/board.ts", "shared"]
 }

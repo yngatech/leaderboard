@@ -11,12 +11,14 @@ import {
 } from "solid-js";
 import type { AllTime, Board, BoardError } from "../shared/types";
 import AllTimeRow from "./components/AllTimeRow";
+import CumulativeChart from "./components/CumulativeChart";
 import Heatmap from "./components/Heatmap";
 import UserRow from "./components/UserRow";
 import YearStrip from "./components/YearStrip";
 import {
   boardYearRanks,
   boardYearThresholds,
+  cumulativeSeries,
   currentYear,
   groupGrid,
   groupYearStrip,
@@ -167,6 +169,10 @@ export default function App() {
   );
   const pulse = createMemo(() => groupGrid(board(), shownYear(), today));
   const busiest = createMemo(() => peakDay(pulse()));
+  /** Only the year in progress has a "so far" worth drawing. */
+  const climb = createMemo(() =>
+    shownYear() === THIS_YEAR ? cumulativeSeries(board(), shownYear(), today) : [],
+  );
 
   const allUsers = () => allSettled()?.data.users ?? [];
   const allYears = () => allSettled()?.data.years ?? [];
@@ -483,6 +489,10 @@ export default function App() {
               </div>
             </div>
           </section>
+
+          <Show when={climb().length > 0}>
+            <CumulativeChart series={climb()} year={shownYear()} today={today} />
+          </Show>
 
           <div class="mt-[clamp(2.25rem,5vw,3.25rem)] mb-4 flex items-center gap-[0.85rem] text-[0.66rem] tracking-[0.2em] text-dimmer uppercase">
             <span>the board</span>

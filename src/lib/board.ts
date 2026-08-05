@@ -22,6 +22,18 @@ export interface PeakDay {
   count: number;
 }
 
+export interface CumulativePoint {
+  date: string;
+  total: number;
+}
+
+export interface CumulativeSeries {
+  login: string;
+  name: string | null;
+  total: number;
+  points: CumulativePoint[];
+}
+
 interface DayValue {
   count: number;
   level: 0 | 1 | 2 | 3 | 4;
@@ -116,6 +128,40 @@ export function groupGrid(board: Board, year: number, today: string): Grid {
   for (const [date, count] of totals) values.set(date, { count, level: levelFor(count, thresholds) });
 
   return buildGrid(year, values, today);
+}
+
+/**
+ * One factual cumulative line per account. The live year stops at `today`;
+ * finished years run through 31 December. Missing days are filled with the
+ * previous total so every series shares the same x-axis.
+ */
+export function cumulativeSeries(board: Board, year: number, today: string): CumulativeSeries[] {
+  const first = `${year}-01-01`;
+  const last = `${year}-12-31`;
+  const through = today < last ? today : last;
+  if (through < first) return [];
+
+  const start = Date.UTC(year, 0, 1);
+  const end = Date.parse(`${through}T00:00:00Z`);
+
+  return board.map((user) => {
+    const daily = new Map<string, number>();
+    for (const week of user.weeks) {
+      for (const day of week.days) {
+        if (day.date >= first && day.date <= through) daily.set(day.date, day.count);
+      }
+    }
+
+    let total = 0;
+    const points: CumulativePoint[] = [];
+    for (let cursor = start; cursor <= end; cursor += DAY_MS) {
+      const date = isoDate(cursor);
+      total += daily.get(date) ?? 0;
+      points.push({ date, total });
+    }
+
+    return { login: user.login, name: user.name, total, points };
+  });
 }
 
 /* ---------- all-time: one cell per year ---------- */
