@@ -151,6 +151,20 @@ export default function App() {
   const today = todayIso();
 
   const total = createMemo(() => board().reduce((sum, user) => sum + user.totalContributions, 0));
+  const highestUserTotal = createMemo(() =>
+    board().reduce((highest, user) => Math.max(highest, user.totalContributions), 0),
+  );
+  const highestDailyTotal = createMemo(() =>
+    board().reduce(
+      (highest, user) =>
+        user.weeks.reduce(
+          (userHighest, week) =>
+            week.days.reduce((weekHighest, day) => Math.max(weekHighest, day.count), userHighest),
+          highest,
+        ),
+      0,
+    ),
+  );
   const pulse = createMemo(() => groupGrid(board(), shownYear(), today));
   const busiest = createMemo(() => peakDay(pulse()));
 
@@ -162,6 +176,19 @@ export default function App() {
   const allThresholds = createMemo(() => boardYearThresholds(allUsers()));
   const allRanks = createMemo(() => boardYearRanks(allUsers(), allYears()));
   const allTotal = createMemo(() => allUsers().reduce((sum, user) => sum + user.total, 0));
+  const highestAllTimeTotal = createMemo(() =>
+    allUsers().reduce((highest, user) => Math.max(highest, user.total), 0),
+  );
+  const highestYearTotal = createMemo(() =>
+    allUsers().reduce(
+      (highest, user) =>
+        Object.values(user.byYear).reduce(
+          (userHighest, count) => Math.max(userHighest, count),
+          highest,
+        ),
+      0,
+    ),
+  );
   const allPulse = createMemo(() => groupYearStrip(allUsers(), allYears()));
   const allBest = createMemo(() => peakYear(allPulse()));
   const allSpan = () => {
@@ -326,6 +353,8 @@ export default function App() {
                   years={allYears()}
                   thresholds={allThresholds()}
                   ranks={allRanks()}
+                  highestTotal={highestAllTimeTotal()}
+                  highestYearTotal={highestYearTotal()}
                 />
               )}
             </For>
@@ -393,7 +422,14 @@ export default function App() {
           <main class="board">
             <For each={board()}>
               {(user, index) => (
-                <UserRow user={user} rank={index() + 1} year={shownYear()} today={today} />
+                <UserRow
+                  user={user}
+                  rank={index() + 1}
+                  year={shownYear()}
+                  today={today}
+                  highestTotal={highestUserTotal()}
+                  highestDailyTotal={highestDailyTotal()}
+                />
               )}
             </For>
           </main>
