@@ -79,13 +79,14 @@ export default function Heatmap(props: HeatmapProps) {
                 height={cell()}
                 rx={Math.max(1, Math.round(cell() * 0.22))}
               >
-                <Show when={day.state === "day"}>
-                  <title>
-                    {day.count === 0
+                {/* Keep title directly under rect so Solid creates it in the SVG namespace. */}
+                <title>
+                  {day.state === "day"
+                    ? day.count === 0
                       ? `No ${unit()} on ${formatDayLong(day.date)}`
-                      : `${day.count} ${day.count === 1 ? unit().replace(/s$/, "") : unit()} on ${formatDayLong(day.date)}`}
-                  </title>
-                </Show>
+                      : `${day.count} ${day.count === 1 ? unit().replace(/s$/, "") : unit()} on ${formatDayLong(day.date)}`
+                    : ""}
+                </title>
               </rect>
             )}
           </For>
