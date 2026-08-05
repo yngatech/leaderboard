@@ -355,6 +355,7 @@ export default function App() {
                 gap={3}
                 months
                 unit="contributions"
+                peakDate={busiest()?.date}
                 label={`All ${board().length} accounts combined, day by day, in ${shownYear()}`}
               />
             </div>

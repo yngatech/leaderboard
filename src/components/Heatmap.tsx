@@ -12,9 +12,37 @@ export interface HeatmapProps {
   label: string;
   /** Noun used in day tooltips. */
   unit?: string;
+  /**
+   * ISO date of this strip's busiest day. That one cell gets a star. Left off
+   * for combined strips and for anyone whose year is empty.
+   */
+  peakDate?: string;
 }
 
 const MONTH_BAND = 15;
+
+/* Peak marker geometry, tuned so the star still reads inside an 8px cell. */
+const STAR_ARMS = 5;
+/** Outer radius as a fraction of the cell edge. */
+const STAR_RADIUS = 0.44;
+/** Waist as a fraction of the outer radius. Fatter than a textbook star, so the
+ *  arms survive antialiasing at row scale. */
+const STAR_WAIST = 0.47;
+
+function starPoints(cx: number, cy: number, radius: number): string {
+  const waist = radius * STAR_WAIST;
+  // A five-point star sits high in its own bounding box; drop it to optical centre.
+  const drop = (radius - radius * Math.cos(Math.PI / STAR_ARMS)) / 2;
+  const points: string[] = [];
+  for (let i = 0; i < STAR_ARMS * 2; i += 1) {
+    const r = i % 2 === 0 ? radius : waist;
+    const angle = (Math.PI / STAR_ARMS) * i - Math.PI / 2;
+    const x = cx + r * Math.cos(angle);
+    const y = cy + drop + r * Math.sin(angle);
+    points.push(`${x.toFixed(2)},${y.toFixed(2)}`);
+  }
+  return points.join(" ");
+}
 
 export default function Heatmap(props: HeatmapProps) {
   const cell = () => props.cell ?? 9;
@@ -44,6 +72,27 @@ export default function Heatmap(props: HeatmapProps) {
     // The grid opens mid-week, so drop a stub label that would collide.
     if (ticks.length > 1 && ticks[1].x - ticks[0].x < 3 * pitch()) ticks.shift();
     return ticks;
+  });
+
+  /** Where the star goes, if this strip has a peak worth marking. */
+  const peakMark = createMemo(() => {
+    const date = props.peakDate;
+    if (!date) return null;
+    for (let index = 0; index < props.weeks.length; index += 1) {
+      const day = props.weeks[index].find((item) => item.date === date);
+      if (!day) continue;
+      // Never mark padding, a day still to come, or a day with nothing on it.
+      if (day.state !== "day" || day.count <= 0) return null;
+      return {
+        level: day.level,
+        points: starPoints(
+          index * pitch() + cell() / 2,
+          top() + weekdayIndex(day.date) * pitch() + cell() / 2,
+          cell() * STAR_RADIUS,
+        ),
+      };
+    }
+    return null;
   });
 
   return (
@@ -92,6 +141,18 @@ export default function Heatmap(props: HeatmapProps) {
           </For>
         )}
       </For>
+      {/* Drawn after the squares so the star sits on its own cell. It stays out
+          of the way of the pointer, so the cell keeps its hover and tooltip. */}
+      <Show when={peakMark()}>
+        {(mark) => (
+          <polygon
+            class="heatmap__peak"
+            data-level={mark().level}
+            points={mark().points}
+            aria-hidden="true"
+          />
+        )}
+      </Show>
     </svg>
   );
 }

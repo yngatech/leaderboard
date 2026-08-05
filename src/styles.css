@@ -262,6 +262,19 @@ rect:focus-visible {
   fill: var(--void);
 }
 
+/* One star on the busiest day of a person's year. Never swallow the cell's hover. */
+.heatmap__peak {
+  fill: var(--text);
+  pointer-events: none;
+  shape-rendering: geometricPrecision;
+}
+
+/* The two brightest steps of the ramp need a dark marker to read. */
+.heatmap__peak[data-level="3"],
+.heatmap__peak[data-level="4"] {
+  fill: var(--void);
+}
+
 .heatmap__month {
   fill: var(--dimmer);
   font-family: var(--mono);
