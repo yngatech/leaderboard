@@ -4,6 +4,7 @@
   "account_id": "c758a534d893ea05ed051851bacabeb7",
   "main": "worker/index.ts",
   "compatibility_date": "2026-07-01",
+  "preview_urls": true,
   "routes": [
     {
       "pattern": "leaderboard.ynga.tech",
