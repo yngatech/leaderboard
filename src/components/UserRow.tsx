@@ -50,6 +50,8 @@ export default function UserRow(props: UserRowProps) {
           weeks={grid()}
           cell={8}
           gap={2}
+          // Stars the busiest day. An all-zero year has no peak, so no star.
+          peakDate={peak()?.date}
           label={`${props.user.login} made ${formatNumber(props.user.totalContributions)} contributions in ${props.year}`}
         />
       </div>
