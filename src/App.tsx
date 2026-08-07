@@ -26,7 +26,7 @@ import {
   peakYear,
   todayIso,
 } from "./lib/board";
-import { formatAgo, formatDayShort, formatNumber } from "./lib/format";
+import { firstDayForLocale, formatAgo, formatDayShort, formatNumber } from "./lib/format";
 
 declare const __BUILD_COMMIT_SHA__: string;
 
@@ -102,6 +102,7 @@ function hrefForYear(year: number): string {
 
 export default function App() {
   const [pathname, setPathname] = createSignal(window.location.pathname);
+  const firstDay = firstDayForLocale(navigator.language);
 
   const onPopState = () => setPathname(window.location.pathname);
   window.addEventListener("popstate", onPopState);
@@ -203,7 +204,7 @@ export default function App() {
       0,
     ),
   );
-  const pulse = createMemo(() => groupGrid(board(), shownYear(), today));
+  const pulse = createMemo(() => groupGrid(board(), shownYear(), today, firstDay));
   const busiest = createMemo(() => peakDay(pulse()));
   /** Only the year in progress has a "so far" worth drawing. */
   const climb = createMemo(() =>
@@ -487,6 +488,7 @@ export default function App() {
                 cell={17}
                 gap={3}
                 months
+                firstDay={firstDay}
                 unit="contributions"
                 peakDate={busiest()?.date}
                 label={`All ${board().length} accounts combined, day by day, in ${shownYear()}`}
@@ -539,6 +541,7 @@ export default function App() {
                   rank={index() + 1}
                   year={shownYear()}
                   today={today}
+                  firstDay={firstDay}
                   highestTotal={highestUserTotal()}
                   highestDailyTotal={highestDailyTotal()}
                 />

@@ -1,7 +1,12 @@
 import { Show, createMemo } from "solid-js";
 import type { BoardUser } from "../../shared/types";
 import { peakDay, userGrid } from "../lib/board";
-import { formatDayShort, formatNumber, formatRank } from "../lib/format";
+import {
+  formatDayShort,
+  formatNumber,
+  formatRank,
+  type FirstDayOfWeek,
+} from "../lib/format";
 import Heatmap from "./Heatmap";
 
 export interface UserRowProps {
@@ -9,12 +14,15 @@ export interface UserRowProps {
   rank: number;
   year: number;
   today: string;
+  firstDay: FirstDayOfWeek;
   highestTotal: number;
   highestDailyTotal: number;
 }
 
 export default function UserRow(props: UserRowProps) {
-  const grid = createMemo(() => userGrid(props.user.weeks, props.year, props.today));
+  const grid = createMemo(() =>
+    userGrid(props.user.weeks, props.year, props.today, props.firstDay),
+  );
   const peak = createMemo(() => peakDay(grid()));
 
   // Gold marks the year's biggest total. An all-zero year marks nobody; exact ties all win,
@@ -90,6 +98,7 @@ export default function UserRow(props: UserRowProps) {
           weeks={grid()}
           cell={8}
           gap={2}
+          firstDay={props.firstDay}
           // Stars the busiest day. An all-zero year has no peak, so no star.
           peakDate={peak()?.date}
           label={`${props.user.login} made ${formatNumber(props.user.totalContributions)} contributions in ${props.year}`}
