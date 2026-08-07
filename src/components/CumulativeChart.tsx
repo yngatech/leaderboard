@@ -592,13 +592,11 @@ export default function CumulativeChart(props: CumulativeChartProps) {
             // A group rather than an image: the lines inside are focusable and
             // named, and role="img" would hide them from assistive technology.
             role="group"
-            aria-labelledby="climb-chart-title climb-chart-desc"
+            aria-label={`Running contribution totals for ${accounts()} accounts in ${props.year}`}
+            aria-describedby="climb-chart-desc"
             // Backstop for a pointer flicked straight off the chart.
             onPointerLeave={() => setPointed(null)}
           >
-            <title id="climb-chart-title">
-              Running contribution totals for {accounts()} accounts in {props.year}
-            </title>
             <desc id="climb-chart-desc">{description()}</desc>
 
             <g aria-hidden="true">
