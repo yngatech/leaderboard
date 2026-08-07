@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Board } from "../shared/types.ts";
-import { cumulativeSeries } from "../src/lib/board.ts";
+import { cumulativeSeries, userGrid } from "../src/lib/board.ts";
+import { firstDayForLocale, weekdayIndex } from "../src/lib/format.ts";
 
 function boardWithDays(days: Board[0]["weeks"][0]["days"]): Board {
   return [
@@ -55,4 +56,58 @@ test("uses the full calendar for a finished leap year", () => {
 
 test("returns no points when the requested year has not started", () => {
   assert.deepEqual(cumulativeSeries(boardWithDays([]), 2027, "2026-08-05"), []);
+});
+
+test("can lay out locale weeks from Monday through Sunday", () => {
+  const grid = userGrid([], 2026, "2026-08-05", 1);
+
+  assert.deepEqual(
+    grid[0].map((day) => day.date),
+    [
+      "2025-12-29",
+      "2025-12-30",
+      "2025-12-31",
+      "2026-01-01",
+      "2026-01-02",
+      "2026-01-03",
+      "2026-01-04",
+    ],
+  );
+  assert.deepEqual(
+    grid.at(-1)?.map((day) => day.date),
+    [
+      "2026-12-28",
+      "2026-12-29",
+      "2026-12-30",
+      "2026-12-31",
+      "2027-01-01",
+      "2027-01-02",
+      "2027-01-03",
+    ],
+  );
+  assert.equal(weekdayIndex("2026-01-05", 1), 0);
+  assert.equal(weekdayIndex("2026-01-11", 1), 6);
+});
+
+test("defaults calendar weeks to the original Sunday through Saturday layout", () => {
+  const grid = userGrid([], 2026, "2026-08-05");
+
+  assert.deepEqual(
+    grid[0].map((day) => day.date),
+    [
+      "2025-12-28",
+      "2025-12-29",
+      "2025-12-30",
+      "2025-12-31",
+      "2026-01-01",
+      "2026-01-02",
+      "2026-01-03",
+    ],
+  );
+  assert.equal(weekdayIndex("2026-01-11"), 0);
+  assert.equal(weekdayIndex("2026-01-17"), 6);
+});
+
+test("falls back to Sunday when locale week information is unavailable", () => {
+  assert.equal(firstDayForLocale("not_a_valid_locale"), 7);
 });

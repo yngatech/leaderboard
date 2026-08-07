@@ -1,6 +1,11 @@
 import { For, Show, createMemo } from "solid-js";
 import type { Grid } from "../lib/board";
-import { formatDayLong, formatMonth, weekdayIndex } from "../lib/format";
+import {
+  formatDayLong,
+  formatMonth,
+  weekdayIndex,
+  type FirstDayOfWeek,
+} from "../lib/format";
 
 export interface HeatmapProps {
   weeks: Grid;
@@ -12,6 +17,8 @@ export interface HeatmapProps {
   label: string;
   /** Noun used in day tooltips. */
   unit?: string;
+  /** Intl weekday number: Monday=1 through Sunday=7. */
+  firstDay?: FirstDayOfWeek;
   /**
    * ISO date of this strip's busiest day. That one cell gets a star. Left off
    * for combined strips and for anyone whose year is empty.
@@ -87,7 +94,7 @@ export default function Heatmap(props: HeatmapProps) {
         level: day.level,
         points: starPoints(
           index * pitch() + cell() / 2,
-          top() + weekdayIndex(day.date) * pitch() + cell() / 2,
+          top() + weekdayIndex(day.date, props.firstDay) * pitch() + cell() / 2,
           cell() * STAR_RADIUS,
         ),
       };
@@ -129,7 +136,7 @@ export default function Heatmap(props: HeatmapProps) {
                 data-state={day.state}
                 data-level={day.state === "day" ? day.level : undefined}
                 x={weekIndex() * pitch()}
-                y={top() + weekdayIndex(day.date) * pitch()}
+                y={top() + weekdayIndex(day.date, props.firstDay) * pitch()}
                 width={cell()}
                 height={cell()}
                 rx={Math.max(1, Math.round(cell() * 0.22))}

@@ -1,5 +1,6 @@
 import type { AllTimeUser, Board, ContributionWeek } from "../../shared/types";
 import { levelFor, quartiles, type Thresholds } from "../../shared/contributions.ts";
+import { weekdayIndex, type FirstDayOfWeek } from "./format.ts";
 
 export { levelFor, quartiles };
 export type { Thresholds } from "../../shared/contributions.ts";
@@ -58,15 +59,21 @@ export function currentYear(now: Date = new Date()): number {
 }
 
 /**
- * A whole calendar year on a Sunday-first grid: Jan 1 back to the Sunday that
- * starts its week, Dec 31 forward to the Saturday that ends its week. Days the
- * API hasn't reported yet stay in the grid so the year fills in as it runs.
+ * A whole calendar year aligned to the locale's week boundaries. Days the API
+ * hasn't reported yet stay in the grid so the year fills in as it runs.
  */
-function buildGrid(year: number, values: Map<string, DayValue>, today: string): Grid {
+function buildGrid(
+  year: number,
+  values: Map<string, DayValue>,
+  today: string,
+  firstWeekday: FirstDayOfWeek,
+): Grid {
   const jan1 = Date.UTC(year, 0, 1);
   const dec31 = Date.UTC(year, 11, 31);
-  const start = jan1 - new Date(jan1).getUTCDay() * DAY_MS;
-  const end = dec31 + (6 - new Date(dec31).getUTCDay()) * DAY_MS;
+  const jan1Index = weekdayIndex(isoDate(jan1), firstWeekday);
+  const dec31Index = weekdayIndex(isoDate(dec31), firstWeekday);
+  const start = jan1 - jan1Index * DAY_MS;
+  const end = dec31 + (6 - dec31Index) * DAY_MS;
 
   const firstDay = `${year}-01-01`;
   const lastDay = `${year}-12-31`;
@@ -89,16 +96,26 @@ function buildGrid(year: number, values: Map<string, DayValue>, today: string): 
 }
 
 /** One account's year, using GitHub's own per-account intensity levels. */
-export function userGrid(weeks: ContributionWeek[], year: number, today: string): Grid {
+export function userGrid(
+  weeks: ContributionWeek[],
+  year: number,
+  today: string,
+  firstDay: FirstDayOfWeek = 7,
+): Grid {
   const values = new Map<string, DayValue>();
   for (const week of weeks) {
     for (const day of week.days) values.set(day.date, { count: day.count, level: day.level });
   }
-  return buildGrid(year, values, today);
+  return buildGrid(year, values, today, firstDay);
 }
 
 /** Every account's year summed into one strip, levelled across the group. */
-export function groupGrid(board: Board, year: number, today: string): Grid {
+export function groupGrid(
+  board: Board,
+  year: number,
+  today: string,
+  firstDay: FirstDayOfWeek = 7,
+): Grid {
   const totals = new Map<string, number>();
   for (const user of board) {
     for (const week of user.weeks) {
@@ -113,7 +130,7 @@ export function groupGrid(board: Board, year: number, today: string): Grid {
   const values = new Map<string, DayValue>();
   for (const [date, count] of totals) values.set(date, { count, level: levelFor(count, thresholds) });
 
-  return buildGrid(year, values, today);
+  return buildGrid(year, values, today, firstDay);
 }
 
 /**

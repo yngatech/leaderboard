@@ -16,6 +16,41 @@ const shortDayFmt = new Intl.DateTimeFormat("en-GB", {
 
 const monthFmt = new Intl.DateTimeFormat("en-GB", { month: "short", timeZone: "UTC" });
 
+export type FirstDayOfWeek = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+interface LocaleWeekInfo {
+  firstDay: number;
+}
+
+type LocaleWithWeekInfo = Intl.Locale & {
+  getWeekInfo?: () => LocaleWeekInfo;
+  /** Older implementations exposed the result as an accessor. */
+  weekInfo?: LocaleWeekInfo;
+};
+
+function isFirstDayOfWeek(value: number | undefined): value is FirstDayOfWeek {
+  return value !== undefined && Number.isInteger(value) && value >= 1 && value <= 7;
+}
+
+/**
+ * Returns the locale's conventional first weekday using the browser's Intl
+ * data. Sunday is the progressive-enhancement fallback for older browsers.
+ */
+export function firstDayForLocale(
+  locale: string,
+  fallback: FirstDayOfWeek = 7,
+): FirstDayOfWeek {
+  try {
+    const localeInfo = new Intl.Locale(locale) as LocaleWithWeekInfo;
+    const getWeekInfo = localeInfo.getWeekInfo;
+    const weekInfo =
+      typeof getWeekInfo === "function" ? getWeekInfo.call(localeInfo) : localeInfo.weekInfo;
+    return isFirstDayOfWeek(weekInfo?.firstDay) ? weekInfo.firstDay : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function formatNumber(value: number): string {
   return numberFmt.format(value);
 }
@@ -54,9 +89,10 @@ export function formatMonth(date: string): string {
   return monthFmt.format(parseDay(date));
 }
 
-/** Sunday = 0, matching the rows of a GitHub contribution calendar. */
-export function weekdayIndex(date: string): number {
-  return parseDay(date).getUTCDay();
+/** Zero-based row within a week whose first day uses Intl's Monday=1…Sunday=7. */
+export function weekdayIndex(date: string, firstDay: FirstDayOfWeek = 7): number {
+  const isoWeekday = parseDay(date).getUTCDay() || 7;
+  return (isoWeekday - firstDay + 7) % 7;
 }
 
 export function formatAgo(iso: string, now = Date.now()): string {
