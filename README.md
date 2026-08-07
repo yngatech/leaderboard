@@ -70,6 +70,25 @@ npm run deploy       # typecheck, build, wrangler deploy
 `wrangler.json` to `dist/leaderboard`; `wrangler deploy` picks that up on its
 own, so `wrangler.jsonc` at the root stays the file you edit.
 
+## Frontend preview deployments
+
+Pull requests can be previewed with a separate Cloudflare Pages project. Connect
+the project (for example, `leaderboard-ui-preview`) to this repository and set:
+
+- Build command: `npm run build`
+- Output directory: `dist/client`
+- Preview branch deployments: enabled
+
+In the Pages project's **Preview** environment, add a service binding named
+`LEADERBOARD_API` that targets the production `leaderboard` Worker, then trigger
+a new deployment. `functions/api/[[path]].ts` forwards `/api/*` requests through
+that binding, while Pages serves the preview's frontend assets directly. Add the
+same binding to the **Production** environment too if the project's main
+`pages.dev` deployment should be usable.
+
+This previews frontend changes only. API behavior, Durable Objects, scheduled
+jobs, and Discord notifications continue to come from the production Worker.
+
 The Worker needs a GitHub token with `read:user` to reach the contributions API.
 Locally that goes in `.dev.vars` as `GITHUB_TOKEN=...`; in production it is a
 Worker secret (`wrangler secret put GITHUB_TOKEN`). It is never sent to the
