@@ -3,7 +3,7 @@
   "scripts": [
     {
       "name": "Setup Worktree",
-      "command": "npm install && cp \"$T3CODE_PROJECT_ROOT/.dev.vars\" .dev.vars",
+      "command": "npm install && cp $T3CODE_PROJECT_ROOT/.dev.vars .dev.vars",
       "icon": "configure",
       "runOnWorktreeCreate": true
     },
