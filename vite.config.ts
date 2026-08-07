@@ -1,11 +1,12 @@
 import { cloudflare } from "@cloudflare/vite-plugin";
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 
 export default defineConfig({
   // The Worker runs inside the dev server in workerd, so `/api` and the
   // markdown views are handled for real rather than proxied.
-  plugins: [solid(), cloudflare()],
+  plugins: [solid(), tailwindcss(), cloudflare()],
   build: {
     emptyOutDir: true,
     target: "es2022",
