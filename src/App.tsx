@@ -407,7 +407,6 @@ export default function App() {
           <div class="mt-[clamp(2.25rem,5vw,3.25rem)] mb-4 flex items-center gap-[0.85rem] text-[0.66rem] tracking-[0.2em] text-dimmer uppercase">
             <span>the board</span>
             <span class="h-px flex-1 bg-line-soft" aria-hidden="true" />
-            <span>sorted by all-time total</span>
           </div>
 
           <main class="flex flex-col gap-[0.6rem]">
@@ -496,7 +495,6 @@ export default function App() {
           <div class="mt-[clamp(2.25rem,5vw,3.25rem)] mb-4 flex items-center gap-[0.85rem] text-[0.66rem] tracking-[0.2em] text-dimmer uppercase">
             <span>the board</span>
             <span class="h-px flex-1 bg-line-soft" aria-hidden="true" />
-            <span>sorted by {shownYear()} total</span>
           </div>
 
           <main class="flex flex-col gap-[0.6rem]">
