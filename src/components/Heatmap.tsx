@@ -97,7 +97,7 @@ export default function Heatmap(props: HeatmapProps) {
 
   return (
     <svg
-      class="heatmap"
+      class="block h-auto w-full"
       viewBox={`0 0 ${width()} ${height()}`}
       width={width()}
       height={height()}
@@ -108,7 +108,11 @@ export default function Heatmap(props: HeatmapProps) {
       <Show when={props.months}>
         <For each={monthTicks()}>
           {(tick) => (
-            <text class="heatmap__month" x={tick.x} y={MONTH_BAND - 6}>
+            <text
+              class="fill-dimmer font-mono text-[10px] tracking-[0.06em]"
+              x={tick.x}
+              y={MONTH_BAND - 6}
+            >
               {tick.label}
             </text>
           )}
@@ -119,7 +123,9 @@ export default function Heatmap(props: HeatmapProps) {
           <For each={week.filter((day) => day.state !== "outside")}>
             {(day) => (
               <rect
-                class="heatmap__day"
+                // Level drives the ramp; "future" days are an outline rather
+                // than a filled square, and only real days light up on hover.
+                class="fill-heat-0 transition-[fill] duration-150 data-[level=1]:fill-heat-1 data-[level=2]:fill-heat-2 data-[level=3]:fill-heat-3 data-[level=4]:fill-heat-4 data-[state=future]:fill-none data-[state=future]:stroke-future-line data-[state=future]:stroke-1 data-[state=day]:hover:stroke-1 data-[state=day]:hover:stroke-white/70"
                 data-state={day.state}
                 data-level={day.state === "day" ? day.level : undefined}
                 x={weekIndex() * pitch()}
@@ -146,7 +152,9 @@ export default function Heatmap(props: HeatmapProps) {
       <Show when={peakMark()}>
         {(mark) => (
           <polygon
-            class="heatmap__peak"
+            // The two brightest steps of the ramp need a dark marker to read.
+            // pointer-events-none keeps the cell's own hover and tooltip.
+            class="pointer-events-none fill-ink [shape-rendering:geometricPrecision] data-[level=3]:fill-void data-[level=4]:fill-void"
             data-level={mark().level}
             points={mark().points}
             aria-hidden="true"

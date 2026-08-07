@@ -207,20 +207,34 @@ export default function App() {
   });
 
   return (
-    <div class="shell">
-      <header class="head">
-        <div class="head__mark">
-          <span class="head__domain">leaderboard.ynga.tech</span>
-          <h1 class="head__title">git board</h1>
+    <div class="relative z-[1] mx-auto max-w-[1180px] px-[clamp(1.1rem,4vw,2.5rem)] pt-[clamp(1.75rem,5vw,3.5rem)] pb-10">
+      <header class="grid grid-cols-[auto_minmax(0,1fr)] items-end gap-[clamp(1rem,4vw,3rem)] max-phone:grid-cols-[minmax(0,1fr)] max-phone:items-start">
+        <div>
+          <span class="block text-[0.7rem] tracking-[0.22em] text-dimmer uppercase">
+            leaderboard.ynga.tech
+          </span>
+          <h1 class="mt-[0.45rem] font-display text-[clamp(2.6rem,7vw,4.1rem)] leading-[0.85] font-extrabold tracking-[-0.045em]">
+            git board
+          </h1>
         </div>
 
         <Show when={view()}>
-          <nav class="years" aria-label="View">
+          <nav
+            class="flex items-baseline justify-self-end gap-[clamp(0.6rem,2vw,1.2rem)] max-phone:justify-self-start max-phone:gap-[0.9rem]"
+            aria-label="View"
+          >
             <Show when={isAll()}>
-              <a class="years__step" href="/" onClick={onLinkClick} aria-label={`Show ${THIS_YEAR}`}>
+              <a
+                class="min-w-16 text-center text-[0.78rem] whitespace-nowrap text-dim no-underline hover:text-accent max-phone:min-w-[3.4rem]"
+                href="/"
+                onClick={onLinkClick}
+                aria-label={`Show ${THIS_YEAR}`}
+              >
                 ← {THIS_YEAR}
               </a>
-              <span class="years__current">all time</span>
+              <span class="font-display text-[clamp(1.9rem,5vw,2.6rem)] leading-none font-extrabold tracking-[-0.04em] tabular-nums">
+                all time
+              </span>
             </Show>
 
             <Show when={viewedYear()}>
@@ -228,10 +242,12 @@ export default function App() {
                 <>
                   <Show
                     when={viewed() - 1 >= MIN_NAV_YEAR}
-                    fallback={<span class="years__step years__step--blank" aria-hidden="true" />}
+                    fallback={
+                      <span class="min-w-16 max-phone:min-w-[3.4rem]" aria-hidden="true" />
+                    }
                   >
                     <a
-                      class="years__step"
+                      class="min-w-16 text-center text-[0.78rem] whitespace-nowrap text-dim no-underline hover:text-accent max-phone:min-w-[3.4rem]"
                       href={hrefForYear(viewed() - 1)}
                       onClick={onLinkClick}
                       aria-label={`Show ${viewed() - 1}`}
@@ -240,14 +256,18 @@ export default function App() {
                     </a>
                   </Show>
 
-                  <span class="years__current">{viewed()}</span>
+                  <span class="font-display text-[clamp(1.9rem,5vw,2.6rem)] leading-none font-extrabold tracking-[-0.04em] tabular-nums">
+                    {viewed()}
+                  </span>
 
                   <Show
                     when={viewed() + 1 <= THIS_YEAR}
-                    fallback={<span class="years__step years__step--blank" aria-hidden="true" />}
+                    fallback={
+                      <span class="min-w-16 max-phone:min-w-[3.4rem]" aria-hidden="true" />
+                    }
                   >
                     <a
-                      class="years__step"
+                      class="min-w-16 text-center text-[0.78rem] whitespace-nowrap text-dim no-underline hover:text-accent max-phone:min-w-[3.4rem]"
                       href={hrefForYear(viewed() + 1)}
                       onClick={onLinkClick}
                       aria-label={`Show ${viewed() + 1}`}
@@ -256,7 +276,11 @@ export default function App() {
                     </a>
                   </Show>
 
-                  <a class="years__step years__step--all" href="/all" onClick={onLinkClick}>
+                  <a
+                    class="min-w-16 text-center text-[0.78rem] whitespace-nowrap text-dim no-underline hover:text-accent max-phone:min-w-[3.4rem]"
+                    href="/all"
+                    onClick={onLinkClick}
+                  >
                     all time
                   </a>
                 </>
@@ -268,48 +292,75 @@ export default function App() {
 
       <Switch>
         <Match when={view() === null}>
-          <section class="state state--empty">
-            <p class="state__title">Nothing here.</p>
-            <p class="state__detail">
+          <section class="mt-[clamp(2.5rem,6vw,4rem)] rounded-2xl border border-line bg-panel p-[1.6rem]">
+            <p class="font-display text-[1.3rem] font-semibold tracking-[-0.02em] text-ink">
+              Nothing here.
+            </p>
+            <p class="mt-2 max-w-[60ch] text-[0.78rem] leading-[1.6] text-dim">
               Boards run from {MIN_API_YEAR} to {THIS_YEAR}, plus all time.
             </p>
-            <a class="button" href="/" onClick={onLinkClick}>
+            <a
+              class="mt-[1.1rem] inline-block cursor-pointer rounded-[9px] border border-accent/50 bg-transparent px-[1.1rem] py-[0.55rem] font-mono text-[0.75rem] tracking-[0.05em] text-accent no-underline transition-colors duration-200 hover:bg-accent/12"
+              href="/"
+              onClick={onLinkClick}
+            >
               Show {THIS_YEAR}
             </a>
           </section>
         </Match>
 
         <Match when={loading()}>
-          <section class="state" aria-live="polite">
-            <p class="state__title">Loading {isAll() ? "all time" : viewedYear()}…</p>
-            <div class="skeleton" aria-hidden="true">
+          <section class="mt-[clamp(2.5rem,6vw,4rem)]" aria-live="polite">
+            <p class="text-[0.85rem] text-dim">Loading {isAll() ? "all time" : viewedYear()}…</p>
+            <div class="mt-5 flex flex-col gap-[0.6rem]" aria-hidden="true">
               <For each={Array.from({ length: 9 })}>
-                {(_, i) => <div class="skeleton__row" style={{ "--i": i() }} />}
+                {(_, i) => (
+                  <div
+                    class="h-[88px] animate-shimmer rounded-2xl bg-[linear-gradient(90deg,#12162b_20%,#1a2040_50%,#12162b_80%)] [background-size:220%_100%] [animation-delay:calc(var(--i,0)*90ms)]"
+                    style={{ "--i": i() }}
+                  />
+                )}
               </For>
             </div>
           </section>
         </Match>
 
         <Match when={failure()}>
-          <section class="state state--error" role="alert">
-            <p class="state__title">The board didn't load.</p>
-            <p class="state__detail">{failure()!.message}</p>
-            <button class="button" type="button" onClick={retry}>
+          <section
+            class="mt-[clamp(2.5rem,6vw,4rem)] rounded-2xl border border-heat-3/45 bg-heat-3/8 p-[1.6rem]"
+            role="alert"
+          >
+            <p class="font-display text-[1.3rem] font-semibold tracking-[-0.02em] text-ink">
+              The board didn't load.
+            </p>
+            <p class="mt-2 max-w-[60ch] text-[0.78rem] leading-[1.6] text-dim">
+              {failure()!.message}
+            </p>
+            <button
+              class="mt-[1.1rem] inline-block cursor-pointer rounded-[9px] border border-accent/50 bg-transparent px-[1.1rem] py-[0.55rem] font-mono text-[0.75rem] tracking-[0.05em] text-accent transition-colors duration-200 hover:bg-accent/12"
+              type="button"
+              onClick={retry}
+            >
               Try again
             </button>
           </section>
         </Match>
 
         <Match when={isAll() && allSettled()}>
-          <section class="pulse" aria-labelledby="pulse-heading">
-            <div class="pulse__stat">
-              <p class="pulse__number">{formatNumber(allTotal())}</p>
-              <h2 class="pulse__label" id="pulse-heading">
+          <section class="mt-[clamp(2.5rem,6vw,4rem)] animate-rise" aria-labelledby="pulse-heading">
+            <div>
+              <p class="bg-[linear-gradient(96deg,var(--color-heat-4)_12%,var(--color-heat-3)_58%,var(--color-heat-2)_96%)] bg-clip-text font-display text-[clamp(3.6rem,12vw,7.5rem)] leading-[0.8] font-extrabold tracking-[-0.055em] tabular-nums text-transparent">
+                {formatNumber(allTotal())}
+              </p>
+              <h2
+                class="mt-[0.9rem] max-w-[44ch] font-mono text-[0.8rem] leading-[1.6] font-normal text-dim"
+                id="pulse-heading"
+              >
                 contributions from {allUsers().length} accounts, {allSpan()}
               </h2>
             </div>
 
-            <div class="pulse__plot">
+            <div class="mt-[1.9rem] overflow-x-auto rounded-2xl border border-line bg-[linear-gradient(180deg,#12162b_0%,#0d1122_100%)] px-[1.15rem] pt-4 pb-[0.9rem]">
               <YearStrip
                 cells={allPulse()}
                 cell={70}
@@ -319,32 +370,38 @@ export default function App() {
               />
             </div>
 
-            <div class="pulse__foot">
+            <div class="mt-[0.9rem] flex flex-wrap items-center justify-between gap-x-6 gap-y-3 text-[0.72rem] text-dim">
               <Show when={allBest()}>
                 {(peak) => (
-                  <p class="pulse__peak">
-                    Biggest year: <strong>{formatNumber(peak().count)}</strong> contributions in{" "}
-                    {peak().year}
+                  <p>
+                    Biggest year:{" "}
+                    <strong class="font-medium text-ink">{formatNumber(peak().count)}</strong>{" "}
+                    contributions in {peak().year}
                   </p>
                 )}
               </Show>
-              <div class="legend">
+              <div class="flex items-center gap-[0.32rem] tracking-[0.04em] text-dimmer">
                 <span>less</span>
                 <For each={[0, 1, 2, 3, 4]}>
-                  {(level) => <i class="legend__swatch" data-level={level} />}
+                  {(level) => (
+                    <i
+                      class="size-[11px] rounded-[3px] bg-heat-0 data-[level=1]:bg-heat-1 data-[level=2]:bg-heat-2 data-[level=3]:bg-heat-3 data-[level=4]:bg-heat-4"
+                      data-level={level}
+                    />
+                  )}
                 </For>
                 <span>more</span>
               </div>
             </div>
           </section>
 
-          <div class="board-head">
+          <div class="mt-[clamp(2.25rem,5vw,3.25rem)] mb-4 flex items-center gap-[0.85rem] text-[0.66rem] tracking-[0.2em] text-dimmer uppercase">
             <span>the board</span>
-            <span class="board-head__rule" aria-hidden="true" />
+            <span class="h-px flex-1 bg-line-soft" aria-hidden="true" />
             <span>sorted by all-time total</span>
           </div>
 
-          <main class="board">
+          <main class="flex flex-col gap-[0.6rem]">
             <For each={allRanked()}>
               {(user, index) => (
                 <AllTimeRow
@@ -361,7 +418,7 @@ export default function App() {
           </main>
 
           <Show when={allSettled()!.missing.length > 0}>
-            <p class="missing">
+            <p class="mt-[1.1rem] text-[0.7rem] leading-[1.6] text-dimmer">
               No GitHub data came back for {allSettled()!.missing.join(", ")}. The account may have
               been renamed or removed.
             </p>
@@ -369,15 +426,20 @@ export default function App() {
         </Match>
 
         <Match when={settled()}>
-          <section class="pulse" aria-labelledby="pulse-heading">
-            <div class="pulse__stat">
-              <p class="pulse__number">{formatNumber(total())}</p>
-              <h2 class="pulse__label" id="pulse-heading">
+          <section class="mt-[clamp(2.5rem,6vw,4rem)] animate-rise" aria-labelledby="pulse-heading">
+            <div>
+              <p class="bg-[linear-gradient(96deg,var(--color-heat-4)_12%,var(--color-heat-3)_58%,var(--color-heat-2)_96%)] bg-clip-text font-display text-[clamp(3.6rem,12vw,7.5rem)] leading-[0.8] font-extrabold tracking-[-0.055em] tabular-nums text-transparent">
+                {formatNumber(total())}
+              </p>
+              <h2
+                class="mt-[0.9rem] max-w-[44ch] font-mono text-[0.8rem] leading-[1.6] font-normal text-dim"
+                id="pulse-heading"
+              >
                 contributions from {board().length} accounts in {shownYear()}
               </h2>
             </div>
 
-            <div class="pulse__plot">
+            <div class="mt-[1.9rem] overflow-x-auto rounded-2xl border border-line bg-[linear-gradient(180deg,#12162b_0%,#0d1122_100%)] px-[1.15rem] pt-4 pb-[0.9rem]">
               <Heatmap
                 weeks={pulse()}
                 cell={17}
@@ -389,37 +451,46 @@ export default function App() {
               />
             </div>
 
-            <div class="pulse__foot">
+            <div class="mt-[0.9rem] flex flex-wrap items-center justify-between gap-x-6 gap-y-3 text-[0.72rem] text-dim">
               <Show when={busiest()}>
                 {(day) => (
-                  <p class="pulse__peak">
-                    Busiest day: <strong>{formatNumber(day().count)}</strong> contributions on{" "}
-                    {formatDayShort(day().date)}
+                  <p>
+                    Busiest day:{" "}
+                    <strong class="font-medium text-ink">{formatNumber(day().count)}</strong>{" "}
+                    contributions on {formatDayShort(day().date)}
                   </p>
                 )}
               </Show>
-              <div class="legend">
+              <div class="flex items-center gap-[0.32rem] tracking-[0.04em] text-dimmer">
                 <span>less</span>
                 <For each={[0, 1, 2, 3, 4]}>
-                  {(level) => <i class="legend__swatch" data-level={level} />}
+                  {(level) => (
+                    <i
+                      class="size-[11px] rounded-[3px] bg-heat-0 data-[level=1]:bg-heat-1 data-[level=2]:bg-heat-2 data-[level=3]:bg-heat-3 data-[level=4]:bg-heat-4"
+                      data-level={level}
+                    />
+                  )}
                 </For>
                 <span>more</span>
                 <Show when={shownYear() === THIS_YEAR}>
-                  <span class="legend__gap" aria-hidden="true" />
-                  <i class="legend__swatch" data-state="future" />
+                  <span class="w-2" aria-hidden="true" />
+                  <i
+                    class="size-[11px] rounded-[3px] border border-future-line bg-transparent"
+                    data-state="future"
+                  />
                   <span>to come</span>
                 </Show>
               </div>
             </div>
           </section>
 
-          <div class="board-head">
+          <div class="mt-[clamp(2.25rem,5vw,3.25rem)] mb-4 flex items-center gap-[0.85rem] text-[0.66rem] tracking-[0.2em] text-dimmer uppercase">
             <span>the board</span>
-            <span class="board-head__rule" aria-hidden="true" />
+            <span class="h-px flex-1 bg-line-soft" aria-hidden="true" />
             <span>sorted by {shownYear()} total</span>
           </div>
 
-          <main class="board">
+          <main class="flex flex-col gap-[0.6rem]">
             <For each={board()}>
               {(user, index) => (
                 <UserRow
@@ -435,7 +506,7 @@ export default function App() {
           </main>
 
           <Show when={settled()!.missing.length > 0}>
-            <p class="missing">
+            <p class="mt-[1.1rem] text-[0.7rem] leading-[1.6] text-dimmer">
               No GitHub data came back for {settled()!.missing.join(", ")}. The account may have been
               renamed or removed.
             </p>
@@ -443,17 +514,17 @@ export default function App() {
         </Match>
       </Switch>
 
-      <footer class="foot">
+      <footer class="mt-[clamp(2.5rem,6vw,4rem)] flex flex-wrap justify-between gap-x-6 gap-y-2 border-t border-line-soft pt-[1.1rem] text-[0.68rem] leading-[1.6] text-dimmer">
         <p>
           Pulled from the GitHub GraphQL API.{" "}
           <Show when={!liveCopy()} fallback={<>Refreshes about every 30 minutes.</>}>
             {shownYear()} is final and cached for 7 days.
           </Show>
           <Show when={generatedAt()}>
-            {(iso) => <span class="foot__stamp"> Updated {formatAgo(iso(), now())}.</span>}
+            {(iso) => <span class="text-dim"> Updated {formatAgo(iso(), now())}.</span>}
           </Show>
         </p>
-        <p class="foot__domain">leaderboard.ynga.tech</p>
+        <p class="tracking-[0.16em] uppercase">leaderboard.ynga.tech</p>
       </footer>
     </div>
   );

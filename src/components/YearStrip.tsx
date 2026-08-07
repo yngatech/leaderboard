@@ -36,7 +36,7 @@ export default function YearStrip(props: YearStripProps) {
 
   return (
     <svg
-      class="heatmap"
+      class="block h-auto w-full"
       viewBox={`0 0 ${width()} ${height()}`}
       width={width()}
       height={height()}
@@ -47,7 +47,11 @@ export default function YearStrip(props: YearStripProps) {
       <Show when={props.labels}>
         <For each={props.cells}>
           {(item, index) => (
-            <text class="heatmap__month" x={index() * pitch()} y={LABEL_BAND - 6}>
+            <text
+              class="fill-dimmer font-mono text-[10px] tracking-[0.06em]"
+              x={index() * pitch()}
+              y={LABEL_BAND - 6}
+            >
               {item.year}
             </text>
           )}
@@ -56,7 +60,7 @@ export default function YearStrip(props: YearStripProps) {
       <For each={props.cells}>
         {(item, index) => (
           <rect
-            class="heatmap__day"
+            class="fill-heat-0 transition-[fill] duration-150 hover:stroke-1 hover:stroke-white/70 data-[level=1]:fill-heat-1 data-[level=2]:fill-heat-2 data-[level=3]:fill-heat-3 data-[level=4]:fill-heat-4"
             data-state="day"
             data-level={item.level}
             x={index() * pitch()}
@@ -75,7 +79,9 @@ export default function YearStrip(props: YearStripProps) {
           {(item, index) => (
             <Show when={item.rank && item.rank <= PODIUM}>
               <text
-                class="heatmap__rank"
+                // The two brightest steps of the ramp need a dark digit to read.
+                // pointer-events-none keeps the cell's own hover and tooltip.
+                class="pointer-events-none fill-ink font-mono font-medium data-[level=3]:fill-void data-[level=4]:fill-void"
                 data-level={item.level}
                 x={index() * pitch() + cell() / 2}
                 y={top() + cell() / 2}
