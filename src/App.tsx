@@ -30,9 +30,8 @@ import { formatAgo, formatDayShort, formatNumber } from "./lib/format";
 
 declare const __BUILD_COMMIT_SHA__: string;
 
-/** The API accepts 2008; year navigation stops somewhere useful. */
+/** Earliest year accepted by both routes and year navigation. */
 const MIN_API_YEAR = 2008;
-const MIN_NAV_YEAR = 2015;
 const THIS_YEAR = currentYear();
 const SOURCE_COMMIT_URL = `https://github.com/yngatech/leaderboard/commit/${__BUILD_COMMIT_SHA__}`;
 
@@ -150,7 +149,7 @@ export default function App() {
     let href: string | null = null;
     if (current.kind === "all") {
       if (event.key === "ArrowLeft") href = hrefForYear(THIS_YEAR);
-    } else if (event.key === "ArrowLeft" && current.year > MIN_NAV_YEAR) {
+    } else if (event.key === "ArrowLeft" && current.year > MIN_API_YEAR) {
       href = hrefForYear(current.year - 1);
     } else if (event.key === "ArrowRight") {
       href = current.year < THIS_YEAR ? hrefForYear(current.year + 1) : "/all";
@@ -284,7 +283,7 @@ export default function App() {
               {(viewed) => (
                 <>
                   <Show
-                    when={viewed() - 1 >= MIN_NAV_YEAR}
+                    when={viewed() - 1 >= MIN_API_YEAR}
                     fallback={
                       <span class="min-w-16 max-phone:min-w-[3.4rem]" aria-hidden="true" />
                     }
