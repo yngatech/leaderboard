@@ -27,11 +27,13 @@ markdown views.
 Every route reads through one per-year JSON cache entry, so the API and the
 markdown views never disagree about the numbers.
 
-## Discord leader notifications
+## Discord notifications
 
 A scheduled Worker checks the current-year board every 30 minutes. When a new
-account takes the lead, it posts an embed to Discord. Durable state prevents
-duplicate messages; the first run records a baseline without sending one.
+account takes the lead, someone sets a daily contributions PB, or someone beats
+the board's peak daily contributions record, it posts an embed to Discord.
+Daily records restart each calendar year. Durable state prevents duplicate
+messages; the first run records a baseline without sending one.
 
 Set the webhook as an encrypted Worker secret before deploying:
 
