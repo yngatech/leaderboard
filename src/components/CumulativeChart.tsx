@@ -1,6 +1,12 @@
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { CumulativePoint, CumulativeSeries } from "../lib/board";
-import { formatDayLong, formatDayShort, formatMonth, formatNumber } from "../lib/format";
+import {
+  formatDayLong,
+  formatDayShort,
+  formatMonth,
+  formatNumber,
+  formatRank,
+} from "../lib/format";
 
 export interface CumulativeChartProps {
   series: CumulativeSeries[];
@@ -108,8 +114,11 @@ const RAIL_RULE_H = 20;
 const RAIL_TEXT_INSET = RAIL_GUTTER + 8;
 const RAIL_SEPARATOR_INSET = 11;
 const RAIL_META_ADVANCE = 9.5 * 0.66;
-/** Set as a dx so the gap survives however SVG collapses the markup's spaces. */
-const RANK_DX = 5;
+/**
+ * Set as a dx so the gap survives however SVG collapses the markup's spaces.
+ * Wide enough that the two numbers read as two, not as one long figure.
+ */
+const RANK_DX = 8;
 const RAIL_NAME_DY = -1.5;
 const RAIL_META_DY = 10;
 /** Half a label block, above the anchor and below it. Neither may leave the plot. */
@@ -239,7 +248,7 @@ export default function CumulativeChart(props: CumulativeChartProps) {
       .map((entry, place) => ({
         ...entry,
         rank: place + 1,
-        rankText: String(place + 1).padStart(2, "0"),
+        rankText: formatRank(place + 1),
         colour: seriesColour(entry.index),
         total: formatNumber(entry.item.total),
       })),
@@ -762,7 +771,7 @@ export default function CumulativeChart(props: CumulativeChartProps) {
                           y={label.y + RAIL_META_DY}
                         >
                           <Show when={label.rank}>
-                            {(rank) => <tspan class="fill-dimmer">{rank()}</tspan>}
+                            {(rank) => <tspan class="fill-faint">{rank()}</tspan>}
                           </Show>
                           <tspan class="fill-dim tabular-nums" dx={label.rank ? RANK_DX : 0}>
                             {label.total}
@@ -920,8 +929,8 @@ export default function CumulativeChart(props: CumulativeChartProps) {
                     <span class="block overflow-hidden text-ellipsis text-[11px] leading-[11px] font-medium tracking-[0.01em] text-ink">
                       {entry.item.login}
                     </span>
-                    <span class="mt-0.5 flex items-baseline gap-[0.35rem] text-[9.5px] leading-[9.5px] tracking-[0.04em]">
-                      <span class="text-dimmer">{String(entry.rank).padStart(2, "0")}</span>
+                    <span class="mt-0.5 flex items-baseline gap-[0.5rem] text-[9.5px] leading-[9.5px] tracking-[0.04em]">
+                      <span class="text-faint">{formatRank(entry.rank)}</span>
                       <span class="text-dim tabular-nums">{formatNumber(entry.item.total)}</span>
                     </span>
                   </span>

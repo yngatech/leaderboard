@@ -2,7 +2,7 @@ import { Show, createMemo } from "solid-js";
 import type { AllTimeUser } from "../../shared/types";
 import type { Thresholds, YearRanks } from "../lib/board";
 import { peakYear, userYearStrip } from "../lib/board";
-import { formatNumber } from "../lib/format";
+import { formatNumber, formatRank } from "../lib/format";
 import YearStrip from "./YearStrip";
 
 export interface AllTimeRowProps {
@@ -46,7 +46,7 @@ export default function AllTimeRow(props: AllTimeRowProps) {
         classList={{ "text-accent": lead(), "text-dimmer": !lead() }}
         aria-hidden="true"
       >
-        {String(props.rank).padStart(2, "0")}
+        {formatRank(props.rank)}
       </div>
 
       <a

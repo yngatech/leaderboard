@@ -20,6 +20,15 @@ export function formatNumber(value: number): string {
   return numberFmt.format(value);
 }
 
+/**
+ * A place on the board, marked as one. The hash is what makes a rank read as a
+ * rank rather than as a second quantity, which matters most where a rank sits
+ * next to a total; the board wears it too so there is one idiom, not two.
+ */
+export function formatRank(place: number): string {
+  return `#${place}`;
+}
+
 /** 1st, 2nd, 3rd, 4th… 11th–13th take "th" whatever their last digit says. */
 export function formatOrdinal(value: number): string {
   const teen = value % 100;
