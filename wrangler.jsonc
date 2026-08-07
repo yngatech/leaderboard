@@ -5,6 +5,9 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-07-01",
   "preview_urls": true,
+  "triggers": { "crons": ["*/30 * * * *"] },
+  "durable_objects": { "bindings": [{ "name": "LEADER_STATE", "class_name": "LeaderState" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LeaderState"] }],
   "routes": [
     {
       "pattern": "leaderboard.ynga.tech",
