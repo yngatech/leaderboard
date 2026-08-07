@@ -376,6 +376,7 @@ export default function App() {
                 gap={6}
                 labels
                 label={`All ${allUsers().length} accounts combined, year by year, ${allSpan()}`}
+                onYearClick={(year) => navigate(hrefForYear(year))}
               />
             </div>
 

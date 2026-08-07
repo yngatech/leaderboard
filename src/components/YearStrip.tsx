@@ -13,6 +13,8 @@ export interface YearStripProps {
   podium?: boolean;
   /** Accessible summary of the strip. */
   label: string;
+  /** Make each year cell interactive. */
+  onYearClick?: (year: number) => void;
 }
 
 const LABEL_BAND = 17;
@@ -34,13 +36,19 @@ export default function YearStrip(props: YearStripProps) {
     return `${count} in ${item.year}${placing}`;
   };
 
+  const onCellKeyDown = (event: KeyboardEvent, year: number) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    props.onYearClick?.(year);
+  };
+
   return (
     <svg
       class="block h-auto w-full"
       viewBox={`0 0 ${width()} ${height()}`}
       width={width()}
       height={height()}
-      role="img"
+      role={props.onYearClick ? "group" : "img"}
       aria-label={props.label}
       style={{ "max-width": `${width()}px` }}
     >
@@ -61,6 +69,7 @@ export default function YearStrip(props: YearStripProps) {
         {(item, index) => (
           <rect
             class="fill-heat-0 transition-[fill] duration-150 hover:stroke-1 hover:stroke-white/70 data-[level=1]:fill-heat-1 data-[level=2]:fill-heat-2 data-[level=3]:fill-heat-3 data-[level=4]:fill-heat-4"
+            classList={{ "cursor-pointer": Boolean(props.onYearClick) }}
             data-state="day"
             data-level={item.level}
             x={index() * pitch()}
@@ -68,6 +77,11 @@ export default function YearStrip(props: YearStripProps) {
             width={cell()}
             height={cell()}
             rx={Math.max(1, Math.round(cell() * 0.22))}
+            role={props.onYearClick ? "link" : undefined}
+            tabindex={props.onYearClick ? 0 : undefined}
+            aria-label={props.onYearClick ? `Show ${item.year}: ${tooltip(item)}` : undefined}
+            onClick={() => props.onYearClick?.(item.year)}
+            onKeyDown={(event) => onCellKeyDown(event, item.year)}
           >
             <title>{tooltip(item)}</title>
           </rect>
