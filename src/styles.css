@@ -25,6 +25,8 @@
   --color-ink: #eceaf7;
   --color-dim: #918fb4;
   --color-dimmer: #8986ad;
+  /* One real step below dimmer, for a number that qualifies another number. */
+  --color-faint: #7a7899;
 
   --font-display: "Bricolage Grotesque", "Trebuchet MS", system-ui, sans-serif;
   --font-mono: "DM Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;

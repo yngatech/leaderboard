@@ -1,7 +1,7 @@
 import { Show, createMemo } from "solid-js";
 import type { BoardUser } from "../../shared/types";
 import { peakDay, userGrid } from "../lib/board";
-import { formatDayShort, formatNumber } from "../lib/format";
+import { formatDayShort, formatNumber, formatRank } from "../lib/format";
 import Heatmap from "./Heatmap";
 
 export interface UserRowProps {
@@ -46,7 +46,7 @@ export default function UserRow(props: UserRowProps) {
         classList={{ "text-accent": lead(), "text-dimmer": !lead() }}
         aria-hidden="true"
       >
-        {String(props.rank).padStart(2, "0")}
+        {formatRank(props.rank)}
       </div>
 
       <a
