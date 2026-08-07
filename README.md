@@ -27,6 +27,19 @@ markdown views.
 Every route reads through one per-year JSON cache entry, so the API and the
 markdown views never disagree about the numbers.
 
+## Discord leader notifications
+
+A scheduled Worker checks the current-year board every 30 minutes. When a new
+account takes the lead, it posts an embed to Discord. Durable state prevents
+duplicate messages; the first run records a baseline without sending one.
+
+Set the webhook as an encrypted Worker secret before deploying:
+
+```sh
+npx wrangler secret put DISCORD_WEBHOOK_URL
+npm run deploy
+```
+
 ## Caching
 
 The year in progress caches for 30 minutes at the edge, 5 minutes in the browser.

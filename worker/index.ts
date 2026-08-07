@@ -1,10 +1,14 @@
 import type { AllTime, AllTimeUser, Board } from "../shared/types";
+import { DurableObject } from "cloudflare:workers";
 import type { ArchiveTotals } from "./github";
 import { currentYear, fetchArchiveTotals, fetchBoard, GitHubError, MIN_YEAR } from "./github";
 
 export interface Env {
   /** Worker secret in production, `.dev.vars` locally. Never sent to the client. */
   GITHUB_TOKEN: string;
+  /** Optional locally; production cron checks are enabled when this secret exists. */
+  DISCORD_WEBHOOK_URL?: string;
+  LEADER_STATE: DurableObjectNamespace<LeaderState>;
   ASSETS: Fetcher;
 }
 
@@ -490,6 +494,57 @@ function withBrowserHeaders(
   return new Response(response.body, { status: response.status, headers });
 }
 
+async function refreshLeader(env: Env): Promise<void> {
+  if (!env.DISCORD_WEBHOOK_URL) return;
+  if (!env.GITHUB_TOKEN) throw new Error(TOKEN_MISSING);
+
+  const year = currentYear();
+  const { board } = await fetchBoard(env.GITHUB_TOKEN, year);
+  const leader = board[0];
+  if (!leader || leader.totalContributions === 0) return;
+  const { login, url, avatarUrl, totalContributions } = leader;
+  await env.LEADER_STATE.getByName("leaderboard").update(
+    year,
+    { login, url, avatarUrl, totalContributions },
+  );
+}
+
+/** Stores the last leader globally, so scheduled checks cannot post duplicates. */
+export class LeaderState extends DurableObject<Env> {
+  async update(
+    year: number,
+    leader: Pick<Board[number], "login" | "url" | "avatarUrl" | "totalContributions">,
+  ): Promise<void> {
+    const previous = await this.ctx.storage.get<{ year: number; login: string }>("leader");
+    if (!previous) {
+      await this.ctx.storage.put("leader", { year, login: leader.login });
+      return;
+    }
+    if (previous.year === year && previous.login === leader.login) return;
+
+    if (this.env.DISCORD_WEBHOOK_URL) {
+      const response = await fetch(this.env.DISCORD_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: "git board",
+          allowed_mentions: { parse: [] },
+          embeds: [{
+            title: "New git board leader",
+            url: `${SITE}/${year}`,
+            description: `[${leader.login}](${leader.url}) has taken the lead for **${year}** with **${leader.totalContributions.toLocaleString("en-GB")} contributions**.`,
+            color: 0xf0b429,
+            thumbnail: { url: leader.avatarUrl },
+          }],
+        }),
+      });
+      if (!response.ok) throw new Error(`Discord rejected the notification (${response.status}).`);
+    }
+
+    await this.ctx.storage.put("leader", { year, login: leader.login });
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -558,5 +613,9 @@ export default {
 
     // Static assets (and the SPA fallback) are served by the assets binding.
     return env.ASSETS.fetch(request);
+  },
+
+  scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+    return refreshLeader(env);
   },
 } satisfies ExportedHandler<Env>;
