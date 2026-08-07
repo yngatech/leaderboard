@@ -1,16 +1,21 @@
 import type { Board, BoardUser, ContributionDay, ContributionWeek } from "../shared/types";
+import { levelFor, quartiles } from "../shared/contributions.ts";
+
+interface PersonDefinition {
+  accounts: readonly [primary: string, ...others: string[]];
+}
 
 /** The board. Order here is only a seed — the API sorts by contributions. */
-export const LOGINS = [
-  "incognitojam",
-  "NathanBhanji",
-  "P110",
-  "stefanTrawicki",
-  "gruellan",
-  "alex-woodhouse",
-  "Mysterypotatoguy",
-  "krisdev",
-  "booinspace",
+export const PEOPLE: readonly PersonDefinition[] = [
+  { accounts: ["incognitojam"] },
+  { accounts: ["NathanBhanji", "Bhanji452"] },
+  { accounts: ["P110"] },
+  { accounts: ["stefanTrawicki"] },
+  { accounts: ["gruellan"] },
+  { accounts: ["alex-woodhouse"] },
+  { accounts: ["Mysterypotatoguy"] },
+  { accounts: ["krisdev"] },
+  { accounts: ["booinspace"] },
 ] as const;
 
 const GITHUB_GRAPHQL = "https://api.github.com/graphql";
@@ -84,7 +89,6 @@ export class GitHubError extends Error {
   }
 }
 
-/** One batched query: nine aliased `user` lookups sharing a fragment. */
 function buildQuery(logins: readonly string[]): string {
   const aliases = logins
     .map((login, i) => `  u${i}: user(login: ${JSON.stringify(login)}) { ...Card }`)
@@ -280,8 +284,9 @@ async function graphql<T>(token: string, body: unknown): Promise<GraphQLResponse
 export async function fetchBoard(
   token: string,
   year: number,
-  logins: readonly string[] = LOGINS,
+  people: readonly PersonDefinition[] = PEOPLE,
 ): Promise<BoardResult> {
+  const logins = people.flatMap((person) => person.accounts);
   const { from, to } = yearRange(year);
 
   // The profile request and all public calendar fragments can run independently.
@@ -298,7 +303,7 @@ export async function fetchBoard(
     throw new GitHubError(message, 502);
   }
 
-  const board: Board = [];
+  const accounts: (BoardUser | null)[] = Array(logins.length).fill(null);
   const missing: string[] = [];
 
   const fallbackIndexes = logins.flatMap((_, index) => (data[`u${index}`] && !htmlCalendars[index] ? [index] : []));
@@ -339,17 +344,59 @@ export async function fetchBoard(
       totalContributions: htmlCalendar?.totalContributions ?? fallbackCalendar!.totalContributions,
       weeks: htmlCalendar?.weeks ?? toWeeks(fallbackCalendar!.weeks),
     };
-    board.push(user);
+    accounts[i] = user;
   });
 
-  if (board.length === 0) {
+  if (accounts.every((account) => account === null)) {
     const message = payload.errors?.[0]?.message ?? "GitHub returned no users.";
     throw new GitHubError(message, 502);
   }
 
+  const board = accountsByPerson(people, accounts).flatMap<BoardUser>(({ login, accounts: found }) => {
+    if (found.length === 0) return [];
+    const primary = found[0];
+    return [{
+      login,
+      name: primary.name,
+      avatarUrl: primary.avatarUrl,
+      url: primary.url,
+      followers: primary.followers,
+      following: primary.following,
+      totalContributions: found.reduce((sum, account) => sum + account.totalContributions, 0),
+      weeks: mergedWeeks(found),
+    }];
+  });
   board.sort((a, b) => b.totalContributions - a.totalContributions || a.login.localeCompare(b.login));
-
   return { board, missing };
+}
+
+function mergedWeeks(users: readonly BoardUser[]): ContributionWeek[] {
+  const totals = new Map<string, number>();
+  for (const user of users) {
+    for (const week of user.weeks) {
+      for (const day of week.days) {
+        totals.set(day.date, (totals.get(day.date) ?? 0) + day.count);
+      }
+    }
+  }
+
+  const thresholds = quartiles([...totals.values()]);
+  return users[0].weeks.map((week) => ({
+    days: week.days.map((day) => {
+      const count = totals.get(day.date) ?? 0;
+      return { date: day.date, count, level: levelFor(count, thresholds) };
+    }),
+  }));
+}
+
+function accountsByPerson<T>(people: readonly PersonDefinition[], accounts: readonly (T | null)[]) {
+  let offset = 0;
+  return people.map((person) => {
+    const end = offset + person.accounts.length;
+    const found = accounts.slice(offset, end).filter((account): account is T => account !== null);
+    offset = end;
+    return { login: person.accounts[0], accounts: found };
+  });
 }
 
 /* ---------- archive totals: public HTML ---------- */
@@ -474,19 +521,32 @@ export async function fetchArchiveUserTotals(
 }
 
 /**
- * Per-login totals for every year in `firstYear..lastYear`, inclusive. Two
- * users are fetched at once, each with six concurrent public HTML requests.
+ * Per-person totals for every year in `firstYear..lastYear`, inclusive. Two
+ * accounts are fetched at once, each with six concurrent public HTML requests.
  */
 export async function fetchArchiveTotals(
   token: string,
   firstYear: number,
   lastYear: number,
-  logins: readonly string[] = LOGINS,
+  people: readonly PersonDefinition[] = PEOPLE,
 ): Promise<ArchiveTotals> {
+  const logins = people.flatMap((person) => person.accounts);
   const users = await mapWithConcurrency(logins, ARCHIVE_USER_CONCURRENCY, (login) =>
     fetchArchiveUserTotals(token, login, firstYear, lastYear),
   );
-  const knownUsers = users.filter((user): user is ArchiveUser => user !== null);
+  const knownUsers = accountsByPerson(people, users).flatMap<ArchiveUser>(({ login, accounts }) => {
+    if (accounts.length === 0) return [];
+
+    const byYear: Record<string, number> = {};
+    for (let year = firstYear; year <= lastYear; year += 1) {
+      byYear[String(year)] = accounts.reduce((sum, account) => sum + (account.byYear[String(year)] ?? 0), 0);
+    }
+    return [{
+      login,
+      url: `https://github.com/${encodeURIComponent(login)}`,
+      byYear,
+    }];
+  });
   if (knownUsers.length === 0 && firstYear <= lastYear) {
     throw new GitHubError("GitHub returned no users.", 502);
   }

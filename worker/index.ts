@@ -9,14 +9,14 @@ export interface Env {
 }
 
 /** Synthetic key prefixes — edge cache entries are not tied to the public URL. */
-const JSON_CACHE_PREFIX = "https://ynga-git-board.internal/board/v2/";
-const MARKDOWN_CACHE_PREFIX = "https://ynga-git-board.internal/board-md/v1/";
+const JSON_CACHE_PREFIX = "https://ynga-git-board.internal/board/v3/";
+const MARKDOWN_CACHE_PREFIX = "https://ynga-git-board.internal/board-md/v2/";
 /** Bumped for all-time totals sourced from public contribution fragments. */
-const ALL_MARKDOWN_CACHE_KEY = "https://ynga-git-board.internal/board-md/v3/all";
+const ALL_MARKDOWN_CACHE_KEY = "https://ynga-git-board.internal/board-md/v4/all";
 /** Rendered all-time JSON for the SPA. */
-const ALL_JSON_CACHE_KEY = "https://ynga-git-board.internal/board-all/v2";
-/** Per-login totals for every finished year, in one entry. */
-const ARCHIVE_CACHE_PREFIX = "https://ynga-git-board.internal/board-md-src/archive/v2/";
+const ALL_JSON_CACHE_KEY = "https://ynga-git-board.internal/board-all/v3";
+/** Per-person totals for every finished year, in one entry. */
+const ARCHIVE_CACHE_PREFIX = "https://ynga-git-board.internal/board-md-src/archive/v3/";
 
 const TOKEN_MISSING = "The board is missing its GitHub token. Set the GITHUB_TOKEN secret.";
 /** The year in progress keeps moving. */

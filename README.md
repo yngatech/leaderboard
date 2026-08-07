@@ -19,7 +19,7 @@ markdown views.
 
 ## Layout
 
-- `worker/github.ts` — the account list (`LOGINS`), GraphQL queries, and the
+- `worker/github.ts` — the people/account mapping (`PEOPLE`), GraphQL queries, and the
   batched archive fetch that keeps `/all` inside the 50-subrequest budget.
 - `worker/index.ts` — routing, edge caching, markdown rendering.
 - `src/` — the Solid app; `shared/types.ts` is the contract between the two.
@@ -60,8 +60,10 @@ Locally that goes in `.dev.vars` as `GITHUB_TOKEN=...`; in production it is a
 Worker secret (`wrangler secret put GITHUB_TOKEN`). It is never sent to the
 client.
 
-## Adding an account
+## Adding a person or account
 
-Add the login to `LOGINS` in `worker/github.ts` and deploy. Historic years fill
-in on the next cache miss; an account with no GitHub data is listed under a
-"no GitHub data for" note rather than dropped silently.
+Add a person to `PEOPLE` in `worker/github.ts`. Their first account supplies the
+login and profile shown on the board; contributions from every account in the
+array are combined. Historic years fill in on the next cache miss; an
+account with no GitHub data is listed under a "no GitHub data for" note rather
+than dropped silently.
