@@ -490,10 +490,6 @@ export default function App() {
             </div>
           </section>
 
-          <Show when={climb().length > 0}>
-            <CumulativeChart series={climb()} year={shownYear()} today={today} />
-          </Show>
-
           <div class="mt-[clamp(2.25rem,5vw,3.25rem)] mb-4 flex items-center gap-[0.85rem] text-[0.66rem] tracking-[0.2em] text-dimmer uppercase">
             <span>the board</span>
             <span class="h-px flex-1 bg-line-soft" aria-hidden="true" />
@@ -520,6 +516,10 @@ export default function App() {
               No GitHub data came back for {settled()!.missing.join(", ")}. The account may have been
               renamed or removed.
             </p>
+          </Show>
+
+          <Show when={climb().length > 0}>
+            <CumulativeChart series={climb()} year={shownYear()} today={today} />
           </Show>
         </Match>
       </Switch>
