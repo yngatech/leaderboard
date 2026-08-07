@@ -13,6 +13,10 @@ export interface YearStripProps {
   podium?: boolean;
   /** Accessible summary of the strip. */
   label: string;
+  /** Optional destination for each year cell. */
+  hrefForYear?: (year: number) => string;
+  /** Optional handler for year-cell links. */
+  onYearClick?: (event: MouseEvent & { currentTarget: HTMLAnchorElement }) => void;
 }
 
 const LABEL_BAND = 17;
@@ -59,18 +63,45 @@ export default function YearStrip(props: YearStripProps) {
       </Show>
       <For each={props.cells}>
         {(item, index) => (
-          <rect
-            class="fill-heat-0 transition-[fill] duration-150 hover:stroke-1 hover:stroke-white/70 data-[level=1]:fill-heat-1 data-[level=2]:fill-heat-2 data-[level=3]:fill-heat-3 data-[level=4]:fill-heat-4"
-            data-state="day"
-            data-level={item.level}
-            x={index() * pitch()}
-            y={top()}
-            width={cell()}
-            height={cell()}
-            rx={Math.max(1, Math.round(cell() * 0.22))}
+          <Show
+            when={props.hrefForYear}
+            fallback={
+              <rect
+                class="fill-heat-0 transition-[fill] duration-150 hover:stroke-1 hover:stroke-white/70 data-[level=1]:fill-heat-1 data-[level=2]:fill-heat-2 data-[level=3]:fill-heat-3 data-[level=4]:fill-heat-4"
+                data-state="day"
+                data-level={item.level}
+                x={index() * pitch()}
+                y={top()}
+                width={cell()}
+                height={cell()}
+                rx={Math.max(1, Math.round(cell() * 0.22))}
+              >
+                <title>{tooltip(item)}</title>
+              </rect>
+            }
           >
-            <title>{tooltip(item)}</title>
-          </rect>
+            {(href) => (
+              <a
+                class="cursor-pointer"
+                href={href()(item.year)}
+                aria-label={`Show ${item.year}: ${tooltip(item)}`}
+                onClick={props.onYearClick}
+              >
+                <rect
+                  class="fill-heat-0 transition-[fill] duration-150 hover:stroke-1 hover:stroke-white/70 data-[level=1]:fill-heat-1 data-[level=2]:fill-heat-2 data-[level=3]:fill-heat-3 data-[level=4]:fill-heat-4"
+                  data-state="day"
+                  data-level={item.level}
+                  x={index() * pitch()}
+                  y={top()}
+                  width={cell()}
+                  height={cell()}
+                  rx={Math.max(1, Math.round(cell() * 0.22))}
+                >
+                  <title>{tooltip(item)}</title>
+                </rect>
+              </a>
+            )}
+          </Show>
         )}
       </For>
       {/* Drawn after the squares so the digits sit on top of their own cell. */}
