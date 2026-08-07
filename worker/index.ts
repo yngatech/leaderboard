@@ -2,6 +2,14 @@ import type { AllTime, AllTimeUser, Board } from "../shared/types";
 import { DurableObject } from "cloudflare:workers";
 import type { ArchiveTotals } from "./github";
 import { currentYear, fetchArchiveTotals, fetchBoard, GitHubError, MIN_YEAR } from "./github";
+import {
+  deliverDailyRecords,
+  planDailyRecords,
+  type BoardRecordEvent,
+  type DailyRecordState,
+  type PersonalBestEvent,
+  SerialTaskQueue,
+} from "./notifications";
 
 export interface Env {
   /** Worker secret in production, `.dev.vars` locally. Never sent to the client. */
@@ -494,27 +502,86 @@ function withBrowserHeaders(
   return new Response(response.body, { status: response.status, headers });
 }
 
-async function refreshLeader(env: Env): Promise<void> {
+async function refreshNotifications(env: Env): Promise<void> {
   if (!env.DISCORD_WEBHOOK_URL) return;
   if (!env.GITHUB_TOKEN) throw new Error(TOKEN_MISSING);
 
   const year = currentYear();
   const { board } = await fetchBoard(env.GITHUB_TOKEN, year);
-  const leader = board[0];
-  if (!leader || leader.totalContributions === 0) return;
-  const { login, url, avatarUrl, totalContributions } = leader;
-  await env.LEADER_STATE.getByName("leaderboard").update(
-    year,
-    { login, url, avatarUrl, totalContributions },
-  );
+  await env.LEADER_STATE.getByName("leaderboard").update(year, board);
 }
 
-/** Stores the last leader globally, so scheduled checks cannot post duplicates. */
+interface DiscordEmbed {
+  title: string;
+  url: string;
+  description: string;
+  color: number;
+  thumbnail?: { url: string };
+}
+
+function count(value: number): string {
+  return value.toLocaleString("en-GB");
+}
+
+function displayDate(date: string): string {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function personalBestEmbed(year: number, event: PersonalBestEvent): DiscordEmbed {
+  const improvement =
+    event.previousCount > 0
+      ? `, beating their previous best of **${count(event.previousCount)}**`
+      : "";
+  return {
+    title: "New daily contributions PB",
+    url: `${SITE}/${year}`,
+    description: `[${event.login}](${event.url}) recorded **${count(event.count)} contributions** on **${displayDate(event.date)}**${improvement}.`,
+    color: 0x58a6ff,
+    thumbnail: { url: event.avatarUrl },
+  };
+}
+
+function boardRecordEmbed(year: number, event: BoardRecordEvent): DiscordEmbed {
+  const previous =
+    event.previousCount > 0
+      ? `, beating the previous record of **${count(event.previousCount)}**`
+      : "";
+  return {
+    title: "New peak daily contributions record",
+    url: `${SITE}/${year}`,
+    description: `[${event.peak.login}](${event.peak.url}) set a new board record with **${count(event.peak.count)} contributions** on **${displayDate(event.peak.date)}**${previous}.`,
+    color: 0xf0b429,
+    thumbnail: { url: event.peak.avatarUrl },
+  };
+}
+
+/** Stores notification checkpoints, so scheduled checks cannot post duplicates. */
 export class LeaderState extends DurableObject<Env> {
-  async update(
-    year: number,
-    leader: Pick<Board[number], "login" | "url" | "avatarUrl" | "totalContributions">,
-  ): Promise<void> {
+  /** External webhook fetches open the DO input gate, so queue whole updates. */
+  private readonly updates = new SerialTaskQueue();
+
+  private async notify(embed: DiscordEmbed): Promise<void> {
+    if (!this.env.DISCORD_WEBHOOK_URL) return;
+    const response = await fetch(this.env.DISCORD_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: "git board",
+        allowed_mentions: { parse: [] },
+        embeds: [embed],
+      }),
+    });
+    if (!response.ok) throw new Error(`Discord rejected the notification (${response.status}).`);
+  }
+
+  private async updateLeader(year: number, board: Board): Promise<void> {
+    const leader = board[0];
+    if (!leader || leader.totalContributions === 0) return;
     const previous = await this.ctx.storage.get<{ year: number; login: string }>("leader");
     if (!previous) {
       await this.ctx.storage.put("leader", { year, login: leader.login });
@@ -522,26 +589,37 @@ export class LeaderState extends DurableObject<Env> {
     }
     if (previous.year === year && previous.login === leader.login) return;
 
-    if (this.env.DISCORD_WEBHOOK_URL) {
-      const response = await fetch(this.env.DISCORD_WEBHOOK_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          username: "git board",
-          allowed_mentions: { parse: [] },
-          embeds: [{
-            title: "New git board leader",
-            url: `${SITE}/${year}`,
-            description: `[${leader.login}](${leader.url}) has taken the lead for **${year}** with **${leader.totalContributions.toLocaleString("en-GB")} contributions**.`,
-            color: 0xf0b429,
-            thumbnail: { url: leader.avatarUrl },
-          }],
-        }),
-      });
-      if (!response.ok) throw new Error(`Discord rejected the notification (${response.status}).`);
-    }
+    await this.notify({
+      title: "New git board leader",
+      url: `${SITE}/${year}`,
+      description: `[${leader.login}](${leader.url}) has taken the lead for **${year}** with **${count(leader.totalContributions)} contributions**.`,
+      color: 0xf0b429,
+      thumbnail: { url: leader.avatarUrl },
+    });
 
     await this.ctx.storage.put("leader", { year, login: leader.login });
+  }
+
+  private async updateDailyRecords(year: number, board: Board): Promise<void> {
+    const previous = await this.ctx.storage.get<DailyRecordState>("daily-records");
+    const plan = planDailyRecords(year, board, previous);
+    await deliverDailyRecords(
+      plan,
+      (notification) =>
+        this.notify(
+          notification.type === "personal-best"
+            ? personalBestEmbed(year, notification.event)
+            : boardRecordEmbed(year, notification.event),
+        ),
+      (state) => this.ctx.storage.put("daily-records", state),
+    );
+  }
+
+  async update(year: number, board: Board): Promise<void> {
+    return this.updates.run(async () => {
+      await this.updateLeader(year, board);
+      await this.updateDailyRecords(year, board);
+    });
   }
 }
 
@@ -616,6 +694,6 @@ export default {
   },
 
   scheduled(_controller: ScheduledController, env: Env): Promise<void> {
-    return refreshLeader(env);
+    return refreshNotifications(env);
   },
 } satisfies ExportedHandler<Env>;
