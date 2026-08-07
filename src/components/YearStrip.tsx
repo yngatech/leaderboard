@@ -13,10 +13,8 @@ export interface YearStripProps {
   podium?: boolean;
   /** Accessible summary of the strip. */
   label: string;
-  /** Optional destination for each year cell. */
-  hrefForYear?: (year: number) => string;
-  /** Optional handler for year-cell links. */
-  onYearClick?: (event: MouseEvent & { currentTarget: HTMLAnchorElement }) => void;
+  /** Make each year cell interactive. */
+  onYearClick?: (year: number) => void;
 }
 
 const LABEL_BAND = 17;
@@ -38,13 +36,19 @@ export default function YearStrip(props: YearStripProps) {
     return `${count} in ${item.year}${placing}`;
   };
 
+  const onCellKeyDown = (event: KeyboardEvent, year: number) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    props.onYearClick?.(year);
+  };
+
   return (
     <svg
       class="block h-auto w-full"
       viewBox={`0 0 ${width()} ${height()}`}
       width={width()}
       height={height()}
-      role="img"
+      role={props.onYearClick ? "group" : "img"}
       aria-label={props.label}
       style={{ "max-width": `${width()}px` }}
     >
@@ -63,45 +67,24 @@ export default function YearStrip(props: YearStripProps) {
       </Show>
       <For each={props.cells}>
         {(item, index) => (
-          <Show
-            when={props.hrefForYear}
-            fallback={
-              <rect
-                class="fill-heat-0 transition-[fill] duration-150 hover:stroke-1 hover:stroke-white/70 data-[level=1]:fill-heat-1 data-[level=2]:fill-heat-2 data-[level=3]:fill-heat-3 data-[level=4]:fill-heat-4"
-                data-state="day"
-                data-level={item.level}
-                x={index() * pitch()}
-                y={top()}
-                width={cell()}
-                height={cell()}
-                rx={Math.max(1, Math.round(cell() * 0.22))}
-              >
-                <title>{tooltip(item)}</title>
-              </rect>
-            }
+          <rect
+            class="fill-heat-0 transition-[fill] duration-150 hover:stroke-1 hover:stroke-white/70 data-[level=1]:fill-heat-1 data-[level=2]:fill-heat-2 data-[level=3]:fill-heat-3 data-[level=4]:fill-heat-4"
+            classList={{ "cursor-pointer": Boolean(props.onYearClick) }}
+            data-state="day"
+            data-level={item.level}
+            x={index() * pitch()}
+            y={top()}
+            width={cell()}
+            height={cell()}
+            rx={Math.max(1, Math.round(cell() * 0.22))}
+            role={props.onYearClick ? "link" : undefined}
+            tabindex={props.onYearClick ? 0 : undefined}
+            aria-label={props.onYearClick ? `Show ${item.year}: ${tooltip(item)}` : undefined}
+            onClick={() => props.onYearClick?.(item.year)}
+            onKeyDown={(event) => onCellKeyDown(event, item.year)}
           >
-            {(href) => (
-              <a
-                class="cursor-pointer"
-                href={href()(item.year)}
-                aria-label={`Show ${item.year}: ${tooltip(item)}`}
-                onClick={props.onYearClick}
-              >
-                <rect
-                  class="fill-heat-0 transition-[fill] duration-150 hover:stroke-1 hover:stroke-white/70 data-[level=1]:fill-heat-1 data-[level=2]:fill-heat-2 data-[level=3]:fill-heat-3 data-[level=4]:fill-heat-4"
-                  data-state="day"
-                  data-level={item.level}
-                  x={index() * pitch()}
-                  y={top()}
-                  width={cell()}
-                  height={cell()}
-                  rx={Math.max(1, Math.round(cell() * 0.22))}
-                >
-                  <title>{tooltip(item)}</title>
-                </rect>
-              </a>
-            )}
-          </Show>
+            <title>{tooltip(item)}</title>
+          </rect>
         )}
       </For>
       {/* Drawn after the squares so the digits sit on top of their own cell. */}
