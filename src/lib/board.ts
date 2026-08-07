@@ -1,4 +1,8 @@
 import type { AllTimeUser, Board, ContributionWeek } from "../../shared/types";
+import { levelFor, quartiles, type Thresholds } from "../../shared/contributions.ts";
+
+export { levelFor, quartiles };
+export type { Thresholds } from "../../shared/contributions.ts";
 
 export type CellState =
   /** A day in the year that has already happened. */
@@ -91,24 +95,6 @@ export function userGrid(weeks: ContributionWeek[], year: number, today: string)
     for (const day of week.days) values.set(day.date, { count: day.count, level: day.level });
   }
   return buildGrid(year, values, today);
-}
-
-export type Thresholds = [number, number, number];
-
-/** Quartile thresholds over the non-zero values, mirroring GitHub's own levelling. */
-export function quartiles(values: number[]): Thresholds {
-  const sorted = values.filter((n) => n > 0).sort((a, b) => a - b);
-  const at = (fraction: number) =>
-    sorted.length === 0 ? 0 : sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))];
-  return [at(0.25), at(0.5), at(0.75)];
-}
-
-export function levelFor(count: number, thresholds: Thresholds): 0 | 1 | 2 | 3 | 4 {
-  if (count <= 0) return 0;
-  if (count <= thresholds[0]) return 1;
-  if (count <= thresholds[1]) return 2;
-  if (count <= thresholds[2]) return 3;
-  return 4;
 }
 
 /** Every account's year summed into one strip, levelled across the group. */
