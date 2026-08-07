@@ -28,10 +28,13 @@ import {
 } from "./lib/board";
 import { formatAgo, formatDayShort, formatNumber } from "./lib/format";
 
+declare const __BUILD_COMMIT_SHA__: string;
+
 /** The API accepts 2008; year navigation stops somewhere useful. */
 const MIN_API_YEAR = 2008;
 const MIN_NAV_YEAR = 2015;
 const THIS_YEAR = currentYear();
+const SOURCE_COMMIT_URL = `https://github.com/yngatech/leaderboard/commit/${__BUILD_COMMIT_SHA__}`;
 
 type View = { kind: "year"; year: number } | { kind: "all" };
 
@@ -531,7 +534,21 @@ export default function App() {
             {shownYear()} is final and cached for 7 days.
           </Show>
           <Show when={generatedAt()}>
-            {(iso) => <span class="text-dim"> Updated {formatAgo(iso(), now())}.</span>}
+            {(iso) => (
+              <>
+                {" "}
+                <a
+                  class="text-dim underline decoration-current/40 underline-offset-[3px] transition-colors hover:text-accent"
+                  href={SOURCE_COMMIT_URL}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  title={`View deployed commit ${__BUILD_COMMIT_SHA__.slice(0, 7)} on GitHub`}
+                  aria-label={`Data updated ${formatAgo(iso(), now())}; view deployed source commit on GitHub`}
+                >
+                  Updated {formatAgo(iso(), now())}.
+                </a>
+              </>
+            )}
           </Show>
         </p>
         <p class="tracking-[0.16em] uppercase">leaderboard.ynga.tech</p>
