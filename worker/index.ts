@@ -535,7 +535,6 @@ export class LeaderState extends DurableObject<Env> {
             description: `[${leader.login}](${leader.url}) has taken the lead for **${year}** with **${leader.totalContributions.toLocaleString("en-GB")} contributions**.`,
             color: 0xf0b429,
             thumbnail: { url: leader.avatarUrl },
-            footer: { text: "ynga git board" },
           }],
         }),
       });
