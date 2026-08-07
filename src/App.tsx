@@ -130,6 +130,40 @@ export default function App() {
     return current && current.kind === "year" ? current.year : null;
   };
 
+  const onViewKeyDown = (event: KeyboardEvent) => {
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
+      return;
+    }
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
+    ) {
+      return;
+    }
+
+    const current = view();
+    if (!current) return;
+
+    let href: string | null = null;
+    if (current.kind === "all") {
+      if (event.key === "ArrowLeft") href = hrefForYear(THIS_YEAR);
+    } else if (event.key === "ArrowLeft" && current.year > MIN_NAV_YEAR) {
+      href = hrefForYear(current.year - 1);
+    } else if (event.key === "ArrowRight") {
+      href = current.year < THIS_YEAR ? hrefForYear(current.year + 1) : "/all";
+    }
+
+    if (!href) return;
+    event.preventDefault();
+    navigate(href);
+  };
+
+  window.addEventListener("keydown", onViewKeyDown);
+  onCleanup(() => window.removeEventListener("keydown", onViewKeyDown));
+
   const [payload, { refetch }] = createResource(() => viewedYear() ?? undefined, loadBoard);
   const [allPayload, { refetch: refetchAll }] = createResource(
     () => (isAll() ? true : undefined),
