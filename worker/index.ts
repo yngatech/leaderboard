@@ -4,9 +4,14 @@ import type { ArchiveTotals } from "./github";
 import { currentYear, fetchArchiveTotals, fetchBoard, GitHubError, MIN_YEAR } from "./github";
 import {
   deliverDailyRecords,
+  deliverMilestones,
   planDailyRecords,
+  planMilestones,
+  type BoardMilestoneEvent,
   type BoardRecordEvent,
   type DailyRecordState,
+  type MilestoneState,
+  type PersonalMilestoneEvent,
   type PersonalBestEvent,
   SerialTaskQueue,
 } from "./notifications";
@@ -560,6 +565,25 @@ function boardRecordEmbed(year: number, event: BoardRecordEvent): DiscordEmbed {
   };
 }
 
+function personalMilestoneEmbed(year: number, event: PersonalMilestoneEvent): DiscordEmbed {
+  return {
+    title: "Contribution milestone",
+    url: `${SITE}/${year}`,
+    description: `[${event.login}](${event.url}) has passed **${count(event.threshold)} contributions** in ${year}.`,
+    color: 0x58a6ff,
+    thumbnail: { url: event.avatarUrl },
+  };
+}
+
+function boardMilestoneEmbed(year: number, event: BoardMilestoneEvent): DiscordEmbed {
+  return {
+    title: "Board contribution milestone",
+    url: `${SITE}/${year}`,
+    description: `The board has passed **${count(event.threshold)} contributions** in ${year}.`,
+    color: 0xf0b429,
+  };
+}
+
 /** Stores notification checkpoints, so scheduled checks cannot post duplicates. */
 export class LeaderState extends DurableObject<Env> {
   /** External webhook fetches open the DO input gate, so queue whole updates. */
@@ -615,10 +639,26 @@ export class LeaderState extends DurableObject<Env> {
     );
   }
 
+  private async updateMilestones(year: number, board: Board): Promise<void> {
+    const previous = await this.ctx.storage.get<MilestoneState>("milestones");
+    const plan = planMilestones(year, board, previous);
+    await deliverMilestones(
+      plan,
+      (notification) =>
+        this.notify(
+          notification.type === "personal-milestone"
+            ? personalMilestoneEmbed(year, notification.event)
+            : boardMilestoneEmbed(year, notification.event),
+        ),
+      (state) => this.ctx.storage.put("milestones", state),
+    );
+  }
+
   async update(year: number, board: Board): Promise<void> {
     return this.updates.run(async () => {
       await this.updateLeader(year, board);
       await this.updateDailyRecords(year, board);
+      await this.updateMilestones(year, board);
     });
   }
 }

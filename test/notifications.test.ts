@@ -3,10 +3,14 @@ import test from "node:test";
 import type { Board, BoardUser } from "../shared/types.ts";
 import {
   deliverDailyRecords,
+  deliverMilestones,
   planDailyRecords,
+  planMilestones,
   SerialTaskQueue,
   type DailyRecordNotification,
   type DailyRecordState,
+  type MilestoneNotification,
+  type MilestoneState,
 } from "../worker/notifications.ts";
 
 function user(login: string, days: Array<[date: string, count: number]>): BoardUser {
@@ -25,6 +29,19 @@ function user(login: string, days: Array<[date: string, count: number]>): BoardU
         level: count === 0 ? 0 : 1,
       })),
     }],
+  };
+}
+
+function totalUser(login: string, totalContributions: number): BoardUser {
+  return {
+    login,
+    name: login,
+    avatarUrl: `https://avatars.example/${login}`,
+    url: `https://github.com/${login}`,
+    followers: 0,
+    following: 0,
+    totalContributions,
+    weeks: [],
   };
 }
 
@@ -330,4 +347,162 @@ test("preserves a missing person's PB and compares against it when they return",
     })),
     [{ login: "bob", count: 11, previousCount: 9 }],
   );
+});
+
+function milestoneState(
+  personalTotals: Record<string, number>,
+  personalMilestones: Record<string, number>,
+  boardTotal: number,
+  boardMilestone: number,
+): MilestoneState {
+  return { year: 2026, personalTotals, personalMilestones, boardTotal, boardMilestone };
+}
+
+function milestoneNotificationId(notification: MilestoneNotification): string {
+  return notification.type === "personal-milestone"
+    ? `personal:${notification.event.login}:${notification.event.threshold}`
+    : `board:${notification.event.threshold}`;
+}
+
+test("seeds contribution milestones without backfilling notifications", () => {
+  const plan = planMilestones(2026, [totalUser("alice", 12_000), totalUser("bob", 900)]);
+
+  assert.equal(plan.baseline, true);
+  assert.deepEqual(plan.personalMilestones, []);
+  assert.equal(plan.boardMilestone, null);
+  assert.deepEqual(plan.nextState, milestoneState(
+    { alice: 12_000, bob: 900 },
+    { alice: 10_000, bob: 500 },
+    12_900,
+    10_000,
+  ));
+});
+
+test("detects one personal and board contribution milestone", () => {
+  const plan = planMilestones(
+    2026,
+    [totalUser("alice", 100), totalUser("bob", 900)],
+    milestoneState({ alice: 99, bob: 900 }, { alice: 0, bob: 500 }, 999, 0),
+  );
+
+  assert.deepEqual(plan.personalMilestones, [{
+    login: "alice",
+    url: "https://github.com/alice",
+    avatarUrl: "https://avatars.example/alice",
+    threshold: 100,
+  }]);
+  assert.deepEqual(plan.boardMilestone, { threshold: 1000 });
+});
+
+test("collapses multiple contribution milestones to the highest newly passed threshold", () => {
+  const plan = planMilestones(
+    2026,
+    [totalUser("alice", 12_000), totalUser("bob", 1)],
+    milestoneState({ alice: 99, bob: 1 }, { alice: 0, bob: 0 }, 100, 0),
+  );
+
+  assert.deepEqual(plan.personalMilestones.map(({ login, threshold }) => ({ login, threshold })), [
+    { login: "alice", threshold: 10_000 },
+  ]);
+  assert.deepEqual(plan.boardMilestone, { threshold: 10_000 });
+});
+
+test("resets contribution milestone state silently on a year rollover", () => {
+  const previous: MilestoneState = {
+    ...milestoneState({ alice: 50_000 }, { alice: 50_000 }, 50_000, 50_000),
+    year: 2025,
+  };
+  const plan = planMilestones(2026, [totalUser("alice", 1_000)], previous);
+
+  assert.equal(plan.baseline, true);
+  assert.deepEqual(plan.personalMilestones, []);
+  assert.equal(plan.boardMilestone, null);
+  assert.deepEqual(plan.nextState, milestoneState({ alice: 1_000 }, { alice: 1_000 }, 1_000, 1_000));
+});
+
+test("lowers contribution totals silently without repeating passed milestones", () => {
+  const initial = milestoneState({ alice: 1_000 }, { alice: 1_000 }, 1_000, 1_000);
+  const decreased = planMilestones(2026, [totalUser("alice", 400)], initial);
+
+  assert.equal(decreased.needsPreparation, true);
+  assert.deepEqual(decreased.personalMilestones, []);
+  assert.equal(decreased.boardMilestone, null);
+  assert.deepEqual(decreased.nextState, milestoneState({ alice: 400 }, { alice: 1_000 }, 400, 1_000));
+
+  const recovered = planMilestones(2026, [totalUser("alice", 900)], decreased.nextState);
+  assert.deepEqual(recovered.personalMilestones, []);
+  assert.equal(recovered.boardMilestone, null);
+
+  const exceeded = planMilestones(2026, [totalUser("alice", 2_500)], recovered.nextState);
+  assert.deepEqual(exceeded.personalMilestones.map(({ threshold }) => threshold), [2_500]);
+  assert.equal(exceeded.boardMilestone?.threshold, 2_500);
+});
+
+test("checkpoints contribution milestones after each successful webhook", async () => {
+  const board = [totalUser("alice", 100), totalUser("bob", 2_500)];
+  let stored = milestoneState({ alice: 99, bob: 99 }, { alice: 0, bob: 0 }, 198, 0);
+  let failBob = true;
+  const delivered: string[] = [];
+  const notify = async (notification: MilestoneNotification) => {
+    if (milestoneNotificationId(notification) === "personal:bob:2500" && failBob) {
+      failBob = false;
+      throw new Error("Discord unavailable");
+    }
+    delivered.push(milestoneNotificationId(notification));
+  };
+  const save = async (state: MilestoneState) => {
+    stored = structuredClone(state);
+  };
+
+  await assert.rejects(
+    deliverMilestones(planMilestones(2026, board, stored), notify, save),
+    /Discord unavailable/,
+  );
+  assert.deepEqual(stored, milestoneState(
+    { alice: 100, bob: 2_500 },
+    { alice: 100, bob: 0 },
+    2_600,
+    0,
+  ));
+
+  await deliverMilestones(planMilestones(2026, board, stored), notify, save);
+  assert.deepEqual(delivered, ["personal:alice:100", "personal:bob:2500", "board:2500"]);
+  assert.deepEqual(stored, milestoneState(
+    { alice: 100, bob: 2_500 },
+    { alice: 100, bob: 2_500 },
+    2_600,
+    2_500,
+  ));
+});
+
+test("retries only the board milestone when its webhook fails after personal milestones", async () => {
+  const board = [totalUser("alice", 100), totalUser("bob", 2_500)];
+  let stored = milestoneState({ alice: 99, bob: 99 }, { alice: 0, bob: 0 }, 198, 0);
+  let failBoard = true;
+  const delivered: string[] = [];
+  const notify = async (notification: MilestoneNotification) => {
+    if (notification.type === "board-milestone" && failBoard) {
+      failBoard = false;
+      throw new Error("Discord unavailable");
+    }
+    delivered.push(milestoneNotificationId(notification));
+  };
+  const save = async (state: MilestoneState) => {
+    stored = structuredClone(state);
+  };
+
+  await assert.rejects(
+    deliverMilestones(planMilestones(2026, board, stored), notify, save),
+    /Discord unavailable/,
+  );
+  assert.deepEqual(stored, milestoneState(
+    { alice: 100, bob: 2_500 },
+    { alice: 100, bob: 2_500 },
+    2_600,
+    0,
+  ));
+
+  await deliverMilestones(planMilestones(2026, board, stored), notify, save);
+  assert.deepEqual(delivered, ["personal:alice:100", "personal:bob:2500", "board:2500"]);
+  assert.equal(stored.boardMilestone, 2_500);
 });
