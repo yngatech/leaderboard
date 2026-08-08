@@ -40,6 +40,49 @@ export type DailyRecordNotification =
   | { type: "personal-best"; event: PersonalBestEvent }
   | { type: "board-record"; event: BoardRecordEvent };
 
+const PERSONAL_MILESTONES = [
+  100, 250, 500, 1000, 2500, 5000, 7500, 10000, 15000, 20000, 25000, 50000,
+];
+const BOARD_MILESTONES = [
+  1000, 2500, 5000, 7500, 10000, 15000, 20000, 25000, 50000, 75000, 100000,
+];
+
+/** Durable state for contribution milestones in one leaderboard year. */
+export interface MilestoneState {
+  year: number;
+  personalTotals: Record<string, number>;
+  personalMilestones: Record<string, number>;
+  boardTotal: number;
+  boardMilestone: number;
+}
+
+export interface PersonalMilestoneEvent {
+  login: string;
+  url: string;
+  avatarUrl: string;
+  threshold: number;
+}
+
+export interface BoardMilestoneEvent {
+  threshold: number;
+}
+
+export interface MilestonePlan {
+  /** No alerts are sent when a year's state is first observed. */
+  baseline: boolean;
+  /** State to save before sending alerts, including quiet corrections. */
+  stateBeforeEvents: MilestoneState;
+  needsPreparation: boolean;
+  personalMilestones: PersonalMilestoneEvent[];
+  boardMilestone: BoardMilestoneEvent | null;
+  /** The state reached after every planned alert succeeds. */
+  nextState: MilestoneState;
+}
+
+export type MilestoneNotification =
+  | { type: "personal-milestone"; event: PersonalMilestoneEvent }
+  | { type: "board-milestone"; event: BoardMilestoneEvent };
+
 /**
  * Serialises work without poisoning later calls when one task rejects. Durable
  * Object requests can interleave while an external webhook fetch is pending.
@@ -215,5 +258,157 @@ export async function deliverDailyRecords(
     await notify({ type: "board-record", event: plan.boardRecord });
     progress.boardBest = plan.boardRecord.peak.count;
     await save(stateSnapshot(progress));
+  }
+}
+
+function milestoneFor(total: number, thresholds: number[]): number {
+  let milestone = 0;
+  for (const threshold of thresholds) {
+    if (total < threshold) break;
+    milestone = threshold;
+  }
+  return milestone;
+}
+
+function milestoneStateSnapshot(state: MilestoneState): MilestoneState {
+  return {
+    ...state,
+    personalTotals: { ...state.personalTotals },
+    personalMilestones: { ...state.personalMilestones },
+  };
+}
+
+function milestoneBaseline(year: number, board: Board): MilestoneState {
+  const personalTotals = Object.fromEntries(
+    board.map((user) => [user.login, user.totalContributions]),
+  );
+  return {
+    year,
+    personalTotals,
+    personalMilestones: Object.fromEntries(
+      board.map((user) => [
+        user.login,
+        milestoneFor(user.totalContributions, PERSONAL_MILESTONES),
+      ]),
+    ),
+    boardTotal: board.reduce((total, user) => total + user.totalContributions, 0),
+    boardMilestone: milestoneFor(
+      board.reduce((total, user) => total + user.totalContributions, 0),
+      BOARD_MILESTONES,
+    ),
+  };
+}
+
+/**
+ * Finds the highest newly passed contribution milestone for each person and
+ * the board. New years and newly observed accounts are seeded silently.
+ */
+export function planMilestones(
+  year: number,
+  board: Board,
+  previous?: MilestoneState,
+): MilestonePlan {
+  if (!previous || previous.year !== year) {
+    const baseline = milestoneBaseline(year, board);
+    return {
+      baseline: true,
+      stateBeforeEvents: baseline,
+      needsPreparation: true,
+      personalMilestones: [],
+      boardMilestone: null,
+      nextState: baseline,
+    };
+  }
+
+  const stateBeforeEvents = milestoneStateSnapshot(previous);
+  const newAccounts = new Set<string>();
+  let needsPreparation = false;
+
+  for (const user of board) {
+    if (!Object.hasOwn(stateBeforeEvents.personalTotals, user.login)) {
+      stateBeforeEvents.personalTotals[user.login] = user.totalContributions;
+      stateBeforeEvents.personalMilestones[user.login] = milestoneFor(
+        user.totalContributions,
+        PERSONAL_MILESTONES,
+      );
+      newAccounts.add(user.login);
+      needsPreparation = true;
+      continue;
+    }
+
+    if (stateBeforeEvents.personalTotals[user.login] !== user.totalContributions) {
+      stateBeforeEvents.personalTotals[user.login] = user.totalContributions;
+      needsPreparation = true;
+    }
+    if (!Object.hasOwn(stateBeforeEvents.personalMilestones, user.login)) {
+      stateBeforeEvents.personalMilestones[user.login] = milestoneFor(
+        user.totalContributions,
+        PERSONAL_MILESTONES,
+      );
+      newAccounts.add(user.login);
+      needsPreparation = true;
+    }
+  }
+
+  const boardTotal = board.reduce((total, user) => total + user.totalContributions, 0);
+  if (stateBeforeEvents.boardTotal !== boardTotal) {
+    stateBeforeEvents.boardTotal = boardTotal;
+    needsPreparation = true;
+  }
+
+  const personalMilestones = board.flatMap<PersonalMilestoneEvent>((user) => {
+    if (newAccounts.has(user.login)) return [];
+    const threshold = milestoneFor(user.totalContributions, PERSONAL_MILESTONES);
+    return threshold > stateBeforeEvents.personalMilestones[user.login]
+      ? [{ login: user.login, url: user.url, avatarUrl: user.avatarUrl, threshold }]
+      : [];
+  });
+  const boardThreshold = milestoneFor(boardTotal, BOARD_MILESTONES);
+  const boardMilestone =
+    boardThreshold > stateBeforeEvents.boardMilestone ? { threshold: boardThreshold } : null;
+
+  const nextState = milestoneStateSnapshot(stateBeforeEvents);
+  for (const event of personalMilestones) {
+    nextState.personalMilestones[event.login] = event.threshold;
+  }
+  if (boardMilestone) nextState.boardMilestone = boardMilestone.threshold;
+
+  return {
+    baseline: false,
+    stateBeforeEvents,
+    needsPreparation,
+    personalMilestones,
+    boardMilestone,
+    nextState,
+  };
+}
+
+/**
+ * Sends a milestone plan and checkpoints every successful webhook so retries
+ * resume at the first failed notification without posting duplicates.
+ */
+export async function deliverMilestones(
+  plan: MilestonePlan,
+  notify: (notification: MilestoneNotification) => Promise<void>,
+  save: (state: MilestoneState) => Promise<void>,
+): Promise<void> {
+  if (plan.baseline) {
+    await save(milestoneStateSnapshot(plan.nextState));
+    return;
+  }
+
+  const progress = milestoneStateSnapshot(plan.stateBeforeEvents);
+  if (plan.needsPreparation) await save(milestoneStateSnapshot(progress));
+
+  for (const event of plan.personalMilestones) {
+    await notify({ type: "personal-milestone", event });
+    progress.personalMilestones[event.login] = event.threshold;
+    await save(milestoneStateSnapshot(progress));
+  }
+
+  if (plan.boardMilestone) {
+    await notify({ type: "board-milestone", event: plan.boardMilestone });
+    progress.boardMilestone = plan.boardMilestone.threshold;
+    await save(milestoneStateSnapshot(progress));
   }
 }
