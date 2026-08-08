@@ -1,3 +1,4 @@
+import { BOARD_MILESTONES, milestoneFor, PERSONAL_MILESTONES } from "../shared/milestones.ts";
 import type { Board, BoardUser } from "../shared/types";
 
 export interface DailyPeak {
@@ -39,13 +40,6 @@ export interface DailyRecordPlan {
 export type DailyRecordNotification =
   | { type: "personal-best"; event: PersonalBestEvent }
   | { type: "board-record"; event: BoardRecordEvent };
-
-const PERSONAL_MILESTONES = [
-  100, 250, 500, 1000, 2500, 5000, 7500, 10000, 15000, 20000, 25000, 50000,
-];
-const BOARD_MILESTONES = [
-  1000, 2500, 5000, 7500, 10000, 15000, 20000, 25000, 50000, 75000, 100000,
-];
 
 /** Durable state for contribution milestones in one leaderboard year. */
 export interface MilestoneState {
@@ -259,15 +253,6 @@ export async function deliverDailyRecords(
     progress.boardBest = plan.boardRecord.peak.count;
     await save(stateSnapshot(progress));
   }
-}
-
-function milestoneFor(total: number, thresholds: number[]): number {
-  let milestone = 0;
-  for (const threshold of thresholds) {
-    if (total < threshold) break;
-    milestone = threshold;
-  }
-  return milestone;
 }
 
 function milestoneStateSnapshot(state: MilestoneState): MilestoneState {

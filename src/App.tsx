@@ -11,11 +11,13 @@ import {
 } from "solid-js";
 import type { AllTime, Board, BoardError } from "../shared/types";
 import AllTimeRow from "./components/AllTimeRow";
+import BoardGoalLine from "./components/BoardGoalLine";
 import CumulativeChart from "./components/CumulativeChart";
 import Heatmap from "./components/Heatmap";
 import UserRow from "./components/UserRow";
 import YearStrip from "./components/YearStrip";
 import {
+  boardGoal,
   boardYearRanks,
   boardYearThresholds,
   cumulativeSeries,
@@ -25,6 +27,7 @@ import {
   peakDay,
   peakYear,
   todayIso,
+  userGoals,
 } from "./lib/board";
 import { firstDayForLocale, formatAgo, formatDayShort, formatNumber } from "./lib/format";
 
@@ -209,6 +212,16 @@ export default function App() {
   /** Only the year in progress has a "so far" worth drawing. */
   const climb = createMemo(() =>
     shownYear() === THIS_YEAR ? cumulativeSeries(board(), shownYear(), today) : [],
+  );
+
+  /**
+   * Goals are forward-looking, so they belong to the year that can still
+   * change. A finished year gets none, and every row it renders is the row it
+   * has always been.
+   */
+  const goal = createMemo(() => (shownYear() === THIS_YEAR ? boardGoal(board()) : null));
+  const goals = createMemo(() =>
+    shownYear() === THIS_YEAR ? board().map((_, index) => userGoals(board(), index)) : null,
   );
 
   const allUsers = () => allSettled()?.data.users ?? [];
@@ -480,6 +493,8 @@ export default function App() {
               >
                 contributions from {board().length} accounts in {shownYear()}
               </h2>
+
+              <Show when={goal()}>{(current) => <BoardGoalLine goal={current()} />}</Show>
             </div>
 
             <div class="mt-[1.9rem] overflow-x-auto rounded-2xl border border-line bg-[linear-gradient(180deg,#12162b_0%,#0d1122_100%)] px-[1.15rem] pt-4 pb-[0.9rem]">
@@ -544,6 +559,7 @@ export default function App() {
                   firstDay={firstDay}
                   highestTotal={highestUserTotal()}
                   highestDailyTotal={highestDailyTotal()}
+                  goals={goals()?.[index()]}
                 />
               )}
             </For>
