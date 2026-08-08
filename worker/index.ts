@@ -5,18 +5,19 @@ import { currentYear, fetchArchiveTotals, fetchBoard, GitHubError, MIN_YEAR } fr
 import {
   deliverDailyRecords,
   deliverMilestones,
-  deliverPodium,
+  deliverStandings,
+  ordinal,
   planDailyRecords,
   planMilestones,
-  planPodium,
+  planStandings,
   type BoardMilestoneEvent,
   type BoardRecordEvent,
   type DailyRecordState,
   type MilestoneState,
   type PersonalMilestoneEvent,
   type PersonalBestEvent,
-  type PodiumNotification,
-  type PodiumState,
+  type StandingNotification,
+  type StandingState,
   SerialTaskQueue,
 } from "./notifications";
 
@@ -588,7 +589,7 @@ function boardMilestoneEmbed(year: number, event: BoardMilestoneEvent): DiscordE
   };
 }
 
-function leaderEmbed(year: number, notification: Extract<PodiumNotification, { type: "leader" }>): DiscordEmbed {
+function leaderEmbed(year: number, notification: Extract<StandingNotification, { type: "leader" }>): DiscordEmbed {
   const { leader } = notification.event;
   return {
     title: "New git board leader",
@@ -599,15 +600,15 @@ function leaderEmbed(year: number, notification: Extract<PodiumNotification, { t
   };
 }
 
-function podiumOvertakeEmbed(
+function standingOvertakeEmbed(
   year: number,
-  notification: Extract<PodiumNotification, { type: "podium-overtake" }>,
+  notification: Extract<StandingNotification, { type: "overtake" }>,
 ): DiscordEmbed {
   const { position, mover, displaced } = notification.event;
   return {
     title: "Git board position change",
     url: `${SITE}/${year}`,
-    description: `[${mover.login}](${mover.url}) has overtaken [${displaced.login}](${displaced.url}) for **${position === 2 ? "2nd" : "3rd"} place** in ${year} with **${count(mover.totalContributions)} contributions**.`,
+    description: `[${mover.login}](${mover.url}) has overtaken [${displaced.login}](${displaced.url}) for **${ordinal(position)} place** in ${year} with **${count(mover.totalContributions)} contributions**.`,
     color: 0x58a6ff,
     thumbnail: { url: mover.avatarUrl },
   };
@@ -632,18 +633,18 @@ export class LeaderState extends DurableObject<Env> {
     if (!response.ok) throw new Error(`Discord rejected the notification (${response.status}).`);
   }
 
-  private async updatePodium(year: number, board: Board): Promise<void> {
+  private async updateStandings(year: number, board: Board): Promise<void> {
     const leader = board[0];
     if (!leader || leader.totalContributions === 0) return;
-    const previous = await this.ctx.storage.get<PodiumState | { year: number; login: string }>("leader");
-    const plan = planPodium(year, board, previous);
-    await deliverPodium(
+    const previous = await this.ctx.storage.get<StandingState | { year: number; login: string }>("leader");
+    const plan = planStandings(year, board, previous);
+    await deliverStandings(
       plan,
       (notification) =>
         this.notify(
           notification.type === "leader"
             ? leaderEmbed(year, notification)
-            : podiumOvertakeEmbed(year, notification),
+            : standingOvertakeEmbed(year, notification),
         ),
       (state) => this.ctx.storage.put("leader", state),
     );
@@ -681,7 +682,7 @@ export class LeaderState extends DurableObject<Env> {
 
   async update(year: number, board: Board): Promise<void> {
     return this.updates.run(async () => {
-      await this.updatePodium(year, board);
+      await this.updateStandings(year, board);
       await this.updateDailyRecords(year, board);
       await this.updateMilestones(year, board);
     });

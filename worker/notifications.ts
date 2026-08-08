@@ -413,7 +413,7 @@ export async function deliverMilestones(
   }
 }
 
-export interface PodiumEntry {
+export interface StandingEntry {
   login: string;
   url: string;
   avatarUrl: string;
@@ -421,29 +421,29 @@ export interface PodiumEntry {
 }
 
 export interface LeaderEvent {
-  leader: PodiumEntry;
+  leader: StandingEntry;
 }
 
-export interface PodiumOvertakeEvent {
-  position: 2 | 3;
-  mover: PodiumEntry;
-  displaced: PodiumEntry;
+export interface OvertakeEvent {
+  position: number;
+  mover: StandingEntry;
+  displaced: StandingEntry;
 }
 
-export type PodiumNotification =
+export type StandingNotification =
   | { type: "leader"; event: LeaderEvent }
-  | { type: "podium-overtake"; event: PodiumOvertakeEvent };
+  | { type: "overtake"; event: OvertakeEvent };
 
-interface PendingPodiumNotifications {
-  top: PodiumEntry[];
-  notifications: PodiumNotification[];
+interface PendingStandingNotifications {
+  order: StandingEntry[];
+  notifications: StandingNotification[];
 }
 
-/** Durable top-three state for one leaderboard year. */
-export interface PodiumState {
+/** Durable full-board standing state for one leaderboard year. */
+export interface StandingState {
   year: number;
-  top: PodiumEntry[];
-  pending?: PendingPodiumNotifications;
+  order: StandingEntry[];
+  pending?: PendingStandingNotifications;
 }
 
 /** The shape written by the former leader-only implementation. */
@@ -452,18 +452,24 @@ export interface LegacyLeaderState {
   login: string;
 }
 
-export interface PodiumPlan {
-  /** No alerts are sent when state is first introduced or the year changes. */
-  baseline: boolean;
-  /** State to save before sending a batch of position-change alerts. */
-  stateBeforeEvents: PodiumState;
-  needsPreparation: boolean;
-  notifications: PodiumNotification[];
-  /** The state reached after every planned alert succeeds. */
-  nextState: PodiumState;
+/** The unshipped top-three shape from the preceding implementation. */
+export interface LegacyTopThreeState {
+  year: number;
+  top: StandingEntry[];
 }
 
-function podiumEntry(user: BoardUser): PodiumEntry {
+export interface StandingPlan {
+  /** No alerts are sent when state is first introduced or the year changes. */
+  baseline: boolean;
+  /** State to save before sending a batch of rank-change alerts. */
+  stateBeforeEvents: StandingState;
+  needsPreparation: boolean;
+  notifications: StandingNotification[];
+  /** The state reached after every planned alert succeeds. */
+  nextState: StandingState;
+}
+
+function standingEntry(user: BoardUser): StandingEntry {
   return {
     login: user.login,
     url: user.url,
@@ -472,14 +478,14 @@ function podiumEntry(user: BoardUser): PodiumEntry {
   };
 }
 
-function podiumStateSnapshot(state: PodiumState): PodiumState {
+function standingStateSnapshot(state: StandingState): StandingState {
   return {
     ...state,
-    top: state.top.map((entry) => ({ ...entry })),
+    order: state.order.map((entry) => ({ ...entry })),
     ...(state.pending
       ? {
           pending: {
-            top: state.pending.top.map((entry) => ({ ...entry })),
+            order: state.pending.order.map((entry) => ({ ...entry })),
             notifications: structuredClone(state.pending.notifications),
           },
         }
@@ -487,36 +493,53 @@ function podiumStateSnapshot(state: PodiumState): PodiumState {
   };
 }
 
-function isPodiumState(state: PodiumState | LegacyLeaderState): state is PodiumState {
-  return Object.hasOwn(state, "top");
+function isStandingState(
+  state: StandingState | LegacyLeaderState | LegacyTopThreeState,
+): state is StandingState {
+  return Object.hasOwn(state, "order");
 }
 
-function samePodium(left: PodiumEntry[], right: PodiumEntry[]): boolean {
+function sameStanding(left: StandingEntry[], right: StandingEntry[]): boolean {
   return left.length === right.length && left.every((entry, index) => {
     const other = right[index];
     return entry.login === other.login && entry.totalContributions === other.totalContributions;
   });
 }
 
-function notificationKey(notification: PodiumNotification): string {
+function notificationKey(notification: StandingNotification): string {
   return notification.type === "leader"
     ? `leader:${notification.event.leader.login}`
-    : `podium:${notification.event.position}:${notification.event.mover.login}:${notification.event.displaced.login}`;
+    : `overtake:${notification.event.position}:${notification.event.mover.login}:${notification.event.displaced.login}`;
+}
+
+export function ordinal(position: number): string {
+  const lastTwo = position % 100;
+  if (lastTwo >= 11 && lastTwo <= 13) return `${position}th`;
+  switch (position % 10) {
+    case 1:
+      return `${position}st`;
+    case 2:
+      return `${position}nd`;
+    case 3:
+      return `${position}rd`;
+    default:
+      return `${position}th`;
+  }
 }
 
 /**
- * Plans leader and lower-podium alerts from a durable top-three snapshot.
- * Legacy leader-only state deliberately becomes a quiet baseline on upgrade.
+ * Plans leader and lower-rank alerts from a durable full-board snapshot.
+ * Older leader-only and top-three state deliberately become quiet baselines.
  */
-export function planPodium(
+export function planStandings(
   year: number,
   board: Board,
-  previous?: PodiumState | LegacyLeaderState,
-): PodiumPlan {
-  const top = board.slice(0, 3).map(podiumEntry);
-  const baseline: PodiumState = { year, top };
+  previous?: StandingState | LegacyLeaderState | LegacyTopThreeState,
+): StandingPlan {
+  const order = board.map(standingEntry);
+  const baseline: StandingState = { year, order };
 
-  if (!previous || !isPodiumState(previous) || previous.year !== year) {
+  if (!previous || !isStandingState(previous) || previous.year !== year) {
     return {
       baseline: true,
       stateBeforeEvents: baseline,
@@ -529,22 +552,18 @@ export function planPodium(
   if (previous.pending) {
     return {
       baseline: false,
-      stateBeforeEvents: podiumStateSnapshot(previous),
+      stateBeforeEvents: standingStateSnapshot(previous),
       needsPreparation: false,
       notifications: previous.pending.notifications,
-      nextState: { year, top: previous.pending.top.map((entry) => ({ ...entry })) },
+      nextState: { year, order: previous.pending.order.map((entry) => ({ ...entry })) },
     };
   }
 
   const currentUsers = new Map(board.map((user) => [user.login, user]));
-  // Without a complete, continuous podium snapshot, an apparent position gain
+  // Without a continuous board snapshot, an apparent position gain
   // could merely be the result of an account disappearing from the board.
-  if (
-    top.length < 3 ||
-    previous.top.length < 3 ||
-    previous.top.some((entry) => !currentUsers.has(entry.login))
-  ) {
-    const needsPreparation = !samePodium(previous.top, top);
+  if (previous.order.some((entry) => !currentUsers.has(entry.login))) {
+    const needsPreparation = !sameStanding(previous.order, order);
     return {
       baseline: false,
       stateBeforeEvents: baseline,
@@ -554,9 +573,10 @@ export function planPodium(
     };
   }
 
-  const notifications: PodiumNotification[] = [];
-  const leader = top[0];
-  const previousLeader = previous.top[0];
+  const notifications: StandingNotification[] = [];
+  const previousPositions = new Map(previous.order.map((entry, index) => [entry.login, index + 1]));
+  const leader = order[0];
+  const previousLeader = previous.order[0];
   const displacedLeader = previousLeader && currentUsers.get(previousLeader.login);
   if (
     leader &&
@@ -569,29 +589,28 @@ export function planPodium(
     notifications.push({ type: "leader", event: { leader } });
   }
 
-  for (const position of [2, 3] as const) {
-    const mover = top[position - 1];
-    const previousPosition = previous.top.findIndex((entry) => entry.login === mover?.login) + 1;
+  for (let position = 2; position <= order.length; position += 1) {
+    const mover = order[position - 1];
+    const previousPosition = previousPositions.get(mover.login);
     const displacedUser = board.slice(position).find((user) => {
-      const displacedPosition = previous.top.findIndex((entry) => entry.login === user.login) + 1;
+      const displacedPosition = previousPositions.get(user.login);
       return (
-        displacedPosition > 0 &&
-        (previousPosition === 0 || displacedPosition < previousPosition)
+        displacedPosition !== undefined &&
+        (previousPosition === undefined || displacedPosition < previousPosition)
       );
     });
-    const displaced = displacedUser && podiumEntry(displacedUser);
+    const displaced = displacedUser && standingEntry(displacedUser);
     if (
-      mover &&
       displaced &&
-      (previousPosition === 0 || previousPosition > position) &&
+      (previousPosition === undefined || previousPosition > position) &&
       mover.totalContributions > displaced.totalContributions
     ) {
-      notifications.push({ type: "podium-overtake", event: { position, mover, displaced } });
+      notifications.push({ type: "overtake", event: { position, mover, displaced } });
     }
   }
 
   if (notifications.length === 0) {
-    const needsPreparation = !samePodium(previous.top, top);
+    const needsPreparation = !sameStanding(previous.order, order);
     return {
       baseline: false,
       stateBeforeEvents: baseline,
@@ -601,10 +620,10 @@ export function planPodium(
     };
   }
 
-  const stateBeforeEvents: PodiumState = {
+  const stateBeforeEvents: StandingState = {
     year,
-    top: previous.top.map((entry) => ({ ...entry })),
-    pending: { top, notifications: structuredClone(notifications) },
+    order: previous.order.map((entry) => ({ ...entry })),
+    pending: { order, notifications: structuredClone(notifications) },
   };
   return {
     baseline: false,
@@ -616,34 +635,34 @@ export function planPodium(
 }
 
 /**
- * Sends a podium plan and records each successful alert. Pending transitions
+ * Sends a standings plan and records each successful alert. Pending transitions
  * survive webhook failures so retries do not repeat already delivered posts.
  */
-export async function deliverPodium(
-  plan: PodiumPlan,
-  notify: (notification: PodiumNotification) => Promise<void>,
-  save: (state: PodiumState) => Promise<void>,
+export async function deliverStandings(
+  plan: StandingPlan,
+  notify: (notification: StandingNotification) => Promise<void>,
+  save: (state: StandingState) => Promise<void>,
 ): Promise<void> {
   if (plan.baseline) {
-    await save(podiumStateSnapshot(plan.nextState));
+    await save(standingStateSnapshot(plan.nextState));
     return;
   }
 
-  const progress = podiumStateSnapshot(plan.stateBeforeEvents);
-  if (plan.needsPreparation) await save(podiumStateSnapshot(progress));
+  const progress = standingStateSnapshot(plan.stateBeforeEvents);
+  if (plan.needsPreparation) await save(standingStateSnapshot(progress));
 
   for (const notification of plan.notifications) {
     await notify(notification);
     const pending = progress.pending;
-    if (!pending) throw new Error("Podium notification checkpoint is missing.");
+    if (!pending) throw new Error("Standings notification checkpoint is missing.");
     const key = notificationKey(notification);
     pending.notifications = pending.notifications.filter(
       (candidate) => notificationKey(candidate) !== key,
     );
     if (pending.notifications.length === 0) {
-      progress.top = pending.top;
+      progress.order = pending.order;
       delete progress.pending;
     }
-    await save(podiumStateSnapshot(progress));
+    await save(standingStateSnapshot(progress));
   }
 }
