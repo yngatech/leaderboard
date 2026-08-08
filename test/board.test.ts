@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Board } from "../shared/types.ts";
-import { cumulativeSeries, userGrid } from "../src/lib/board.ts";
+import { boardGoal, cumulativeSeries, userGoals, userGrid } from "../src/lib/board.ts";
 import { firstDayForLocale, weekdayIndex } from "../src/lib/format.ts";
 
 function boardWithDays(days: Board[0]["weeks"][0]["days"]): Board {
@@ -110,4 +110,92 @@ test("defaults calendar weeks to the original Sunday through Saturday layout", (
 
 test("falls back to Sunday when locale week information is unavailable", () => {
   assert.equal(firstDayForLocale("not_a_valid_locale"), 7);
+});
+
+function rankedBoard(totals: [string, number][]): Board {
+  return totals.map(([login, totalContributions]) => ({
+    login,
+    name: null,
+    avatarUrl: `https://avatars.example/${login}`,
+    url: `https://github.com/${login}`,
+    followers: 0,
+    following: 0,
+    totalContributions,
+    weeks: [],
+  }));
+}
+
+test("reports the next milestone and the gap to the rank above", () => {
+  const board = rankedBoard([
+    ["alice", 4820],
+    ["bob", 4790],
+    ["carol", 900],
+  ]);
+
+  assert.deepEqual(userGoals(board, 1), {
+    nextMilestone: 5000,
+    toMilestone: 210,
+    above: { login: "alice", name: null, rank: 1, behind: 30 },
+    leadMargin: null,
+  });
+  assert.deepEqual(userGoals(board, 2), {
+    nextMilestone: 1000,
+    toMilestone: 100,
+    above: { login: "bob", name: null, rank: 2, behind: 3890 },
+    leadMargin: null,
+  });
+});
+
+test("gives the leader a margin instead of a gap", () => {
+  const board = rankedBoard([
+    ["alice", 4820],
+    ["bob", 4790],
+  ]);
+
+  assert.deepEqual(userGoals(board, 0), {
+    nextMilestone: 5000,
+    toMilestone: 180,
+    above: null,
+    leadMargin: 30,
+  });
+});
+
+test("marks level totals and a solo board", () => {
+  const tied = rankedBoard([
+    ["alice", 100],
+    ["bob", 100],
+  ]);
+  assert.equal(userGoals(tied, 1).above?.behind, 0);
+
+  const solo = rankedBoard([["alice", 100]]);
+  assert.deepEqual(userGoals(solo, 0), {
+    nextMilestone: 250,
+    toMilestone: 150,
+    above: null,
+    leadMargin: null,
+  });
+});
+
+test("drops the milestone goal past the top of the ladder", () => {
+  const board = rankedBoard([["alice", 60000]]);
+  const goals = userGoals(board, 0);
+  assert.equal(goals.nextMilestone, null);
+  assert.equal(goals.toMilestone, null);
+});
+
+test("tracks the board-wide goal from the summed totals", () => {
+  assert.deepEqual(
+    boardGoal(
+      rankedBoard([
+        ["alice", 4000],
+        ["bob", 3830],
+      ]),
+    ),
+    { total: 7830, nextMilestone: 10000, remaining: 2170 },
+  );
+  assert.deepEqual(boardGoal(rankedBoard([["alice", 200000]])), {
+    total: 200000,
+    nextMilestone: null,
+    remaining: null,
+  });
 });
