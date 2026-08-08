@@ -14,7 +14,7 @@
     "solid-js": "^1.9.5"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "^1.50.0",
+    "@cloudflare/vite-plugin": "^1.51.1",
     "@cloudflare/workers-types": "^5.20260722.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.13.3",
@@ -22,10 +22,10 @@
     "typescript": "^7.0.2",
     "vite": "^8.2.0",
     "vite-plugin-solid": "^2.11.6",
-    "wrangler": "^4.118.0"
+    "wrangler": "^4.120.0"
   },
   "allowScripts": {
     "esbuild@0.28.1": true,
-    "workerd@1.20260730.1": true
+    "workerd@1.20260801.1": true
   }
 }
