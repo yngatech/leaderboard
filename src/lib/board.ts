@@ -1,5 +1,6 @@
 import type { AllTimeUser, Board, ContributionWeek } from "../../shared/types";
 import { levelFor, quartiles, type Thresholds } from "../../shared/contributions.ts";
+import { BOARD_MILESTONES, nextMilestone, PERSONAL_MILESTONES } from "../../shared/milestones.ts";
 import { weekdayIndex, type FirstDayOfWeek } from "./format.ts";
 
 export { levelFor, quartiles };
@@ -261,4 +262,61 @@ export function peakDay(grid: Grid): PeakDay | null {
     }
   }
   return best;
+}
+
+export interface RankGap {
+  login: string;
+  name: string | null;
+  /** 1-based position of the account directly above. */
+  rank: number;
+  /** Their total minus ours; 0 means level on totals. */
+  behind: number;
+}
+
+export interface UserGoals {
+  /** Next personal milestone threshold, or null past the top of the ladder. */
+  nextMilestone: number | null;
+  /** Contributions remaining to the next milestone. */
+  toMilestone: number | null;
+  /** The account directly above, or null for the leader. */
+  above: RankGap | null;
+  /** For the leader only: margin over second place, or null with no runner-up. */
+  leadMargin: number | null;
+}
+
+/**
+ * Forward-looking goals for one row of the live-year board. `index` is the
+ * user's 0-based position in the board, which arrives ranked from the API.
+ */
+export function userGoals(board: Board, index: number): UserGoals {
+  const user = board[index];
+  const next = nextMilestone(user.totalContributions, PERSONAL_MILESTONES);
+  const aboveUser = index > 0 ? board[index - 1] : null;
+  const runnerUp = index === 0 && board.length > 1 ? board[1] : null;
+  return {
+    nextMilestone: next,
+    toMilestone: next === null ? null : next - user.totalContributions,
+    above: aboveUser
+      ? {
+          login: aboveUser.login,
+          name: aboveUser.name,
+          rank: index,
+          behind: aboveUser.totalContributions - user.totalContributions,
+        }
+      : null,
+    leadMargin: runnerUp ? user.totalContributions - runnerUp.totalContributions : null,
+  };
+}
+
+export interface BoardGoal {
+  total: number;
+  /** Next board-wide milestone, or null past the top of the ladder. */
+  nextMilestone: number | null;
+  remaining: number | null;
+}
+
+export function boardGoal(board: Board): BoardGoal {
+  const total = board.reduce((sum, user) => sum + user.totalContributions, 0);
+  const next = nextMilestone(total, BOARD_MILESTONES);
+  return { total, nextMilestone: next, remaining: next === null ? null : next - total };
 }
