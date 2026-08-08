@@ -412,3 +412,212 @@ export async function deliverMilestones(
     await save(milestoneStateSnapshot(progress));
   }
 }
+
+export interface PodiumEntry {
+  login: string;
+  url: string;
+  avatarUrl: string;
+  totalContributions: number;
+}
+
+export interface LeaderEvent {
+  leader: PodiumEntry;
+}
+
+export interface PodiumOvertakeEvent {
+  position: 2 | 3;
+  mover: PodiumEntry;
+  displaced: PodiumEntry;
+}
+
+export type PodiumNotification =
+  | { type: "leader"; event: LeaderEvent }
+  | { type: "podium-overtake"; event: PodiumOvertakeEvent };
+
+interface PendingPodiumNotifications {
+  top: PodiumEntry[];
+  notifications: PodiumNotification[];
+}
+
+/** Durable top-three state for one leaderboard year. */
+export interface PodiumState {
+  year: number;
+  top: PodiumEntry[];
+  pending?: PendingPodiumNotifications;
+}
+
+/** The shape written by the former leader-only implementation. */
+export interface LegacyLeaderState {
+  year: number;
+  login: string;
+}
+
+export interface PodiumPlan {
+  /** No alerts are sent when state is first introduced or the year changes. */
+  baseline: boolean;
+  /** State to save before sending a batch of position-change alerts. */
+  stateBeforeEvents: PodiumState;
+  needsPreparation: boolean;
+  notifications: PodiumNotification[];
+  /** The state reached after every planned alert succeeds. */
+  nextState: PodiumState;
+}
+
+function podiumEntry(user: BoardUser): PodiumEntry {
+  return {
+    login: user.login,
+    url: user.url,
+    avatarUrl: user.avatarUrl,
+    totalContributions: user.totalContributions,
+  };
+}
+
+function podiumStateSnapshot(state: PodiumState): PodiumState {
+  return {
+    ...state,
+    top: state.top.map((entry) => ({ ...entry })),
+    ...(state.pending
+      ? {
+          pending: {
+            top: state.pending.top.map((entry) => ({ ...entry })),
+            notifications: structuredClone(state.pending.notifications),
+          },
+        }
+      : {}),
+  };
+}
+
+function isPodiumState(state: PodiumState | LegacyLeaderState): state is PodiumState {
+  return Object.hasOwn(state, "top");
+}
+
+function samePodium(left: PodiumEntry[], right: PodiumEntry[]): boolean {
+  return left.length === right.length && left.every((entry, index) => {
+    const other = right[index];
+    return entry.login === other.login && entry.totalContributions === other.totalContributions;
+  });
+}
+
+function notificationKey(notification: PodiumNotification): string {
+  return notification.type === "leader"
+    ? `leader:${notification.event.leader.login}`
+    : `podium:${notification.event.position}:${notification.event.mover.login}:${notification.event.displaced.login}`;
+}
+
+/**
+ * Plans leader and lower-podium alerts from a durable top-three snapshot.
+ * Legacy leader-only state deliberately becomes a quiet baseline on upgrade.
+ */
+export function planPodium(
+  year: number,
+  board: Board,
+  previous?: PodiumState | LegacyLeaderState,
+): PodiumPlan {
+  const top = board.slice(0, 3).map(podiumEntry);
+  const baseline: PodiumState = { year, top };
+
+  if (!previous || !isPodiumState(previous) || previous.year !== year) {
+    return {
+      baseline: true,
+      stateBeforeEvents: baseline,
+      needsPreparation: true,
+      notifications: [],
+      nextState: baseline,
+    };
+  }
+
+  if (previous.pending) {
+    return {
+      baseline: false,
+      stateBeforeEvents: podiumStateSnapshot(previous),
+      needsPreparation: false,
+      notifications: previous.pending.notifications,
+      nextState: { year, top: previous.pending.top.map((entry) => ({ ...entry })) },
+    };
+  }
+
+  const notifications: PodiumNotification[] = [];
+  const leader = top[0];
+  const previousLeader = previous.top[0];
+  if (
+    leader &&
+    leader.totalContributions > 0 &&
+    previousLeader &&
+    leader.login !== previousLeader.login
+  ) {
+    notifications.push({ type: "leader", event: { leader } });
+  }
+
+  for (const position of [2, 3] as const) {
+    const mover = top[position - 1];
+    const displaced = previous.top[position - 1];
+    const previousPosition = previous.top.findIndex((entry) => entry.login === mover?.login) + 1;
+    if (
+      mover &&
+      displaced &&
+      mover.login !== displaced.login &&
+      previousPosition !== position &&
+      (previousPosition === 0 || previousPosition > position) &&
+      mover.totalContributions > displaced.totalContributions
+    ) {
+      notifications.push({ type: "podium-overtake", event: { position, mover, displaced } });
+    }
+  }
+
+  if (notifications.length === 0) {
+    const needsPreparation = !samePodium(previous.top, top);
+    return {
+      baseline: false,
+      stateBeforeEvents: baseline,
+      needsPreparation,
+      notifications,
+      nextState: baseline,
+    };
+  }
+
+  const stateBeforeEvents: PodiumState = {
+    year,
+    top: previous.top.map((entry) => ({ ...entry })),
+    pending: { top, notifications: structuredClone(notifications) },
+  };
+  return {
+    baseline: false,
+    stateBeforeEvents,
+    needsPreparation: true,
+    notifications,
+    nextState: baseline,
+  };
+}
+
+/**
+ * Sends a podium plan and records each successful alert. Pending transitions
+ * survive webhook failures so retries do not repeat already delivered posts.
+ */
+export async function deliverPodium(
+  plan: PodiumPlan,
+  notify: (notification: PodiumNotification) => Promise<void>,
+  save: (state: PodiumState) => Promise<void>,
+): Promise<void> {
+  if (plan.baseline) {
+    await save(podiumStateSnapshot(plan.nextState));
+    return;
+  }
+
+  const progress = podiumStateSnapshot(plan.stateBeforeEvents);
+  if (plan.needsPreparation) await save(podiumStateSnapshot(progress));
+
+  for (const notification of plan.notifications) {
+    await notify(notification);
+    const pending = progress.pending;
+    if (!pending) throw new Error("Podium notification checkpoint is missing.");
+    const key = notificationKey(notification);
+    pending.notifications = pending.notifications.filter(
+      (candidate) => notificationKey(candidate) !== key,
+    );
+    if (pending.notifications.length === 0) {
+      progress.top = pending.top;
+      delete progress.pending;
+    }
+    await save(podiumStateSnapshot(progress));
+  }
+}
