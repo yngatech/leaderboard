@@ -536,27 +536,53 @@ export function planPodium(
     };
   }
 
+  const currentUsers = new Map(board.map((user) => [user.login, user]));
+  // Without a complete, continuous podium snapshot, an apparent position gain
+  // could merely be the result of an account disappearing from the board.
+  if (
+    top.length < 3 ||
+    previous.top.length < 3 ||
+    previous.top.some((entry) => !currentUsers.has(entry.login))
+  ) {
+    const needsPreparation = !samePodium(previous.top, top);
+    return {
+      baseline: false,
+      stateBeforeEvents: baseline,
+      needsPreparation,
+      notifications: [],
+      nextState: baseline,
+    };
+  }
+
   const notifications: PodiumNotification[] = [];
   const leader = top[0];
   const previousLeader = previous.top[0];
+  const displacedLeader = previousLeader && currentUsers.get(previousLeader.login);
   if (
     leader &&
     leader.totalContributions > 0 &&
     previousLeader &&
-    leader.login !== previousLeader.login
+    displacedLeader &&
+    leader.login !== previousLeader.login &&
+    leader.totalContributions > displacedLeader.totalContributions
   ) {
     notifications.push({ type: "leader", event: { leader } });
   }
 
   for (const position of [2, 3] as const) {
     const mover = top[position - 1];
-    const displaced = previous.top[position - 1];
     const previousPosition = previous.top.findIndex((entry) => entry.login === mover?.login) + 1;
+    const displacedUser = board.slice(position).find((user) => {
+      const displacedPosition = previous.top.findIndex((entry) => entry.login === user.login) + 1;
+      return (
+        displacedPosition > 0 &&
+        (previousPosition === 0 || displacedPosition < previousPosition)
+      );
+    });
+    const displaced = displacedUser && podiumEntry(displacedUser);
     if (
       mover &&
       displaced &&
-      mover.login !== displaced.login &&
-      previousPosition !== position &&
       (previousPosition === 0 || previousPosition > position) &&
       mover.totalContributions > displaced.totalContributions
     ) {

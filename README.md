@@ -30,11 +30,12 @@ markdown views never disagree about the numbers.
 ## Discord notifications
 
 A scheduled Worker checks the current-year board every 30 minutes. When a new
-account takes the lead, someone sets a daily contributions PB, someone beats
-the board's peak daily contributions record, or a user or the board reaches a
-contribution milestone, it posts an embed to Discord. Daily records and
-milestones restart each calendar year. Durable state prevents duplicate
-messages; the first run records a baseline without sending one.
+account takes the lead, someone overtakes another account for 2nd or 3rd place,
+someone sets a daily contributions PB, someone beats the board's peak daily
+contributions record, or a user or the board reaches a contribution milestone,
+it posts an embed to Discord. Daily records and milestones restart each
+calendar year. Durable state prevents duplicate messages; the first run records
+a baseline without sending one.
 
 Set the webhook as an encrypted Worker secret before deploying:
 
