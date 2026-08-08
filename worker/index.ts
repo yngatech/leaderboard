@@ -5,15 +5,21 @@ import { currentYear, fetchArchiveTotals, fetchBoard, GitHubError, MIN_YEAR } fr
 import {
   deliverDailyRecords,
   deliverMilestones,
+  deliverStandings,
+  ordinal,
   planDailyRecords,
   planMilestones,
+  planStandings,
   type BoardMilestoneEvent,
   type BoardRecordEvent,
   type DailyRecordState,
   type MilestoneState,
   type PersonalMilestoneEvent,
   type PersonalBestEvent,
+  type StandingNotification,
+  type StandingState,
   SerialTaskQueue,
+  shouldUpdateNotifications,
 } from "./notifications";
 
 export interface Env {
@@ -512,7 +518,11 @@ async function refreshNotifications(env: Env): Promise<void> {
   if (!env.GITHUB_TOKEN) throw new Error(TOKEN_MISSING);
 
   const year = currentYear();
-  const { board } = await fetchBoard(env.GITHUB_TOKEN, year);
+  const { board, missing } = await fetchBoard(env.GITHUB_TOKEN, year);
+  if (!shouldUpdateNotifications(missing)) {
+    console.warn("notifications skipped for incomplete board", { year, missing });
+    return;
+  }
   await env.LEADER_STATE.getByName("leaderboard").update(year, board);
 }
 
@@ -584,6 +594,31 @@ function boardMilestoneEmbed(year: number, event: BoardMilestoneEvent): DiscordE
   };
 }
 
+function leaderEmbed(year: number, notification: Extract<StandingNotification, { type: "leader" }>): DiscordEmbed {
+  const { leader } = notification.event;
+  return {
+    title: "New git board leader",
+    url: `${SITE}/${year}`,
+    description: `[${leader.login}](${leader.url}) has taken the lead for **${year}** with **${count(leader.totalContributions)} contributions**.`,
+    color: 0xf0b429,
+    thumbnail: { url: leader.avatarUrl },
+  };
+}
+
+function standingOvertakeEmbed(
+  year: number,
+  notification: Extract<StandingNotification, { type: "overtake" }>,
+): DiscordEmbed {
+  const { position, mover, displaced } = notification.event;
+  return {
+    title: "Git board position change",
+    url: `${SITE}/${year}`,
+    description: `[${mover.login}](${mover.url}) has overtaken [${displaced.login}](${displaced.url}) for **${ordinal(position)} place** in ${year} with **${count(mover.totalContributions)} contributions**.`,
+    color: 0x58a6ff,
+    thumbnail: { url: mover.avatarUrl },
+  };
+}
+
 /** Stores notification checkpoints, so scheduled checks cannot post duplicates. */
 export class LeaderState extends DurableObject<Env> {
   /** External webhook fetches open the DO input gate, so queue whole updates. */
@@ -603,25 +638,21 @@ export class LeaderState extends DurableObject<Env> {
     if (!response.ok) throw new Error(`Discord rejected the notification (${response.status}).`);
   }
 
-  private async updateLeader(year: number, board: Board): Promise<void> {
+  private async updateStandings(year: number, board: Board): Promise<void> {
     const leader = board[0];
     if (!leader || leader.totalContributions === 0) return;
-    const previous = await this.ctx.storage.get<{ year: number; login: string }>("leader");
-    if (!previous) {
-      await this.ctx.storage.put("leader", { year, login: leader.login });
-      return;
-    }
-    if (previous.year === year && previous.login === leader.login) return;
-
-    await this.notify({
-      title: "New git board leader",
-      url: `${SITE}/${year}`,
-      description: `[${leader.login}](${leader.url}) has taken the lead for **${year}** with **${count(leader.totalContributions)} contributions**.`,
-      color: 0xf0b429,
-      thumbnail: { url: leader.avatarUrl },
-    });
-
-    await this.ctx.storage.put("leader", { year, login: leader.login });
+    const previous = await this.ctx.storage.get<StandingState | { year: number; login: string }>("leader");
+    const plan = planStandings(year, board, previous);
+    await deliverStandings(
+      plan,
+      (notification) =>
+        this.notify(
+          notification.type === "leader"
+            ? leaderEmbed(year, notification)
+            : standingOvertakeEmbed(year, notification),
+        ),
+      (state) => this.ctx.storage.put("leader", state),
+    );
   }
 
   private async updateDailyRecords(year: number, board: Board): Promise<void> {
@@ -656,7 +687,7 @@ export class LeaderState extends DurableObject<Env> {
 
   async update(year: number, board: Board): Promise<void> {
     return this.updates.run(async () => {
-      await this.updateLeader(year, board);
+      await this.updateStandings(year, board);
       await this.updateDailyRecords(year, board);
       await this.updateMilestones(year, board);
     });

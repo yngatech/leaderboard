@@ -412,3 +412,232 @@ export async function deliverMilestones(
     await save(milestoneStateSnapshot(progress));
   }
 }
+
+export interface StandingEntry {
+  login: string;
+  url: string;
+  avatarUrl: string;
+  totalContributions: number;
+}
+
+export interface LeaderEvent {
+  leader: StandingEntry;
+}
+
+export interface OvertakeEvent {
+  position: number;
+  mover: StandingEntry;
+  displaced: StandingEntry;
+}
+
+export type StandingNotification =
+  | { type: "leader"; event: LeaderEvent }
+  | { type: "overtake"; event: OvertakeEvent };
+
+/** Durable full-board standing state for one leaderboard year. */
+export interface StandingState {
+  year: number;
+  order: string[];
+}
+
+/** The shape written by the former leader-only implementation. */
+export interface LegacyLeaderState {
+  year: number;
+  login: string;
+}
+
+/** The unshipped top-three shape from the preceding implementation. */
+export interface LegacyTopThreeState {
+  year: number;
+  top: StandingEntry[];
+}
+
+/** The entry-based standings shape written by the preceding implementation. */
+export interface LegacyEntryStandingState {
+  year: number;
+  order: StandingEntry[];
+}
+
+export interface StandingNotificationStep {
+  notification: StandingNotification;
+  /** Ordering to checkpoint immediately after this notification succeeds. */
+  nextState: StandingState;
+}
+
+export interface StandingPlan {
+  /** No alerts are sent when state is first introduced or the year changes. */
+  baseline: boolean;
+  /** State to save before sending a batch of rank-change alerts. */
+  stateBeforeEvents: StandingState;
+  needsPreparation: boolean;
+  notifications: StandingNotificationStep[];
+  /** The state reached after every planned alert succeeds. */
+  nextState: StandingState;
+}
+
+function standingEntry(user: BoardUser): StandingEntry {
+  return {
+    login: user.login,
+    url: user.url,
+    avatarUrl: user.avatarUrl,
+    totalContributions: user.totalContributions,
+  };
+}
+
+function standingStateSnapshot(state: StandingState): StandingState {
+  return { ...state, order: [...state.order] };
+}
+
+function isStandingState(
+  state: StandingState | LegacyLeaderState | LegacyTopThreeState | LegacyEntryStandingState,
+): state is StandingState {
+  if (!Object.hasOwn(state, "order")) return false;
+  return (state as { order: unknown[] }).order.every((login) => typeof login === "string");
+}
+
+function sameOrder(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((login, index) => login === right[index]);
+}
+
+function currentOrder(board: Board, previousOrder?: string[]): string[] {
+  const previousPositions = new Map(previousOrder?.map((login, index) => [login, index]) ?? []);
+  const storedLength = previousOrder?.length ?? 0;
+  return board
+    .map((user, index) => ({
+      user,
+      incumbencyRank: previousPositions.get(user.login) ?? storedLength + index,
+    }))
+    .sort((left, right) => {
+      const totalDifference = right.user.totalContributions - left.user.totalContributions;
+      if (totalDifference !== 0) return totalDifference;
+      return left.incumbencyRank - right.incumbencyRank;
+    })
+    .map(({ user }) => user.login);
+}
+
+export function ordinal(position: number): string {
+  const lastTwo = position % 100;
+  if (lastTwo >= 11 && lastTwo <= 13) return `${position}th`;
+  switch (position % 10) {
+    case 1:
+      return `${position}st`;
+    case 2:
+      return `${position}nd`;
+    case 3:
+      return `${position}rd`;
+    default:
+      return `${position}th`;
+  }
+}
+
+/** Partial GitHub responses must not advance any notification checkpoint. */
+export function shouldUpdateNotifications(missing: readonly string[]): boolean {
+  return missing.length === 0;
+}
+
+/**
+ * Plans leader and lower-rank alerts from a durable full-board snapshot.
+ * Older leader-only and top-three state deliberately become quiet baselines.
+ */
+export function planStandings(
+  year: number,
+  board: Board,
+  previous?: StandingState | LegacyLeaderState | LegacyTopThreeState | LegacyEntryStandingState,
+): StandingPlan {
+  const previousOrder = previous && isStandingState(previous) ? previous.order : undefined;
+  const order = currentOrder(board, previousOrder);
+  const baseline: StandingState = { year, order };
+
+  if (!previous || !isStandingState(previous) || previous.year !== year) {
+    return {
+      baseline: true,
+      stateBeforeEvents: baseline,
+      needsPreparation: true,
+      notifications: [],
+      nextState: baseline,
+    };
+  }
+
+  const currentUsers = new Map(board.map((user) => [user.login, user]));
+  // Joining or leaving accounts are adopted silently so their historic totals
+  // cannot be mistaken for a newly observed overtake.
+  if (
+    previous.order.length !== board.length ||
+    previous.order.some((login) => !currentUsers.has(login))
+  ) {
+    const needsPreparation = !sameOrder(previous.order, order);
+    return {
+      baseline: false,
+      stateBeforeEvents: baseline,
+      needsPreparation,
+      notifications: [],
+      nextState: baseline,
+    };
+  }
+
+  const workOrder = [...previous.order];
+  const notifications: StandingNotificationStep[] = [];
+  for (let targetIndex = 0; targetIndex < order.length; targetIndex += 1) {
+    const moverLogin = order[targetIndex];
+    let moverIndex = workOrder.indexOf(moverLogin);
+    while (moverIndex > targetIndex) {
+      const displacedLogin = workOrder[moverIndex - 1];
+      const mover = standingEntry(currentUsers.get(moverLogin)!);
+      const displaced = standingEntry(currentUsers.get(displacedLogin)!);
+      workOrder[moverIndex - 1] = moverLogin;
+      workOrder[moverIndex] = displacedLogin;
+      const position = moverIndex;
+      const notification: StandingNotification =
+        position === 1
+          ? { type: "leader", event: { leader: mover } }
+          : { type: "overtake", event: { position, mover, displaced } };
+      notifications.push({ notification, nextState: { year, order: [...workOrder] } });
+      moverIndex -= 1;
+    }
+  }
+
+  if (notifications.length === 0) {
+    const needsPreparation = !sameOrder(previous.order, order);
+    return {
+      baseline: false,
+      stateBeforeEvents: baseline,
+      needsPreparation,
+      notifications,
+      nextState: baseline,
+    };
+  }
+
+  return {
+    baseline: false,
+    stateBeforeEvents: standingStateSnapshot(previous),
+    needsPreparation: false,
+    notifications,
+    nextState: baseline,
+  };
+}
+
+/**
+ * Sends a standings plan and checkpoints the ordering after each successful
+ * crossing, so retries naturally re-plan only transitions still outstanding.
+ */
+export async function deliverStandings(
+  plan: StandingPlan,
+  notify: (notification: StandingNotification) => Promise<void>,
+  save: (state: StandingState) => Promise<void>,
+): Promise<void> {
+  if (plan.baseline) {
+    await save(standingStateSnapshot(plan.nextState));
+    return;
+  }
+
+  const progress = standingStateSnapshot(plan.stateBeforeEvents);
+  if (plan.needsPreparation) await save(standingStateSnapshot(progress));
+
+  for (const step of plan.notifications) {
+    // This is deliberately at-least-once: a webhook can succeed just before a
+    // checkpoint write fails, in which case retrying may repeat that alert.
+    // Notify first so an outage cannot silently lose a genuine crossing.
+    await notify(step.notification);
+    await save(standingStateSnapshot(step.nextState));
+  }
+}
