@@ -957,3 +957,162 @@ test("skips notification updates for incomplete boards", () => {
   assert.equal(shouldUpdateNotifications([]), true);
   assert.equal(shouldUpdateNotifications(["secondary-account"]), false);
 });
+
+test("keeps tied incumbents ordered through a failed alert when a new account joins", async () => {
+  let stored = standingsState([["bob", 100], ["alice", 90], ["carol", 80]]);
+  const delivered: string[] = [];
+  const save = async (state: StandingState) => {
+    stored = structuredClone(state);
+  };
+
+  await assert.rejects(
+    deliverStandings(
+      planStandings(2026, [totalUser("alice", 101), totalUser("bob", 100), totalUser("carol", 80)], stored),
+      async () => {
+        throw new Error("Discord unavailable");
+      },
+      save,
+    ),
+    /Discord unavailable/,
+  );
+
+  await deliverStandings(
+    planStandings(
+      2026,
+      [totalUser("alice", 100), totalUser("bob", 100), totalUser("carol", 100), totalUser("andy", 100)],
+      stored,
+    ),
+    async (notification) => {
+      delivered.push(standingsNotificationId(notification));
+    },
+    save,
+  );
+  assert.equal(delivered.length, 0);
+  assert.deepEqual(stored, standingsState([["bob", 100], ["alice", 100], ["carol", 100], ["andy", 100]]));
+
+  await deliverStandings(
+    planStandings(
+      2026,
+      [totalUser("alice", 101), totalUser("bob", 100), totalUser("carol", 100), totalUser("andy", 100)],
+      stored,
+    ),
+    async (notification) => {
+      delivered.push(standingsNotificationId(notification));
+    },
+    save,
+  );
+  assert.deepEqual(delivered, ["leader:alice"]);
+});
+
+test("adopts joins and leaves silently during a failed-delivery window", async () => {
+  const initial = standingsState([["alice", 100], ["bob", 90], ["carol", 80]]);
+  const failedBoard = [totalUser("alice", 100), totalUser("carol", 95), totalUser("bob", 90)];
+  const retries: Array<{ board: Board; expected: StandingState }> = [
+    {
+      board: [...failedBoard, totalUser("dave", 70)],
+      expected: standingsState([["alice", 100], ["carol", 95], ["bob", 90], ["dave", 70]]),
+    },
+    {
+      board: [totalUser("alice", 100), totalUser("carol", 95)],
+      expected: standingsState([["alice", 100], ["carol", 95]]),
+    },
+  ];
+
+  for (const retry of retries) {
+    let stored = structuredClone(initial);
+    const delivered: string[] = [];
+    const save = async (state: StandingState) => {
+      stored = structuredClone(state);
+    };
+    await assert.rejects(
+      deliverStandings(
+        planStandings(2026, failedBoard, stored),
+        async () => {
+          throw new Error("Discord unavailable");
+        },
+        save,
+      ),
+      /Discord unavailable/,
+    );
+
+    await deliverStandings(
+      planStandings(2026, retry.board, stored),
+      async (notification) => {
+        delivered.push(standingsNotificationId(notification));
+      },
+      save,
+    );
+    assert.equal(delivered.length, 0);
+    assert.deepEqual(stored, retry.expected);
+  }
+});
+
+test("allows pass and re-pass cycles below the leader", async () => {
+  let stored = standingsState([["top", 200], ["alice", 100], ["bob", 90]]);
+  const delivered: string[] = [];
+  const save = async (state: StandingState) => {
+    stored = structuredClone(state);
+  };
+  const notify = async (notification: StandingNotification) => {
+    delivered.push(standingsNotificationId(notification));
+  };
+
+  for (const board of [
+    [totalUser("top", 200), totalUser("bob", 110), totalUser("alice", 100)],
+    [totalUser("top", 200), totalUser("alice", 120), totalUser("bob", 110)],
+    [totalUser("top", 200), totalUser("bob", 130), totalUser("alice", 120)],
+  ]) {
+    await deliverStandings(planStandings(2026, board, stored), notify, save);
+  }
+
+  assert.deepEqual(delivered, ["overtake:2:bob", "overtake:2:alice", "overtake:2:bob"]);
+});
+
+test("checkpoints each pair in a multi-position jump before retrying the remainder", async () => {
+  let stored = standingsState([["alice", 100], ["bob", 90], ["carol", 80], ["dave", 70]]);
+  const board = [totalUser("alice", 100), totalUser("dave", 95), totalUser("bob", 90), totalUser("carol", 80)];
+  const delivered: string[] = [];
+  let failSecondPair = true;
+  const notify = async (notification: StandingNotification) => {
+    if (standingsNotificationId(notification) === "overtake:2:dave" && failSecondPair) {
+      failSecondPair = false;
+      throw new Error("Discord unavailable");
+    }
+    delivered.push(standingsNotificationId(notification));
+  };
+  const save = async (state: StandingState) => {
+    stored = structuredClone(state);
+  };
+
+  await assert.rejects(deliverStandings(planStandings(2026, board, stored), notify, save), /Discord unavailable/);
+  assert.deepEqual(stored, standingsState([["alice", 100], ["bob", 90], ["dave", 95], ["carol", 80]]));
+
+  await deliverStandings(planStandings(2026, board, stored), notify, save);
+  assert.deepEqual(delivered, ["overtake:3:dave", "overtake:2:dave"]);
+  assert.deepEqual(stored, standingsState([["alice", 100], ["dave", 95], ["bob", 90], ["carol", 80]]));
+});
+
+test("repeats at most one alert when a successful post cannot be checkpointed", async () => {
+  let stored = standingsState([["alice", 100], ["bob", 90], ["carol", 80]]);
+  const board = [totalUser("alice", 100), totalUser("carol", 95), totalUser("bob", 90)];
+  const delivered: string[] = [];
+  let failSave = true;
+  const notify = async (notification: StandingNotification) => {
+    delivered.push(standingsNotificationId(notification));
+  };
+  const save = async (state: StandingState) => {
+    if (failSave) {
+      failSave = false;
+      throw new Error("storage unavailable");
+    }
+    stored = structuredClone(state);
+  };
+
+  await assert.rejects(deliverStandings(planStandings(2026, board, stored), notify, save), /storage unavailable/);
+  assert.deepEqual(stored, standingsState([["alice", 100], ["bob", 90], ["carol", 80]]));
+
+  await deliverStandings(planStandings(2026, board, stored), notify, save);
+  await deliverStandings(planStandings(2026, board, stored), notify, save);
+  assert.deepEqual(delivered, ["overtake:2:carol", "overtake:2:carol"]);
+  assert.deepEqual(stored, standingsState([["alice", 100], ["carol", 95], ["bob", 90]]));
+});

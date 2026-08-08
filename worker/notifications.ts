@@ -501,15 +501,16 @@ function sameOrder(left: string[], right: string[]): boolean {
 
 function currentOrder(board: Board, previousOrder?: string[]): string[] {
   const previousPositions = new Map(previousOrder?.map((login, index) => [login, index]) ?? []);
+  const storedLength = previousOrder?.length ?? 0;
   return board
-    .map((user, index) => ({ user, index }))
+    .map((user, index) => ({
+      user,
+      incumbencyRank: previousPositions.get(user.login) ?? storedLength + index,
+    }))
     .sort((left, right) => {
       const totalDifference = right.user.totalContributions - left.user.totalContributions;
       if (totalDifference !== 0) return totalDifference;
-      const leftPrevious = previousPositions.get(left.user.login);
-      const rightPrevious = previousPositions.get(right.user.login);
-      if (leftPrevious !== undefined && rightPrevious !== undefined) return leftPrevious - rightPrevious;
-      return left.index - right.index;
+      return left.incumbencyRank - right.incumbencyRank;
     })
     .map(({ user }) => user.login);
 }
@@ -633,6 +634,9 @@ export async function deliverStandings(
   if (plan.needsPreparation) await save(standingStateSnapshot(progress));
 
   for (const step of plan.notifications) {
+    // This is deliberately at-least-once: a webhook can succeed just before a
+    // checkpoint write fails, in which case retrying may repeat that alert.
+    // Notify first so an outage cannot silently lose a genuine crossing.
     await notify(step.notification);
     await save(standingStateSnapshot(step.nextState));
   }
