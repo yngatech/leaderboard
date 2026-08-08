@@ -19,6 +19,7 @@ import {
   type StandingNotification,
   type StandingState,
   SerialTaskQueue,
+  shouldUpdateNotifications,
 } from "./notifications";
 
 export interface Env {
@@ -518,7 +519,7 @@ async function refreshNotifications(env: Env): Promise<void> {
 
   const year = currentYear();
   const { board, missing } = await fetchBoard(env.GITHUB_TOKEN, year);
-  if (missing.length > 0) {
+  if (!shouldUpdateNotifications(missing)) {
     console.warn("notifications skipped for incomplete board", { year, missing });
     return;
   }

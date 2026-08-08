@@ -437,9 +437,7 @@ export type StandingNotification =
 /** Durable full-board standing state for one leaderboard year. */
 export interface StandingState {
   year: number;
-  order: StandingEntry[];
-  /** Alerts already delivered while this ordering transition is in progress. */
-  delivered?: string[];
+  order: string[];
 }
 
 /** The shape written by the former leader-only implementation. */
@@ -454,13 +452,25 @@ export interface LegacyTopThreeState {
   top: StandingEntry[];
 }
 
+/** The entry-based standings shape written by the preceding implementation. */
+export interface LegacyEntryStandingState {
+  year: number;
+  order: StandingEntry[];
+}
+
+export interface StandingNotificationStep {
+  notification: StandingNotification;
+  /** Ordering to checkpoint immediately after this notification succeeds. */
+  nextState: StandingState;
+}
+
 export interface StandingPlan {
   /** No alerts are sent when state is first introduced or the year changes. */
   baseline: boolean;
   /** State to save before sending a batch of rank-change alerts. */
   stateBeforeEvents: StandingState;
   needsPreparation: boolean;
-  notifications: StandingNotification[];
+  notifications: StandingNotificationStep[];
   /** The state reached after every planned alert succeeds. */
   nextState: StandingState;
 }
@@ -475,30 +485,33 @@ function standingEntry(user: BoardUser): StandingEntry {
 }
 
 function standingStateSnapshot(state: StandingState): StandingState {
-  return {
-    ...state,
-    order: state.order.map((entry) => ({ ...entry })),
-    ...(state.delivered ? { delivered: [...state.delivered] } : {}),
-  };
+  return { ...state, order: [...state.order] };
 }
 
 function isStandingState(
-  state: StandingState | LegacyLeaderState | LegacyTopThreeState,
+  state: StandingState | LegacyLeaderState | LegacyTopThreeState | LegacyEntryStandingState,
 ): state is StandingState {
-  return Object.hasOwn(state, "order");
+  if (!Object.hasOwn(state, "order")) return false;
+  return (state as { order: unknown[] }).order.every((login) => typeof login === "string");
 }
 
-function sameStanding(left: StandingEntry[], right: StandingEntry[]): boolean {
-  return left.length === right.length && left.every((entry, index) => {
-    const other = right[index];
-    return entry.login === other.login && entry.totalContributions === other.totalContributions;
-  });
+function sameOrder(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((login, index) => login === right[index]);
 }
 
-function notificationKey(notification: StandingNotification): string {
-  return notification.type === "leader"
-    ? `leader:${notification.event.leader.login}`
-    : `overtake:${notification.event.position}:${notification.event.mover.login}:${notification.event.displaced.login}`;
+function currentOrder(board: Board, previousOrder?: string[]): string[] {
+  const previousPositions = new Map(previousOrder?.map((login, index) => [login, index]) ?? []);
+  return board
+    .map((user, index) => ({ user, index }))
+    .sort((left, right) => {
+      const totalDifference = right.user.totalContributions - left.user.totalContributions;
+      if (totalDifference !== 0) return totalDifference;
+      const leftPrevious = previousPositions.get(left.user.login);
+      const rightPrevious = previousPositions.get(right.user.login);
+      if (leftPrevious !== undefined && rightPrevious !== undefined) return leftPrevious - rightPrevious;
+      return left.index - right.index;
+    })
+    .map(({ user }) => user.login);
 }
 
 export function ordinal(position: number): string {
@@ -516,6 +529,11 @@ export function ordinal(position: number): string {
   }
 }
 
+/** Partial GitHub responses must not advance any notification checkpoint. */
+export function shouldUpdateNotifications(missing: readonly string[]): boolean {
+  return missing.length === 0;
+}
+
 /**
  * Plans leader and lower-rank alerts from a durable full-board snapshot.
  * Older leader-only and top-three state deliberately become quiet baselines.
@@ -523,9 +541,10 @@ export function ordinal(position: number): string {
 export function planStandings(
   year: number,
   board: Board,
-  previous?: StandingState | LegacyLeaderState | LegacyTopThreeState,
+  previous?: StandingState | LegacyLeaderState | LegacyTopThreeState | LegacyEntryStandingState,
 ): StandingPlan {
-  const order = board.map(standingEntry);
+  const previousOrder = previous && isStandingState(previous) ? previous.order : undefined;
+  const order = currentOrder(board, previousOrder);
   const baseline: StandingState = { year, order };
 
   if (!previous || !isStandingState(previous) || previous.year !== year) {
@@ -539,10 +558,13 @@ export function planStandings(
   }
 
   const currentUsers = new Map(board.map((user) => [user.login, user]));
-  // Without a continuous board snapshot, an apparent position gain
-  // could merely be the result of an account disappearing from the board.
-  if (previous.order.some((entry) => !currentUsers.has(entry.login))) {
-    const needsPreparation = !sameStanding(previous.order, order);
+  // Joining or leaving accounts are adopted silently so their historic totals
+  // cannot be mistaken for a newly observed overtake.
+  if (
+    previous.order.length !== board.length ||
+    previous.order.some((login) => !currentUsers.has(login))
+  ) {
+    const needsPreparation = !sameOrder(previous.order, order);
     return {
       baseline: false,
       stateBeforeEvents: baseline,
@@ -552,47 +574,29 @@ export function planStandings(
     };
   }
 
-  const candidates: StandingNotification[] = [];
-  const previousPositions = new Map(previous.order.map((entry, index) => [entry.login, index + 1]));
-  const leader = order[0];
-  const previousLeader = previous.order[0];
-  const displacedLeader = previousLeader && currentUsers.get(previousLeader.login);
-  if (
-    leader &&
-    leader.totalContributions > 0 &&
-    previousLeader &&
-    displacedLeader &&
-    leader.login !== previousLeader.login &&
-    leader.totalContributions > displacedLeader.totalContributions
-  ) {
-    candidates.push({ type: "leader", event: { leader } });
-  }
-
-  for (let position = 2; position <= order.length; position += 1) {
-    const mover = order[position - 1];
-    const previousPosition = previousPositions.get(mover.login);
-    const displacedUser = board.slice(position).find((user) => {
-      const displacedPosition = previousPositions.get(user.login);
-      return (
-        displacedPosition !== undefined &&
-        (previousPosition === undefined || displacedPosition < previousPosition)
-      );
-    });
-    const displaced = displacedUser && standingEntry(displacedUser);
-    if (
-      displaced &&
-      (previousPosition === undefined || previousPosition > position) &&
-      mover.totalContributions > displaced.totalContributions
-    ) {
-      candidates.push({ type: "overtake", event: { position, mover, displaced } });
+  const workOrder = [...previous.order];
+  const notifications: StandingNotificationStep[] = [];
+  for (let targetIndex = 0; targetIndex < order.length; targetIndex += 1) {
+    const moverLogin = order[targetIndex];
+    let moverIndex = workOrder.indexOf(moverLogin);
+    while (moverIndex > targetIndex) {
+      const displacedLogin = workOrder[moverIndex - 1];
+      const mover = standingEntry(currentUsers.get(moverLogin)!);
+      const displaced = standingEntry(currentUsers.get(displacedLogin)!);
+      workOrder[moverIndex - 1] = moverLogin;
+      workOrder[moverIndex] = displacedLogin;
+      const position = moverIndex;
+      const notification: StandingNotification =
+        position === 1
+          ? { type: "leader", event: { leader: mover } }
+          : { type: "overtake", event: { position, mover, displaced } };
+      notifications.push({ notification, nextState: { year, order: [...workOrder] } });
+      moverIndex -= 1;
     }
   }
 
-  const delivered = new Set(previous.delivered);
-  const notifications = candidates.filter((notification) => !delivered.has(notificationKey(notification)));
-
   if (notifications.length === 0) {
-    const needsPreparation = !sameStanding(previous.order, order) || delivered.size > 0;
+    const needsPreparation = !sameOrder(previous.order, order);
     return {
       baseline: false,
       stateBeforeEvents: baseline,
@@ -612,8 +616,8 @@ export function planStandings(
 }
 
 /**
- * Sends a standings plan and checkpoints each success. Retries plan against a
- * fresh board and skip only alerts that were already delivered.
+ * Sends a standings plan and checkpoints the ordering after each successful
+ * crossing, so retries naturally re-plan only transitions still outstanding.
  */
 export async function deliverStandings(
   plan: StandingPlan,
@@ -628,11 +632,8 @@ export async function deliverStandings(
   const progress = standingStateSnapshot(plan.stateBeforeEvents);
   if (plan.needsPreparation) await save(standingStateSnapshot(progress));
 
-  for (const notification of plan.notifications) {
-    await notify(notification);
-    progress.delivered = [...new Set([...(progress.delivered ?? []), notificationKey(notification)])];
-    await save(standingStateSnapshot(progress));
+  for (const step of plan.notifications) {
+    await notify(step.notification);
+    await save(standingStateSnapshot(step.nextState));
   }
-
-  if (plan.notifications.length > 0) await save(standingStateSnapshot(plan.nextState));
 }

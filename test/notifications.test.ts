@@ -10,6 +10,7 @@ import {
   planMilestones,
   planStandings,
   SerialTaskQueue,
+  shouldUpdateNotifications,
   type DailyRecordNotification,
   type DailyRecordState,
   type MilestoneNotification,
@@ -515,12 +516,7 @@ test("retries only the board milestone when its webhook fails after personal mil
 function standingsState(order: Array<[login: string, totalContributions: number]>): StandingState {
   return {
     year: 2026,
-    order: order.map(([login, totalContributions]) => ({
-      login,
-      url: `https://github.com/${login}`,
-      avatarUrl: `https://avatars.example/${login}`,
-      totalContributions,
-    })),
+    order: order.map(([login]) => login),
   };
 }
 
@@ -528,6 +524,10 @@ function standingsNotificationId(notification: StandingNotification): string {
   return notification.type === "leader"
     ? `leader:${notification.event.leader.login}`
     : `overtake:${notification.event.position}:${notification.event.mover.login}`;
+}
+
+function standingStepId(step: { notification: StandingNotification }): string {
+  return standingsNotificationId(step.notification);
 }
 
 test("seeds the full standings silently when standings state is first created", () => {
@@ -546,37 +546,20 @@ test("announces a clean overtake into second place", () => {
   const plan = planStandings(
     2026,
     [totalUser("alice", 100), totalUser("dave", 91), totalUser("bob", 90), totalUser("carol", 80)],
-    standingsState([["alice", 100], ["bob", 90], ["carol", 80]]),
+    standingsState([["alice", 100], ["bob", 90], ["carol", 80], ["dave", 70]]),
   );
 
-  assert.deepEqual(plan.notifications, [{
-    type: "overtake",
-    event: {
-      position: 2,
-      mover: {
-        login: "dave",
-        url: "https://github.com/dave",
-        avatarUrl: "https://avatars.example/dave",
-        totalContributions: 91,
-      },
-      displaced: {
-        login: "bob",
-        url: "https://github.com/bob",
-        avatarUrl: "https://avatars.example/bob",
-        totalContributions: 90,
-      },
-    },
-  }]);
+  assert.deepEqual(plan.notifications.map(standingStepId), ["overtake:3:dave", "overtake:2:dave"]);
 });
 
 test("announces a clean overtake into third place", () => {
   const plan = planStandings(
     2026,
     [totalUser("alice", 100), totalUser("bob", 90), totalUser("dave", 81), totalUser("carol", 80)],
-    standingsState([["alice", 100], ["bob", 90], ["carol", 80]]),
+    standingsState([["alice", 100], ["bob", 90], ["carol", 80], ["dave", 70]]),
   );
 
-  assert.deepEqual(plan.notifications.map(standingsNotificationId), ["overtake:3:dave"]);
+  assert.deepEqual(plan.notifications.map(standingStepId), ["overtake:3:dave"]);
 });
 
 test("announces a mid-board overtake into fourth place", () => {
@@ -598,7 +581,7 @@ test("announces a mid-board overtake into fourth place", () => {
     ]),
   );
 
-  assert.deepEqual(plan.notifications.map(standingsNotificationId), ["overtake:4:erin"]);
+  assert.deepEqual(plan.notifications.map(standingStepId), ["overtake:4:erin"]);
 });
 
 test("formats rank ordinals correctly", () => {
@@ -611,11 +594,11 @@ test("formats rank ordinals correctly", () => {
 test("a leader change does not also announce the displaced former leader", () => {
   const plan = planStandings(
     2026,
-    [totalUser("dave", 110), totalUser("alice", 100), totalUser("bob", 90), totalUser("carol", 80)],
+    [totalUser("bob", 110), totalUser("alice", 100), totalUser("carol", 80)],
     standingsState([["alice", 100], ["bob", 90], ["carol", 80]]),
   );
 
-  assert.deepEqual(plan.notifications.map(standingsNotificationId), ["leader:dave"]);
+  assert.deepEqual(plan.notifications.map(standingStepId), ["leader:bob"]);
 });
 
 test("does not announce tied totals that only change ordering", () => {
@@ -652,19 +635,13 @@ test("attributes simultaneous moves to the person the mover actually passed", ()
   const plan = planStandings(
     2026,
     [totalUser("bob", 120), totalUser("dave", 110), totalUser("alice", 100), totalUser("carol", 80)],
-    standingsState([["alice", 100], ["bob", 90], ["carol", 80]]),
+    standingsState([["alice", 100], ["bob", 90], ["carol", 80], ["dave", 70]]),
   );
 
-  assert.deepEqual(plan.notifications, [
-    { type: "leader", event: { leader: standingsState([["bob", 120]]).order[0] } },
-    {
-      type: "overtake",
-      event: {
-        position: 2,
-        mover: standingsState([["dave", 110]]).order[0],
-        displaced: standingsState([["alice", 100]]).order[0],
-      },
-    },
+  assert.deepEqual(plan.notifications.map(standingStepId), [
+    "leader:bob",
+    "overtake:3:dave",
+    "overtake:2:dave",
   ]);
 });
 
@@ -687,7 +664,7 @@ test("notifies each existing user in a multi-position cascade with the right dis
     ]),
   );
 
-  assert.deepEqual(plan.notifications.map((notification) => {
+  assert.deepEqual(plan.notifications.map(({ notification }) => {
     assert.equal(notification.type, "overtake");
     return {
       position: notification.event.position,
@@ -695,10 +672,13 @@ test("notifies each existing user in a multi-position cascade with the right dis
       displaced: notification.event.displaced.login,
     };
   }), [
-    { position: 2, mover: "erin", displaced: "dave" },
+    { position: 4, mover: "erin", displaced: "dave" },
+    { position: 3, mover: "erin", displaced: "carol" },
+    { position: 2, mover: "erin", displaced: "bob" },
+    { position: 4, mover: "dave", displaced: "carol" },
     { position: 3, mover: "dave", displaced: "bob" },
   ]);
-  assert.equal(plan.notifications.length, 2);
+  assert.equal(plan.notifications.length, 5);
 });
 
 test("does not announce an ex-leader as a mover during simultaneous upward moves", () => {
@@ -708,7 +688,7 @@ test("does not announce an ex-leader as a mover during simultaneous upward moves
     standingsState([["alice", 100], ["bob", 90], ["carol", 80]]),
   );
 
-  assert.deepEqual(plan.notifications.map(standingsNotificationId), ["leader:bob", "overtake:2:carol"]);
+  assert.deepEqual(plan.notifications.map(standingStepId), ["leader:bob", "overtake:2:carol"]);
 });
 
 test("seeds changes silently when a standing user disappears or the board shrinks", () => {
@@ -753,7 +733,12 @@ test("migrates the old top-three state without posting a rank alert", () => {
     [totalUser("alice", 100), totalUser("dave", 91), totalUser("bob", 90), totalUser("carol", 80)],
     {
       year: 2026,
-      top: standingsState([["alice", 100], ["bob", 90], ["carol", 80]]).order,
+      top: ["alice", "bob", "carol"].map((login, index) => ({
+        login,
+        url: `https://github.com/${login}`,
+        avatarUrl: `https://avatars.example/${login}`,
+        totalContributions: [100, 90, 80][index],
+      })),
     },
   );
 
@@ -775,11 +760,17 @@ test("checkpoints each successful rank alert when a later webhook fails", async 
     totalUser("bob", 90),
     totalUser("carol", 80),
   ];
-  let stored = standingsState([["alice", 100], ["bob", 90], ["carol", 80]]);
+  let stored = standingsState([
+    ["alice", 100],
+    ["bob", 90],
+    ["carol", 80],
+    ["dave", 70],
+    ["erin", 60],
+  ]);
   let failErin = true;
   const delivered: string[] = [];
   const notify = async (notification: StandingNotification) => {
-    if (standingsNotificationId(notification) === "overtake:3:erin" && failErin) {
+    if (standingsNotificationId(notification) === "overtake:4:erin" && failErin) {
       failErin = false;
       throw new Error("Discord unavailable");
     }
@@ -793,13 +784,16 @@ test("checkpoints each successful rank alert when a later webhook fails", async 
     deliverStandings(planStandings(2026, board, stored), notify, save),
     /Discord unavailable/,
   );
-  assert.deepEqual(stored, {
-    ...standingsState([["alice", 100], ["bob", 90], ["carol", 80]]),
-    delivered: ["overtake:2:dave:bob"],
-  });
+  assert.deepEqual(stored, standingsState([
+    ["alice", 100],
+    ["dave", 99],
+    ["bob", 90],
+    ["carol", 80],
+    ["erin", 60],
+  ]));
 
   await deliverStandings(planStandings(2026, board, stored), notify, save);
-  assert.deepEqual(delivered, ["overtake:2:dave", "overtake:3:erin"]);
+  assert.deepEqual(delivered, ["overtake:3:dave", "overtake:2:dave", "overtake:4:erin", "overtake:3:erin"]);
   assert.deepEqual(stored, standingsState([
     ["alice", 100],
     ["dave", 99],
@@ -833,93 +827,133 @@ test("does not repeat a checkpointed leader after a later rank alert fails", asy
     deliverStandings(planStandings(2026, board, stored), notify, save),
     /Discord unavailable/,
   );
-  assert.deepEqual(stored.delivered, ["leader:bob"]);
+  assert.deepEqual(stored, standingsState([["bob", 120], ["alice", 100], ["carol", 110]]));
 
   await deliverStandings(planStandings(2026, board, stored), notify, save);
   assert.deepEqual(delivered, ["leader:bob", "overtake:2:carol"]);
   assert.deepEqual(stored, standingsState([["bob", 120], ["carol", 110], ["alice", 100]]));
 });
 
-test("drops failed overtakes that reverse, tie, or lose their displaced user before retry", async () => {
-  const initial = standingsState([
-    ["alice", 100],
-    ["bob", 90],
-    ["carol", 80],
-    ["dave", 70],
-    ["erin", 60],
-  ]);
-  const firstBoard = [
-    totalUser("alice", 100),
-    totalUser("dave", 99),
-    totalUser("erin", 98),
-    totalUser("bob", 90),
-    totalUser("carol", 80),
-  ];
-  const retries: Array<{
-    board: Board;
-    state: StandingState;
-  }> = [
-    {
-      board: [
-        totalUser("alice", 100),
-        totalUser("bob", 90),
-        totalUser("carol", 80),
-        totalUser("dave", 70),
-        totalUser("erin", 60),
-      ],
-      state: initial,
-    },
-    {
-      board: [
-        totalUser("alice", 100),
-        totalUser("dave", 90),
-        totalUser("bob", 90),
-        totalUser("erin", 80),
-        totalUser("carol", 80),
-      ],
-      state: standingsState([
-        ["alice", 100],
-        ["dave", 90],
-        ["bob", 90],
-        ["erin", 80],
-        ["carol", 80],
-      ]),
-    },
-    {
-      board: [
-        totalUser("alice", 100),
-        totalUser("dave", 99),
-        totalUser("erin", 98),
-        totalUser("carol", 80),
-      ],
-      state: standingsState([["alice", 100], ["dave", 99], ["erin", 98], ["carol", 80]]),
-    },
-  ];
+test("preserves the stored order through a failed pass and a tie", async () => {
+  let stored = standingsState([["top", 120], ["bob", 100], ["alice", 90]]);
+  const delivered: string[] = [];
+  const save = async (state: StandingState) => {
+    stored = structuredClone(state);
+  };
 
-  for (const retry of retries) {
-    let stored = structuredClone(initial);
-    let failErin = true;
-    const delivered: string[] = [];
-    const notify = async (notification: StandingNotification) => {
-      if (standingsNotificationId(notification) === "overtake:3:erin" && failErin) {
-        failErin = false;
+  await assert.rejects(
+    deliverStandings(
+      planStandings(2026, [totalUser("top", 120), totalUser("alice", 101), totalUser("bob", 100)], stored),
+      async () => {
         throw new Error("Discord unavailable");
-      }
+      },
+      save,
+    ),
+    /Discord unavailable/,
+  );
+  assert.deepEqual(stored, standingsState([["top", 120], ["bob", 100], ["alice", 90]]));
+
+  await deliverStandings(
+    planStandings(2026, [totalUser("top", 120), totalUser("alice", 100), totalUser("bob", 100)], stored),
+    async (notification) => {
       delivered.push(standingsNotificationId(notification));
-    };
-    const save = async (state: StandingState) => {
-      stored = structuredClone(state);
-    };
+    },
+    save,
+  );
+  assert.equal(delivered.length, 0);
+  assert.deepEqual(stored, standingsState([["top", 120], ["bob", 100], ["alice", 90]]));
 
-    await assert.rejects(
-      deliverStandings(planStandings(2026, firstBoard, stored), notify, save),
-      /Discord unavailable/,
-    );
-    const deliveredBeforeRetry = delivered.length;
-    await deliverStandings(planStandings(2026, retry.board, stored), notify, save);
+  await deliverStandings(
+    planStandings(2026, [totalUser("top", 120), totalUser("alice", 101), totalUser("bob", 100)], stored),
+    async (notification) => {
+      delivered.push(standingsNotificationId(notification));
+    },
+    save,
+  );
+  assert.deepEqual(delivered, ["overtake:2:alice"]);
+  assert.deepEqual(stored, standingsState([["top", 120], ["alice", 101], ["bob", 100]]));
+});
 
-    assert.equal(delivered.length, deliveredBeforeRetry);
-    assert.deepEqual(delivered, ["overtake:2:dave"]);
-    assert.deepEqual(stored, retry.state);
+test("allows a pass, re-pass, and later genuine re-pass", async () => {
+  let stored = standingsState([["alice", 100], ["bob", 90]]);
+  const delivered: string[] = [];
+  const save = async (state: StandingState) => {
+    stored = structuredClone(state);
+  };
+  const notify = async (notification: StandingNotification) => {
+    delivered.push(standingsNotificationId(notification));
+  };
+
+  for (const board of [
+    [totalUser("bob", 110), totalUser("alice", 100)],
+    [totalUser("alice", 120), totalUser("bob", 110)],
+    [totalUser("bob", 130), totalUser("alice", 120)],
+  ]) {
+    await deliverStandings(planStandings(2026, board, stored), notify, save);
   }
+
+  assert.deepEqual(delivered, ["leader:bob", "leader:alice", "leader:bob"]);
+});
+
+test("does not duplicate a checkpointed pass when another user moves above the mover", async () => {
+  let stored = standingsState([["alice", 100], ["bob", 90], ["carol", 80]]);
+  const delivered: string[] = [];
+  const save = async (state: StandingState) => {
+    stored = structuredClone(state);
+  };
+  const notify = async (notification: StandingNotification) => {
+    delivered.push(standingsNotificationId(notification));
+  };
+
+  await deliverStandings(
+    planStandings(2026, [totalUser("bob", 110), totalUser("alice", 100), totalUser("carol", 80)], stored),
+    notify,
+    save,
+  );
+  await deliverStandings(
+    planStandings(2026, [totalUser("carol", 120), totalUser("bob", 110), totalUser("alice", 100)], stored),
+    notify,
+    save,
+  );
+
+  assert.deepEqual(delivered, ["leader:bob", "overtake:2:carol", "leader:carol"]);
+});
+
+test("replans an unfinished multi-overtake batch from its delivered swap", async () => {
+  let stored = standingsState([["alice", 100], ["bob", 90], ["carol", 80], ["dave", 70]]);
+  const delivered: string[] = [];
+  let failDave = true;
+  const notify = async (notification: StandingNotification) => {
+    if (standingsNotificationId(notification) === "overtake:3:dave" && failDave) {
+      failDave = false;
+      throw new Error("Discord unavailable");
+    }
+    delivered.push(standingsNotificationId(notification));
+  };
+  const save = async (state: StandingState) => {
+    stored = structuredClone(state);
+  };
+
+  await assert.rejects(
+    deliverStandings(
+      planStandings(2026, [totalUser("alice", 100), totalUser("carol", 95), totalUser("dave", 92), totalUser("bob", 90)], stored),
+      notify,
+      save,
+    ),
+    /Discord unavailable/,
+  );
+  assert.deepEqual(stored, standingsState([["alice", 100], ["carol", 95], ["bob", 90], ["dave", 70]]));
+
+  await deliverStandings(
+    planStandings(2026, [totalUser("alice", 100), totalUser("carol", 95), totalUser("bob", 90), totalUser("dave", 70)], stored),
+    notify,
+    save,
+  );
+  assert.deepEqual(delivered, ["overtake:2:carol"]);
+  assert.deepEqual(stored, standingsState([["alice", 100], ["carol", 95], ["bob", 90], ["dave", 70]]));
+});
+
+test("skips notification updates for incomplete boards", () => {
+  assert.equal(shouldUpdateNotifications([]), true);
+  assert.equal(shouldUpdateNotifications(["secondary-account"]), false);
 });
