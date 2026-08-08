@@ -517,7 +517,11 @@ async function refreshNotifications(env: Env): Promise<void> {
   if (!env.GITHUB_TOKEN) throw new Error(TOKEN_MISSING);
 
   const year = currentYear();
-  const { board } = await fetchBoard(env.GITHUB_TOKEN, year);
+  const { board, missing } = await fetchBoard(env.GITHUB_TOKEN, year);
+  if (missing.length > 0) {
+    console.warn("notifications skipped for incomplete board", { year, missing });
+    return;
+  }
   await env.LEADER_STATE.getByName("leaderboard").update(year, board);
 }
 

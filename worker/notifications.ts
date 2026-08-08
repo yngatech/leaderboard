@@ -434,16 +434,12 @@ export type StandingNotification =
   | { type: "leader"; event: LeaderEvent }
   | { type: "overtake"; event: OvertakeEvent };
 
-interface PendingStandingNotifications {
-  order: StandingEntry[];
-  notifications: StandingNotification[];
-}
-
 /** Durable full-board standing state for one leaderboard year. */
 export interface StandingState {
   year: number;
   order: StandingEntry[];
-  pending?: PendingStandingNotifications;
+  /** Alerts already delivered while this ordering transition is in progress. */
+  delivered?: string[];
 }
 
 /** The shape written by the former leader-only implementation. */
@@ -482,14 +478,7 @@ function standingStateSnapshot(state: StandingState): StandingState {
   return {
     ...state,
     order: state.order.map((entry) => ({ ...entry })),
-    ...(state.pending
-      ? {
-          pending: {
-            order: state.pending.order.map((entry) => ({ ...entry })),
-            notifications: structuredClone(state.pending.notifications),
-          },
-        }
-      : {}),
+    ...(state.delivered ? { delivered: [...state.delivered] } : {}),
   };
 }
 
@@ -549,16 +538,6 @@ export function planStandings(
     };
   }
 
-  if (previous.pending) {
-    return {
-      baseline: false,
-      stateBeforeEvents: standingStateSnapshot(previous),
-      needsPreparation: false,
-      notifications: previous.pending.notifications,
-      nextState: { year, order: previous.pending.order.map((entry) => ({ ...entry })) },
-    };
-  }
-
   const currentUsers = new Map(board.map((user) => [user.login, user]));
   // Without a continuous board snapshot, an apparent position gain
   // could merely be the result of an account disappearing from the board.
@@ -573,7 +552,7 @@ export function planStandings(
     };
   }
 
-  const notifications: StandingNotification[] = [];
+  const candidates: StandingNotification[] = [];
   const previousPositions = new Map(previous.order.map((entry, index) => [entry.login, index + 1]));
   const leader = order[0];
   const previousLeader = previous.order[0];
@@ -586,7 +565,7 @@ export function planStandings(
     leader.login !== previousLeader.login &&
     leader.totalContributions > displacedLeader.totalContributions
   ) {
-    notifications.push({ type: "leader", event: { leader } });
+    candidates.push({ type: "leader", event: { leader } });
   }
 
   for (let position = 2; position <= order.length; position += 1) {
@@ -605,12 +584,15 @@ export function planStandings(
       (previousPosition === undefined || previousPosition > position) &&
       mover.totalContributions > displaced.totalContributions
     ) {
-      notifications.push({ type: "overtake", event: { position, mover, displaced } });
+      candidates.push({ type: "overtake", event: { position, mover, displaced } });
     }
   }
 
+  const delivered = new Set(previous.delivered);
+  const notifications = candidates.filter((notification) => !delivered.has(notificationKey(notification)));
+
   if (notifications.length === 0) {
-    const needsPreparation = !sameStanding(previous.order, order);
+    const needsPreparation = !sameStanding(previous.order, order) || delivered.size > 0;
     return {
       baseline: false,
       stateBeforeEvents: baseline,
@@ -620,23 +602,18 @@ export function planStandings(
     };
   }
 
-  const stateBeforeEvents: StandingState = {
-    year,
-    order: previous.order.map((entry) => ({ ...entry })),
-    pending: { order, notifications: structuredClone(notifications) },
-  };
   return {
     baseline: false,
-    stateBeforeEvents,
-    needsPreparation: true,
+    stateBeforeEvents: standingStateSnapshot(previous),
+    needsPreparation: false,
     notifications,
     nextState: baseline,
   };
 }
 
 /**
- * Sends a standings plan and records each successful alert. Pending transitions
- * survive webhook failures so retries do not repeat already delivered posts.
+ * Sends a standings plan and checkpoints each success. Retries plan against a
+ * fresh board and skip only alerts that were already delivered.
  */
 export async function deliverStandings(
   plan: StandingPlan,
@@ -653,16 +630,9 @@ export async function deliverStandings(
 
   for (const notification of plan.notifications) {
     await notify(notification);
-    const pending = progress.pending;
-    if (!pending) throw new Error("Standings notification checkpoint is missing.");
-    const key = notificationKey(notification);
-    pending.notifications = pending.notifications.filter(
-      (candidate) => notificationKey(candidate) !== key,
-    );
-    if (pending.notifications.length === 0) {
-      progress.order = pending.order;
-      delete progress.pending;
-    }
+    progress.delivered = [...new Set([...(progress.delivered ?? []), notificationKey(notification)])];
     await save(standingStateSnapshot(progress));
   }
+
+  if (plan.notifications.length > 0) await save(standingStateSnapshot(plan.nextState));
 }
