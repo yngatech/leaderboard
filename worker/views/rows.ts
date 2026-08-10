@@ -108,6 +108,7 @@ export interface UserRowOptions {
 /** The identity, plot and score cells shared by open and plain rows. */
 function userRowBody(options: UserRowOptions, withChevron: boolean): string {
   const { user, rank, year, today } = options;
+  const profileHref = `/u/${encodeURIComponent(user.login)}`;
   const grid = userGrid(user.weeks, year, today);
   const peak = peakDay(grid);
 
@@ -132,7 +133,7 @@ function userRowBody(options: UserRowOptions, withChevron: boolean): string {
     ? `<span class="mt-[0.4rem] text-[0.68rem] ${leadsPeak ? "text-accent" : "text-dim"}">peak ${formatNumber(peak.count)} on ${formatDayShort(peak.date)}${leadsPeak ? '<span class="sr-only"> — highest single day on the board</span>' : ""}</span>`
     : `<span class="mt-[0.4rem] text-[0.68rem] text-dim">no activity</span>`;
 
-  return `<div class="flex flex-col items-start gap-[0.3rem] text-[0.78rem] tracking-[0.06em] [grid-area:rank] ${lead ? "text-accent" : "text-dimmer"}" aria-hidden="true"><span>${formatRank(rank)}</span>${chevron}</div><a class="relative [grid-area:avatar]" href="${attr(user.url)}" target="_blank" rel="noreferrer noopener" tabindex="-1"><img class="size-[52px] rounded-[13px] border border-line bg-heat-0 saturate-[0.85] transition-[filter,border-color] duration-200 group-hover:border-accent/40 group-hover:saturate-100 max-phone:size-[42px] max-phone:rounded-[11px]" src="${attr(user.avatarUrl)}" alt="" width="52" height="52" loading="lazy"></a><div class="min-w-0 [grid-area:id]"><div class="flex min-w-0 items-center gap-[0.35rem]"><a class="relative font-display text-[1.08rem] font-semibold tracking-[-0.015em] text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[3px]" href="${attr(user.url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(user.login)}</a></div><p class="mt-[0.15rem] text-[0.74rem] text-dim">${escapeHtml(user.name ?? "—")}</p><p class="mt-[0.4rem] flex flex-wrap gap-[0.3rem] text-[0.68rem] text-dimmer"><span>${formatNumber(user.followers)} followers</span><span class="opacity-60">·</span><span>${formatNumber(user.following)} following</span></p></div><div class="min-w-0 phone:relative [grid-area:plot]">${heatmapSvg(grid, {
+  return `<div class="flex flex-col items-start gap-[0.3rem] text-[0.78rem] tracking-[0.06em] [grid-area:rank] ${lead ? "text-accent" : "text-dimmer"}" aria-hidden="true"><span>${formatRank(rank)}</span>${chevron}</div><a class="relative [grid-area:avatar]" href="${attr(profileHref)}" tabindex="-1"><img class="size-[52px] rounded-[13px] border border-line bg-heat-0 saturate-[0.85] transition-[filter,border-color] duration-200 group-hover:border-accent/40 group-hover:saturate-100 max-phone:size-[42px] max-phone:rounded-[11px]" src="${attr(user.avatarUrl)}" alt="" width="52" height="52" loading="lazy"></a><div class="min-w-0 [grid-area:id]"><div class="flex min-w-0 items-center gap-[0.35rem]"><a class="relative font-display text-[1.08rem] font-semibold tracking-[-0.015em] text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[3px]" href="${attr(profileHref)}">${escapeHtml(user.login)}</a></div><p class="mt-[0.15rem] text-[0.74rem] text-dim">${escapeHtml(user.name ?? "—")}</p><p class="mt-[0.4rem] flex flex-wrap gap-[0.3rem] text-[0.68rem] text-dimmer"><span>${formatNumber(user.followers)} followers</span><span class="opacity-60">·</span><span>${formatNumber(user.following)} following</span></p></div><div class="min-w-0 phone:relative [grid-area:plot]">${heatmapSvg(grid, {
     cell: 8,
     gap: 2,
     // Stars the busiest day. An all-zero year has no peak, so no star.
@@ -179,6 +180,7 @@ export interface AllTimeRowOptions {
 
 export function allTimeRowHtml(options: AllTimeRowOptions): string {
   const { user, rank, years } = options;
+  const profileHref = `/u/${encodeURIComponent(user.login)}`;
   const cells = userYearStrip(user, years, options.thresholds, options.ranks);
   const best = peakYear(cells);
 
@@ -200,7 +202,7 @@ export function allTimeRowHtml(options: AllTimeRowOptions): string {
     ? `<span class="mt-[0.4rem] text-[0.68rem] ${leadsYear ? "text-accent" : "text-dim"}">best ${formatNumber(best.count)} in ${best.year}${leadsYear ? '<span class="sr-only"> — highest single year on the board</span>' : ""}</span>`
     : `<span class="mt-[0.4rem] text-[0.68rem] text-dim">no activity</span>`;
 
-  return `<article class="${ROW_CARD} ${lead ? "border-accent/32" : "border-line-soft"} ${ROW_GRID}" style="--i:${rank}"><div class="text-[0.78rem] tracking-[0.06em] [grid-area:rank] ${lead ? "text-accent" : "text-dimmer"}" aria-hidden="true">${formatRank(rank)}</div><a class="[grid-area:avatar]" href="${attr(user.url)}" target="_blank" rel="noreferrer noopener" tabindex="-1"><img class="size-[52px] rounded-[13px] border border-line bg-heat-0 saturate-[0.85] transition-[filter,border-color] duration-200 group-hover:border-accent/40 group-hover:saturate-100 max-phone:size-[42px] max-phone:rounded-[11px]" src="${attr(user.avatarUrl)}" alt="" width="52" height="52" loading="lazy"></a><div class="min-w-0 [grid-area:id]"><div class="flex min-w-0 items-center gap-[0.35rem]"><a class="font-display text-[1.08rem] font-semibold tracking-[-0.015em] text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[3px]" href="${attr(user.url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(user.login)}</a></div><p class="mt-[0.15rem] text-[0.74rem] text-dim">${escapeHtml(user.name ?? "—")}</p>${follows}</div><div class="min-w-0 [grid-area:plot]">${yearStripSvg(cells, {
+  return `<article class="${ROW_CARD} ${lead ? "border-accent/32" : "border-line-soft"} ${ROW_GRID}" style="--i:${rank}"><div class="text-[0.78rem] tracking-[0.06em] [grid-area:rank] ${lead ? "text-accent" : "text-dimmer"}" aria-hidden="true">${formatRank(rank)}</div><a class="[grid-area:avatar]" href="${attr(profileHref)}" tabindex="-1"><img class="size-[52px] rounded-[13px] border border-line bg-heat-0 saturate-[0.85] transition-[filter,border-color] duration-200 group-hover:border-accent/40 group-hover:saturate-100 max-phone:size-[42px] max-phone:rounded-[11px]" src="${attr(user.avatarUrl)}" alt="" width="52" height="52" loading="lazy"></a><div class="min-w-0 [grid-area:id]"><div class="flex min-w-0 items-center gap-[0.35rem]"><a class="font-display text-[1.08rem] font-semibold tracking-[-0.015em] text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[3px]" href="${attr(profileHref)}">${escapeHtml(user.login)}</a></div><p class="mt-[0.15rem] text-[0.74rem] text-dim">${escapeHtml(user.name ?? "—")}</p>${follows}</div><div class="min-w-0 [grid-area:plot]">${yearStripSvg(cells, {
     cell: 34,
     gap: 5,
     podium: true,
