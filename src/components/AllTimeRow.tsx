@@ -1,8 +1,8 @@
 import { Show, createMemo } from "solid-js";
 import type { AllTimeUser } from "../../shared/types";
-import type { Thresholds, YearRanks } from "../lib/board";
-import { peakYear, userYearStrip } from "../lib/board";
-import { formatNumber, formatRank } from "../lib/format";
+import type { Thresholds, YearRanks } from "../../shared/board";
+import { peakYear, userYearStrip } from "../../shared/board";
+import { formatNumber, formatRank } from "../../shared/format";
 import YearStrip from "./YearStrip";
 
 export interface AllTimeRowProps {

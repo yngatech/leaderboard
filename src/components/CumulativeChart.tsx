@@ -1,12 +1,12 @@
 import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
-import type { CumulativePoint, CumulativeSeries } from "../lib/board";
+import type { CumulativePoint, CumulativeSeries } from "../../shared/board";
 import {
   formatDayLong,
   formatDayShort,
   formatMonth,
   formatNumber,
   formatRank,
-} from "../lib/format";
+} from "../../shared/format";
 
 export interface CumulativeChartProps {
   series: CumulativeSeries[];

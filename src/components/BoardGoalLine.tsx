@@ -1,6 +1,6 @@
 import { Show } from "solid-js";
-import type { BoardGoal } from "../lib/board";
-import { formatNumber } from "../lib/format";
+import type { BoardGoal } from "../../shared/board";
+import { formatNumber } from "../../shared/format";
 import GoalRail from "./GoalRail";
 
 export interface BoardGoalLineProps {

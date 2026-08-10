@@ -1,12 +1,12 @@
 import { Show, createMemo, createSignal, createUniqueId } from "solid-js";
 import type { BoardUser } from "../../shared/types";
-import { peakDay, userGrid, type UserGoals } from "../lib/board";
+import { peakDay, userGrid, type UserGoals } from "../../shared/board";
 import {
   formatDayShort,
   formatNumber,
   formatRank,
   type FirstDayOfWeek,
-} from "../lib/format";
+} from "../../shared/format";
 import Heatmap from "./Heatmap";
 import UserGoalsBand, { hasGoals } from "./UserGoalsBand";
 

@@ -7,8 +7,8 @@ import {
   peakYear,
   userGrid,
   userYearStrip,
-} from "../lib/board";
-import { formatDayShort, formatNumber, formatOrdinal, type FirstDayOfWeek } from "../lib/format";
+} from "../../shared/board";
+import { formatDayShort, formatNumber, formatOrdinal, type FirstDayOfWeek } from "../../shared/format";
 import Heatmap from "./Heatmap";
 import YearStrip from "./YearStrip";
 
