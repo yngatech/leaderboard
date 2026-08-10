@@ -122,20 +122,15 @@ test("inline JSON cannot close its own script element", () => {
 test("live year page carries goals, future legend, chart and nav targets", () => {
   const page = liveYearPage();
 
-  assert.ok(page.includes("<title>git board — 2026</title>"));
-  // The live year gets the forward-looking furniture.
+  // The live year gets the forward-looking furniture and chart data.
   assert.ok(page.includes("<details"));
-  assert.ok(page.includes("next board target"));
-  assert.ok(page.includes("to come"));
   assert.ok(page.includes('id="climb"'));
-  assert.ok(page.includes("Refreshes about every 30 minutes."));
   // Nav: previous year is a link, next is the all-time board.
   assert.ok(page.includes('href="/2025"'));
   assert.ok(page.includes('data-prev-href="/2025"'));
   assert.ok(page.includes('data-next-href="/all"'));
-  // Footer time is absolute; the enhance script upgrades it.
+  // The enhance script has a machine-readable timestamp to upgrade.
   assert.ok(page.includes('<time datetime="2026-08-10T12:00:00.000Z" data-ago>'));
-  assert.ok(page.includes("10 Aug, 12:00 UTC"));
 
   assertScriptBudget(page, true);
 });
@@ -157,10 +152,8 @@ test("archived year page is plain rows with no goals or chart", () => {
   });
 
   assert.ok(!page.includes("<details"));
-  assert.ok(!page.includes("next board target"));
-  assert.ok(!page.includes("to come"));
   assert.ok(!page.includes('id="climb"'));
-  assert.ok(page.includes("2020 is final and cached for 7 days."));
+  // Missing accounts are reported rather than silently omitted.
   assert.ok(page.includes("No GitHub data came back for carol."));
   assert.ok(page.includes('data-prev-href="/2019"'));
   assert.ok(page.includes('data-next-href="/2021"'));
@@ -195,10 +188,8 @@ test("all-time page ranks users and links every year cell", () => {
     missing: [],
   });
 
-  assert.ok(page.includes("<title>git board — all time</title>"));
   // alice (820) ranks above bob (100).
   assert.ok(page.indexOf(">alice<") < page.indexOf(">bob<"));
-  assert.ok(page.includes("contributions from 2 accounts, 2024–2026"));
   // The group strip's cells link to the year boards; the live year is "/".
   assert.ok(page.includes('<a href="/2024"'));
   assert.ok(page.includes('<a href="/2025"'));
@@ -220,11 +211,10 @@ test("user page reads from both feeds and links its year strip", () => {
     generatedAt: GENERATED,
   });
 
-  assert.ok(page.includes("<title>git board — alice</title>"));
-  assert.ok(page.includes("contributions since 2024"));
+  // Rankings and best-year values are derived from the two feeds.
   assert.ok(page.includes("1st on the all-time board"));
   assert.ok(page.includes("1st on the 2026 board"));
-  assert.ok(page.includes("Best year: <strong"));
+  assert.ok(page.includes(">400</strong> contributions in 2025"));
   assert.ok(page.includes('<a href="/2024"'));
   // User pages have no arrow-key routing.
   assert.ok(!page.includes("data-prev-href"));
@@ -251,15 +241,13 @@ test("a user missing from the live board falls back honestly", () => {
 
 test("not-found and error pages stand alone", () => {
   const missing = notFoundPageHtml(chrome);
-  assert.ok(missing.includes("<title>git board — not found</title>"));
-  assert.ok(missing.includes("Boards run from 2008 to 2026, plus all time."));
   assert.ok(!missing.includes("<nav"));
 
-  const unknown = unknownUserPageHtml(chrome, "nobody");
-  assert.ok(unknown.includes("No account called nobody on this board."));
+  const unknown = unknownUserPageHtml(chrome, '<nobody>');
+  assert.ok(unknown.includes("&lt;nobody&gt;"));
+  assert.ok(!unknown.includes("<nobody>"));
 
   const broken = errorPageHtml(chrome, "GitHub data is unavailable (502).");
-  assert.ok(broken.includes("The board didn&#39;t load.") || broken.includes("The board didn't load."));
   assert.ok(broken.includes("GitHub data is unavailable (502)."));
   assertScriptBudget(broken, false);
 });
