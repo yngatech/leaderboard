@@ -1,6 +1,6 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
-import type { YearCell } from "../lib/board";
-import { formatNumber, formatOrdinal } from "../lib/format";
+import type { YearCell } from "../../shared/board";
+import { formatNumber, formatOrdinal } from "../../shared/format";
 
 export interface YearStripProps {
   cells: YearCell[];

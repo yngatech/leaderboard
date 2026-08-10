@@ -29,8 +29,8 @@ import {
   peakYear,
   todayIso,
   userGoals,
-} from "./lib/board";
-import { firstDayForLocale, formatAgo, formatDayShort, formatNumber } from "./lib/format";
+} from "../shared/board";
+import { formatAgo, formatDayShort, formatNumber } from "../shared/format";
 
 declare const __BUILD_COMMIT_SHA__: string;
 
@@ -112,7 +112,7 @@ function hrefForYear(year: number): string {
 
 export default function App() {
   const [pathname, setPathname] = createSignal(window.location.pathname);
-  const firstDay = firstDayForLocale(navigator.language);
+  const firstDay = 1 as const;
 
   const onPopState = () => setPathname(window.location.pathname);
   window.addEventListener("popstate", onPopState);

@@ -1,11 +1,11 @@
 import { For, Show, createMemo } from "solid-js";
-import type { Grid } from "../lib/board";
+import type { Grid } from "../../shared/board";
 import {
   formatDayLong,
   formatMonth,
   weekdayIndex,
   type FirstDayOfWeek,
-} from "../lib/format";
+} from "../../shared/format";
 
 export interface HeatmapProps {
   weeks: Grid;

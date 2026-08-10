@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Board } from "../shared/types.ts";
-import { boardGoal, cumulativeSeries, userGoals, userGrid } from "../src/lib/board.ts";
-import { firstDayForLocale, weekdayIndex } from "../src/lib/format.ts";
+import { boardGoal, cumulativeSeries, userGoals, userGrid } from "../shared/board.ts";
+import { weekdayIndex } from "../shared/format.ts";
 
 function boardWithDays(days: Board[0]["weeks"][0]["days"]): Board {
   return [
@@ -89,27 +89,23 @@ test("can lay out locale weeks from Monday through Sunday", () => {
   assert.equal(weekdayIndex("2026-01-11", 1), 6);
 });
 
-test("defaults calendar weeks to the original Sunday through Saturday layout", () => {
+test("defaults calendar weeks to the Monday through Sunday layout", () => {
   const grid = userGrid([], 2026, "2026-08-05");
 
   assert.deepEqual(
     grid[0].map((day) => day.date),
     [
-      "2025-12-28",
       "2025-12-29",
       "2025-12-30",
       "2025-12-31",
       "2026-01-01",
       "2026-01-02",
       "2026-01-03",
+      "2026-01-04",
     ],
   );
-  assert.equal(weekdayIndex("2026-01-11"), 0);
-  assert.equal(weekdayIndex("2026-01-17"), 6);
-});
-
-test("falls back to Sunday when locale week information is unavailable", () => {
-  assert.equal(firstDayForLocale("not_a_valid_locale"), 7);
+  assert.equal(weekdayIndex("2026-01-05"), 0);
+  assert.equal(weekdayIndex("2026-01-11"), 6);
 });
 
 function rankedBoard(totals: [string, number][]): Board {

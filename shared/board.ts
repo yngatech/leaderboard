@@ -1,10 +1,10 @@
-import type { AllTimeUser, Board, ContributionWeek } from "../../shared/types";
-import { levelFor, quartiles, type Thresholds } from "../../shared/contributions.ts";
-import { BOARD_MILESTONES, nextMilestone, PERSONAL_MILESTONES } from "../../shared/milestones.ts";
+import type { AllTimeUser, Board, ContributionWeek } from "./types";
+import { levelFor, quartiles, type Thresholds } from "./contributions.ts";
+import { BOARD_MILESTONES, nextMilestone, PERSONAL_MILESTONES } from "./milestones.ts";
 import { weekdayIndex, type FirstDayOfWeek } from "./format.ts";
 
 export { levelFor, quartiles };
-export type { Thresholds } from "../../shared/contributions.ts";
+export type { Thresholds } from "./contributions.ts";
 
 export type CellState =
   /** A day in the year that has already happened. */
@@ -60,7 +60,7 @@ export function currentYear(now: Date = new Date()): number {
 }
 
 /**
- * A whole calendar year aligned to the locale's week boundaries. Days the API
+ * A whole calendar year aligned to Monday-first week boundaries. Days the API
  * hasn't reported yet stay in the grid so the year fills in as it runs.
  */
 function buildGrid(
@@ -101,7 +101,7 @@ export function userGrid(
   weeks: ContributionWeek[],
   year: number,
   today: string,
-  firstDay: FirstDayOfWeek = 7,
+  firstDay: FirstDayOfWeek = 1,
 ): Grid {
   const values = new Map<string, DayValue>();
   for (const week of weeks) {
@@ -115,7 +115,7 @@ export function groupGrid(
   board: Board,
   year: number,
   today: string,
-  firstDay: FirstDayOfWeek = 7,
+  firstDay: FirstDayOfWeek = 1,
 ): Grid {
   const totals = new Map<string, number>();
   for (const user of board) {
