@@ -14,6 +14,7 @@ import AllTimeRow from "./components/AllTimeRow";
 import BoardGoalLine from "./components/BoardGoalLine";
 import CumulativeChart from "./components/CumulativeChart";
 import Heatmap from "./components/Heatmap";
+import UserPage from "./components/UserPage";
 import UserRow from "./components/UserRow";
 import YearStrip from "./components/YearStrip";
 import {
@@ -38,7 +39,7 @@ const MIN_API_YEAR = 2008;
 const THIS_YEAR = currentYear();
 const SOURCE_COMMIT_URL = `https://github.com/yngatech/leaderboard/commit/${__BUILD_COMMIT_SHA__}`;
 
-type View = { kind: "year"; year: number } | { kind: "all" };
+type View = { kind: "year"; year: number } | { kind: "all" } | { kind: "user"; login: string };
 
 interface BoardPayload {
   board: Board;
@@ -88,10 +89,16 @@ async function loadAllTime(): Promise<AllTimePayload> {
   };
 }
 
-/** `/` is the year in progress, `/2024` an archived year, `/all` the lot. */
+/**
+ * `/` is the year in progress, `/2024` an archived year, `/all` the lot,
+ * `/u/login` one account across every year.
+ */
 function viewForPath(pathname: string): View | null {
   if (pathname === "/" || pathname === "") return { kind: "year", year: THIS_YEAR };
   if (pathname === "/all" || pathname === "/all/") return { kind: "all" };
+
+  const userMatch = /^\/u\/([A-Za-z0-9][A-Za-z0-9-]*)\/?$/.exec(pathname);
+  if (userMatch) return { kind: "user", login: userMatch[1] };
 
   const match = /^\/(\d{4})\/?$/.exec(pathname);
   if (!match) return null;
@@ -128,9 +135,14 @@ export default function App() {
 
   const view = createMemo(() => viewForPath(pathname()));
   const isAll = () => view()?.kind === "all";
+  const isUser = () => view()?.kind === "user";
   const viewedYear = () => {
     const current = view();
     return current && current.kind === "year" ? current.year : null;
+  };
+  const viewedLogin = () => {
+    const current = view();
+    return current && current.kind === "user" ? current.login : null;
   };
 
   const onViewKeyDown = (event: KeyboardEvent) => {
@@ -148,7 +160,7 @@ export default function App() {
     }
 
     const current = view();
-    if (!current) return;
+    if (!current || current.kind === "user") return;
 
     let href: string | null = null;
     if (current.kind === "all") {
@@ -167,9 +179,14 @@ export default function App() {
   window.addEventListener("keydown", onViewKeyDown);
   onCleanup(() => window.removeEventListener("keydown", onViewKeyDown));
 
-  const [payload, { refetch }] = createResource(() => viewedYear() ?? undefined, loadBoard);
+  // A user page draws on both feeds: the live year for the day grid, all time
+  // for the year strip.
+  const [payload, { refetch }] = createResource(
+    () => viewedYear() ?? (isUser() ? THIS_YEAR : undefined),
+    loadBoard,
+  );
   const [allPayload, { refetch: refetchAll }] = createResource(
-    () => (isAll() ? true : undefined),
+    () => (isAll() || isUser() ? true : undefined),
     loadAllTime,
   );
 
@@ -181,15 +198,28 @@ export default function App() {
   // Reading a rejected resource re-throws, so guard every read outside the Switch.
   const settled = () => (payload.error ? undefined : payload());
   const allSettled = () => (allPayload.error ? undefined : allPayload());
-  const loading = () => (isAll() ? allPayload.loading : payload.loading);
-  const failure = () => (isAll() ? allPayload.error : payload.error) as Error | undefined;
-  const retry = () => void (isAll() ? refetchAll() : refetch());
+  const loading = () =>
+    isUser() ? payload.loading || allPayload.loading : isAll() ? allPayload.loading : payload.loading;
+  const failure = () =>
+    (isUser()
+      ? (payload.error ?? allPayload.error)
+      : isAll()
+        ? allPayload.error
+        : payload.error) as Error | undefined;
+  const retry = () => {
+    if (isUser()) {
+      if (payload.error) void refetch();
+      if (allPayload.error) void refetchAll();
+      return;
+    }
+    void (isAll() ? refetchAll() : refetch());
+  };
   const generatedAt = () => (isAll() ? allSettled()?.generatedAt : settled()?.generatedAt);
 
   const board = () => settled()?.board ?? [];
   const shownYear = () => settled()?.year ?? viewedYear() ?? THIS_YEAR;
   /** /all always includes the year in progress, so it refreshes on that schedule. */
-  const liveCopy = () => isAll() || shownYear() === THIS_YEAR;
+  const liveCopy = () => isAll() || isUser() || shownYear() === THIS_YEAR;
   const today = todayIso();
 
   const total = createMemo(() => board().reduce((sum, user) => sum + user.totalContributions, 0));
@@ -252,6 +282,17 @@ export default function App() {
     return years.length > 0 ? `${years[0]}–${years[years.length - 1]}` : "";
   };
 
+  /** The account the /u/ view is looking at, matched without case. */
+  const profile = createMemo(() => {
+    const login = viewedLogin()?.toLowerCase();
+    if (!login) return null;
+    return allUsers().find((user) => user.login.toLowerCase() === login) ?? null;
+  });
+  const profileBoardIndex = createMemo(() => {
+    const login = profile()?.login;
+    return login ? board().findIndex((user) => user.login === login) : -1;
+  });
+
   createEffect(() => {
     const current = view();
     document.title =
@@ -259,7 +300,9 @@ export default function App() {
         ? "git board — not found"
         : current.kind === "all"
           ? "git board — all time"
-          : `git board — ${current.year}`;
+          : current.kind === "user"
+            ? `git board — ${profile()?.login ?? current.login}`
+            : `git board — ${current.year}`;
   });
 
   return (
@@ -291,6 +334,24 @@ export default function App() {
               <span class="font-display text-[clamp(1.9rem,5vw,2.6rem)] leading-none font-extrabold tracking-[-0.04em] tabular-nums">
                 all time
               </span>
+            </Show>
+
+            <Show when={isUser()}>
+              <a
+                class="min-w-16 text-center text-[0.78rem] whitespace-nowrap text-dim no-underline hover:text-accent max-phone:min-w-[3.4rem]"
+                href="/"
+                onClick={onLinkClick}
+                aria-label={`Show ${THIS_YEAR}`}
+              >
+                ← board
+              </a>
+              <a
+                class="min-w-16 text-center text-[0.78rem] whitespace-nowrap text-dim no-underline hover:text-accent max-phone:min-w-[3.4rem]"
+                href="/all"
+                onClick={onLinkClick}
+              >
+                all time
+              </a>
             </Show>
 
             <Show when={viewedYear()}>
@@ -400,6 +461,44 @@ export default function App() {
               Try again
             </button>
           </section>
+        </Match>
+
+        <Match when={isUser() && settled() && allSettled()}>
+          <Show
+            when={profile()}
+            fallback={
+              <section class="mt-[clamp(2.5rem,6vw,4rem)] rounded-2xl border border-line bg-panel p-[1.6rem]">
+                <p class="font-display text-[1.3rem] font-semibold tracking-[-0.02em] text-ink">
+                  Nothing here.
+                </p>
+                <p class="mt-2 max-w-[60ch] text-[0.78rem] leading-[1.6] text-dim">
+                  No account called {viewedLogin()} on this board.
+                </p>
+                <a
+                  class="mt-[1.1rem] inline-block cursor-pointer rounded-[9px] border border-accent/50 bg-transparent px-[1.1rem] py-[0.55rem] font-mono text-[0.75rem] tracking-[0.05em] text-accent no-underline transition-colors duration-200 hover:bg-accent/12"
+                  href="/"
+                  onClick={onLinkClick}
+                >
+                  Show {THIS_YEAR}
+                </a>
+              </section>
+            }
+          >
+            {(user) => (
+              <UserPage
+                user={user()}
+                boardUser={profileBoardIndex() >= 0 ? board()[profileBoardIndex()] : null}
+                boardRank={profileBoardIndex() >= 0 ? profileBoardIndex() + 1 : null}
+                boardSize={board().length}
+                allUsers={allUsers()}
+                years={allYears()}
+                year={shownYear()}
+                today={today}
+                firstDay={firstDay}
+                onYearClick={(year) => navigate(hrefForYear(year))}
+              />
+            )}
+          </Show>
         </Match>
 
         <Match when={isAll() && allSettled()}>
