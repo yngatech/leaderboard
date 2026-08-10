@@ -19,7 +19,6 @@ export interface UserPageProps {
   boardUser: BoardUser | null;
   /** 1-based position on the live-year board. */
   boardRank: number | null;
-  boardSize: number;
   allUsers: AllTimeUser[];
   years: number[];
   /** The year in progress. */
@@ -100,7 +99,7 @@ export default function UserPage(props: UserPageProps) {
             <Show when={allRank()}>
               {(rank) => (
                 <span class="mt-[0.4rem] text-[0.68rem] text-dim">
-                  {formatOrdinal(rank())} of {props.allUsers.length} all time
+                  {formatOrdinal(rank())} on the all-time board
                 </span>
               )}
             </Show>
@@ -167,7 +166,7 @@ export default function UserPage(props: UserPageProps) {
                   {(rank) => (
                     <>
                       {" "}
-                      · {formatOrdinal(rank())} of {props.boardSize} this year
+                      · {formatOrdinal(rank())} on the {props.year} board
                     </>
                   )}
                 </Show>

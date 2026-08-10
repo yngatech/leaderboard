@@ -489,7 +489,6 @@ export default function App() {
                 user={user()}
                 boardUser={profileBoardIndex() >= 0 ? board()[profileBoardIndex()] : null}
                 boardRank={profileBoardIndex() >= 0 ? profileBoardIndex() + 1 : null}
-                boardSize={board().length}
                 allUsers={allUsers()}
                 years={allYears()}
                 year={shownYear()}
