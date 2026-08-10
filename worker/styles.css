@@ -78,9 +78,11 @@
       radial-gradient(ellipse 700px 400px at 88% 2%, rgba(255, 194, 77, 0.08), transparent 60%);
   }
 
-  /* Includes rect so a heatmap cell reached by keyboard shows the same ring. */
+  /* Includes summary so the goals disclosure ring matches, and rect so an
+     SVG year cell reached by keyboard shows the same one. */
   a:focus-visible,
   button:focus-visible,
+  summary:focus-visible,
   rect:focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 3px;

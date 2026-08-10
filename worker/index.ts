@@ -1,7 +1,19 @@
 import type { AllTime, AllTimeUser, Board } from "../shared/types";
 import { DurableObject } from "cloudflare:workers";
+import { todayIso } from "../shared/board";
 import type { ArchiveTotals } from "./github";
-import { currentYear, fetchArchiveTotals, fetchBoard, GitHubError, MIN_YEAR } from "./github";
+import { PEOPLE, currentYear, fetchArchiveTotals, fetchBoard, GitHubError, MIN_YEAR } from "./github";
+import type { SiteChrome } from "./views/layout";
+import {
+  allPageHtml,
+  errorPageHtml,
+  notFoundPageHtml,
+  unknownUserPageHtml,
+  userPageHtml,
+  yearPageHtml,
+} from "./views/pages";
+import enhanceUrl from "./enhance.js?url";
+import stylesUrl from "./styles.css?url";
 import {
   deliverDailyRecords,
   deliverMilestones,
@@ -40,6 +52,12 @@ const ALL_MARKDOWN_CACHE_KEY = "https://ynga-git-board.internal/board-md/v4/all"
 const ALL_JSON_CACHE_KEY = "https://ynga-git-board.internal/board-all/v3";
 /** Per-person totals for every finished year, in one entry. */
 const ARCHIVE_CACHE_PREFIX = "https://ynga-git-board.internal/board-md-src/archive/v3/";
+/**
+ * Rendered pages. The current year sits inside every key because an archived
+ * page's nav and footer are computed against it: on 1 January the keys roll
+ * over and no stale navigation can outlive the year that drew it.
+ */
+const HTML_CACHE_PREFIX = "https://ynga-git-board.internal/board-html/v1/";
 
 const TOKEN_MISSING = "The board is missing its GitHub token. Set the GITHUB_TOKEN secret.";
 /** The year in progress keeps moving. */
@@ -73,6 +91,26 @@ function text(body: string, init: ResponseInit = {}): Response {
       ...(init.headers ?? {}),
     },
   });
+}
+
+function html(body: string, init: ResponseInit = {}): Response {
+  return new Response(body, {
+    ...init,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      ...(init.headers ?? {}),
+    },
+  });
+}
+
+/** Fixed inputs every rendered page shares, resolved once per request. */
+function siteChrome(): SiteChrome {
+  return {
+    thisYear: currentYear(),
+    stylesUrl,
+    enhanceUrl,
+    buildSha: __BUILD_COMMIT_SHA__,
+  };
 }
 
 /**
@@ -415,19 +453,29 @@ async function handleAllMarkdown(env: Env, ctx: ExecutionContext): Promise<Respo
   return withBrowserHeaders(fresh, "MISS");
 }
 
-async function handleAllApi(env: Env, ctx: ExecutionContext): Promise<Response> {
+/**
+ * The all-time feed as a cached response, shared by the JSON API and the
+ * rendered pages the same way `boardJson` is shared per year.
+ */
+async function allTimeJson(
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<{ response: Response; cache: "HIT" | "MISS" }> {
   const cache = caches.default;
   const cacheKey = new Request(ALL_JSON_CACHE_KEY, { method: "GET" });
 
   const hit = await cache.match(cacheKey);
-  if (hit) return withBrowserHeaders(hit, "HIT");
+  if (hit) return { response: hit, cache: "HIT" };
 
   const result = await allTimeData(env, ctx);
   if (!result.ok) {
-    return json(
-      { error: result.message, status: result.status },
-      { status: result.status, headers: { "Cache-Control": "no-store" } },
-    );
+    return {
+      response: json(
+        { error: result.message, status: result.status },
+        { status: result.status, headers: { "Cache-Control": "no-store" } },
+      ),
+      cache: "MISS",
+    };
   }
 
   const { rows, spanYears, missing, generatedAt } = result.data;
@@ -457,7 +505,13 @@ async function handleAllApi(env: Env, ctx: ExecutionContext): Promise<Response> 
   });
 
   ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
-  return withBrowserHeaders(fresh, "MISS");
+  return { response: fresh, cache: "MISS" };
+}
+
+async function handleAllApi(env: Env, ctx: ExecutionContext): Promise<Response> {
+  const { response, cache } = await allTimeJson(env, ctx);
+  if (!response.ok) return response;
+  return withBrowserHeaders(response, cache);
 }
 
 async function handleMarkdown(year: number, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -492,6 +546,144 @@ async function handleMarkdown(year: number, env: Env, ctx: ExecutionContext): Pr
 
   ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
   return withBrowserHeaders(fresh, "MISS", year);
+}
+
+/* ---------------------------------------------------------------------------
+   Rendered pages
+   The same pull-based shape as the markdown views: check the edge cache,
+   render from the shared JSON feeds on a miss, store the finished document.
+   Upstream failures become an error page and are never cached.
+--------------------------------------------------------------------------- */
+
+/** Turns a failed feed response into the error page, carrying its status. */
+async function pageFromFailure(response: Response): Promise<Response> {
+  const body = (await response.json().catch(() => null)) as { error?: string } | null;
+  return html(errorPageHtml(siteChrome(), body?.error ?? "The board could not be assembled."), {
+    status: response.status,
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
+async function handleYearPage(year: number, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const cache = caches.default;
+  const cacheKey = new Request(`${HTML_CACHE_PREFIX}${currentYear()}/year/${year}`, {
+    method: "GET",
+  });
+
+  const hit = await cache.match(cacheKey);
+  if (hit) return withBrowserHeaders(hit, "HIT", year);
+
+  const { response } = await boardJson(year, env, ctx);
+  if (!response.ok) return pageFromFailure(response);
+
+  const generatedAt = response.headers.get("X-Board-Generated") ?? new Date().toISOString();
+  const missing = (response.headers.get("X-Board-Missing") ?? "").split(",").filter(Boolean);
+  const board = (await response.json()) as Board;
+
+  const page = yearPageHtml({
+    chrome: siteChrome(),
+    board,
+    year,
+    today: todayIso(),
+    generatedAt,
+    missing,
+  });
+
+  const fresh = html(page, {
+    headers: {
+      "Cache-Control": `public, max-age=${edgeTtl(year)}`,
+      "X-Board-Generated": generatedAt,
+      "X-Board-Year": String(year),
+    },
+  });
+
+  ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
+  return withBrowserHeaders(fresh, "MISS", year);
+}
+
+async function handleAllPage(env: Env, ctx: ExecutionContext): Promise<Response> {
+  const cache = caches.default;
+  const cacheKey = new Request(`${HTML_CACHE_PREFIX}${currentYear()}/all`, { method: "GET" });
+
+  const hit = await cache.match(cacheKey);
+  if (hit) return withBrowserHeaders(hit, "HIT");
+
+  const { response } = await allTimeJson(env, ctx);
+  if (!response.ok) return pageFromFailure(response);
+
+  const generatedAt = response.headers.get("X-Board-Generated") ?? new Date().toISOString();
+  const missing = (response.headers.get("X-Board-Missing") ?? "").split(",").filter(Boolean);
+  const data = (await response.json()) as AllTime;
+
+  const page = allPageHtml({ chrome: siteChrome(), data, generatedAt, missing });
+
+  const fresh = html(page, {
+    headers: {
+      // Includes the year in progress, so it expires on the live schedule.
+      "Cache-Control": `public, max-age=${LIVE_TTL_SECONDS}`,
+      "X-Board-Generated": generatedAt,
+      "X-Board-Year": "all",
+    },
+  });
+
+  ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
+  return withBrowserHeaders(fresh, "MISS");
+}
+
+/** A user page draws on both feeds: the live year for the day grid, all time
+ *  for the year strip. `login` is a canonical entry from PEOPLE, never raw
+ *  visitor input, so the cache key set stays enumerable. */
+async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const cache = caches.default;
+  const cacheKey = new Request(`${HTML_CACHE_PREFIX}${currentYear()}/u/${login}`, {
+    method: "GET",
+  });
+
+  const hit = await cache.match(cacheKey);
+  if (hit) return withBrowserHeaders(hit, "HIT");
+
+  const [boardResult, allResult] = await Promise.all([
+    boardJson(currentYear(), env, ctx),
+    allTimeJson(env, ctx),
+  ]);
+  if (!boardResult.response.ok) return pageFromFailure(boardResult.response);
+  if (!allResult.response.ok) return pageFromFailure(allResult.response);
+
+  const generatedAt =
+    boardResult.response.headers.get("X-Board-Generated") ?? new Date().toISOString();
+  const board = (await boardResult.response.json()) as Board;
+  const data = (await allResult.response.json()) as AllTime;
+
+  const user = data.users.find((other) => other.login.toLowerCase() === login.toLowerCase());
+  if (!user) {
+    // On the roster but absent from every feed: a 404 with a name in it.
+    return html(unknownUserPageHtml(siteChrome(), login), {
+      status: 404,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+
+  const page = userPageHtml({
+    chrome: siteChrome(),
+    user,
+    board,
+    allUsers: data.users,
+    years: data.years,
+    year: currentYear(),
+    today: todayIso(),
+    generatedAt,
+  });
+
+  const fresh = html(page, {
+    headers: {
+      "Cache-Control": `public, max-age=${LIVE_TTL_SECONDS}`,
+      "X-Board-Generated": generatedAt,
+      "X-Board-Year": String(currentYear()),
+    },
+  });
+
+  ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
+  return withBrowserHeaders(fresh, "MISS");
 }
 
 /**
@@ -760,8 +952,93 @@ export default {
       return guard(() => handleMarkdown(year, env, ctx));
     }
 
-    // Static assets (and the SPA fallback) are served by the assets binding.
-    return env.ASSETS.fetch(request);
+    /* Rendered pages. Every route below resolves to a validated year or a
+       canonical PEOPLE login before any cache access, so visitor input can
+       never shape a key. */
+
+    if (!readOnly) {
+      return text("Use GET for board pages.\n", { status: 405 });
+    }
+
+    // An unexpected throw here would surface as a bare 1101 page.
+    const servePage = async (render: () => Promise<Response>) => {
+      let response: Response;
+      try {
+        response = await render();
+      } catch (error) {
+        console.error("page failed", {
+          path: url.pathname,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        response = html(errorPageHtml(siteChrome(), "The board could not be assembled."), {
+          status: 500,
+          headers: { "Cache-Control": "no-store" },
+        });
+      }
+      // `?nojs=1` shows the page exactly as it is without the enhancement
+      // script. Stripped after cache retrieval: the key never sees the query.
+      if (url.searchParams.has("nojs") && response.body !== null) {
+        const body = (await response.text()).replace(/<script type="module"[^>]*><\/script>/, "");
+        return new Response(body, { status: response.status, headers: response.headers });
+      }
+      return response;
+    };
+
+    if (url.pathname === "/") {
+      return servePage(() => handleYearPage(currentYear(), env, ctx));
+    }
+
+    if (url.pathname === "/all" || url.pathname === "/all/") {
+      return servePage(() => handleAllPage(env, ctx));
+    }
+
+    const yearMatch = /^\/(\d{4})\/?$/.exec(url.pathname);
+    if (yearMatch) {
+      const year = parseYear(yearMatch[1]);
+      if (year === null) {
+        return servePage(async () =>
+          html(notFoundPageHtml(siteChrome()), {
+            status: 404,
+            headers: { "Cache-Control": "no-store" },
+          }),
+        );
+      }
+      return servePage(() => handleYearPage(year, env, ctx));
+    }
+
+    const userMatch = /^\/u\/([A-Za-z0-9][A-Za-z0-9-]*)\/?$/.exec(url.pathname);
+    if (userMatch) {
+      const requested = userMatch[1];
+      const canonical = PEOPLE.map((person) => person.accounts[0]).find(
+        (account) => account.toLowerCase() === requested.toLowerCase(),
+      );
+      if (!canonical) {
+        // The regex has already constrained the echoed login's alphabet, and
+        // the renderer escapes it besides.
+        return servePage(async () =>
+          html(unknownUserPageHtml(siteChrome(), requested), {
+            status: 404,
+            headers: { "Cache-Control": "no-store" },
+          }),
+        );
+      }
+      // One casing, no trailing slash: one page, one cache entry.
+      if (url.pathname !== `/u/${canonical}`) {
+        return Response.redirect(`${url.origin}/u/${canonical}`, 308);
+      }
+      return servePage(() => handleUserPage(canonical, env, ctx));
+    }
+
+    // Static assets keep their own router; anything it doesn't know is a
+    // real 404 now, not the old SPA shell with a 200 on it.
+    const asset = await env.ASSETS.fetch(request);
+    if (asset.status !== 404) return asset;
+    return servePage(async () =>
+      html(notFoundPageHtml(siteChrome()), {
+        status: 404,
+        headers: { "Cache-Control": "no-store" },
+      }),
+    );
   },
 
   scheduled(_controller: ScheduledController, env: Env): Promise<void> {

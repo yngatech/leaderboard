@@ -1,9 +1,10 @@
 # ynga git board
 
 GitHub contribution leaderboard for a fixed set of accounts, live at
-[leaderboard.ynga.tech](https://leaderboard.ynga.tech). Solid SPA served from a
-Cloudflare Worker, which also fetches from the GitHub GraphQL API and renders the
-markdown views.
+[leaderboard.ynga.tech](https://leaderboard.ynga.tech). A Cloudflare Worker
+fetches from the GitHub GraphQL API and renders every page as static HTML at
+the edge; a small script layers on live timestamps, arrow-key navigation and
+the chart hover, and every page works without it.
 
 ## Routes
 
@@ -12,6 +13,7 @@ markdown views.
 | `/` | The year in progress: ranked heatmaps |
 | `/{year}` | An archived year, 2008 through the current one |
 | `/all` | All-time: one year-strip per account, ranked by career total |
+| `/u/{login}` | One account across every year |
 | `/{year}.md` | Markdown rankings for a year |
 | `/all.md` | Markdown table, one row per account, one column per year |
 | `/api/board?year=` | Board JSON for a year (`year` defaults to the current one) |
@@ -20,12 +22,15 @@ markdown views.
 ## Layout
 
 - `worker/github.ts` — the people/account mapping (`PEOPLE`), GraphQL queries, and the
-  batched archive fetch that keeps `/all` inside the 50-subrequest budget.
+  batched archive fetch behind `/all`.
 - `worker/index.ts` — routing, edge caching, markdown rendering.
-- `src/` — the Solid app; `shared/types.ts` is the contract between the two.
+- `worker/views/` — the HTML renderers: plain functions from board data to markup.
+- `worker/enhance.js` — the progressive-enhancement script; append `?nojs=1` to any
+  page to see it without one.
+- `shared/` — types and the grid/ranking/formatting math, shared with the tests.
 
-Every route reads through one per-year JSON cache entry, so the API and the
-markdown views never disagree about the numbers.
+Every route reads through one per-year JSON cache entry, so the pages, the API
+and the markdown views never disagree about the numbers.
 
 ## Discord notifications
 
@@ -54,13 +59,14 @@ move if someone retoggles private-contribution visibility.
 
 ```sh
 npm install
-npm run dev          # vite on :5173, app and Worker together
+npm run dev          # vite on :5173, the real Worker in workerd
 ```
 
 `@cloudflare/vite-plugin` runs the Worker in workerd inside the dev server, so
-`:5173` gives you HMR on the app and the real Worker on `/api/*` and the
-markdown views — including the `run_worker_first` and SPA-fallback routing from
-`wrangler.jsonc`, rather than an approximation of it.
+`:5173` serves the rendered pages, `/api/*` and the markdown views for real —
+including the `run_worker_first` routing from `wrangler.jsonc` — rather than an
+approximation of it. The stylesheet and enhancement script are `?url` imports
+in the Worker: fingerprinted assets in production, plain module URLs in dev.
 
 ```sh
 npm run typecheck
@@ -71,25 +77,6 @@ npm run deploy       # typecheck, build, wrangler deploy
 `vite build` writes the client to `dist/client` and the Worker plus a generated
 `wrangler.json` to `dist/leaderboard`; `wrangler deploy` picks that up on its
 own, so `wrangler.jsonc` at the root stays the file you edit.
-
-## Frontend preview deployments
-
-Pull requests can be previewed with a separate Cloudflare Pages project. Connect
-the project (for example, `leaderboard-ui-preview`) to this repository and set:
-
-- Build command: `npm run build`
-- Output directory: `dist/client`
-- Preview branch deployments: enabled
-
-In the Pages project's **Preview** environment, add a service binding named
-`LEADERBOARD_API` that targets the production `leaderboard` Worker, then trigger
-a new deployment. `functions/api/[[path]].ts` forwards `/api/*` requests through
-that binding, while Pages serves the preview's frontend assets directly. Add the
-same binding to the **Production** environment too if the project's main
-`pages.dev` deployment should be usable.
-
-This previews frontend changes only. API behavior, Durable Objects, scheduled
-jobs, and Discord notifications continue to come from the production Worker.
 
 The Worker needs a GitHub token with `read:user` to reach the contributions API.
 Locally that goes in `.dev.vars` as `GITHUB_TOKEN=...`; in production it is a

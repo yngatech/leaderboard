@@ -17,9 +17,9 @@
   "assets": {
     // No `directory`: the Vite plugin points it at the client build output.
     "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
-    // The API and the markdown views are handled by the Worker, never the asset router.
-    "run_worker_first": ["/api/*", "/*.md"]
+    // Every page is rendered by the Worker; only the fingerprinted assets and
+    // the favicon skip it and go straight to the asset router.
+    "run_worker_first": ["/*", "!/assets/*", "!/favicon.svg"]
   },
   "observability": {
     "enabled": true

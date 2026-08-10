@@ -3,7 +3,6 @@ import tailwindcss from "@tailwindcss/vite";
 import { execFileSync } from "node:child_process";
 import { env } from "node:process";
 import { defineConfig } from "vite";
-import solid from "vite-plugin-solid";
 
 function buildCommitSha(): string {
   const deployedSha = env.GITHUB_SHA ?? env.CF_PAGES_COMMIT_SHA;
@@ -17,9 +16,9 @@ function buildCommitSha(): string {
 }
 
 export default defineConfig({
-  // The Worker runs inside the dev server in workerd, so `/api` and the
-  // markdown views are handled for real rather than proxied.
-  plugins: [solid(), tailwindcss(), cloudflare()],
+  // The Worker runs inside the dev server in workerd, so every route — the
+  // rendered pages included — is handled for real rather than proxied.
+  plugins: [tailwindcss(), cloudflare()],
   define: {
     __BUILD_COMMIT_SHA__: JSON.stringify(buildCommitSha()),
   },
