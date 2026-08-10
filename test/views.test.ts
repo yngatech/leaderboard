@@ -129,6 +129,9 @@ test("live year page carries goals, future legend, chart and nav targets", () =>
   assert.ok(page.includes('href="/2025"'));
   assert.ok(page.includes('data-prev-href="/2025"'));
   assert.ok(page.includes('data-next-href="/all"'));
+  // Row identities lead to the board's account page, not straight to GitHub.
+  assert.ok(page.includes('href="/u/alice"'));
+  assert.ok(!page.includes('href="https://github.com/alice"'));
   // The enhance script has a machine-readable timestamp to upgrade.
   assert.ok(page.includes('<time datetime="2026-08-10T12:00:00.000Z" data-ago>'));
 
@@ -195,6 +198,9 @@ test("all-time page ranks users and links every year cell", () => {
   assert.ok(page.includes('<a href="/2025"'));
   assert.ok(page.includes('aria-label="Show 2026'));
   assert.ok(!page.includes('<a href="/2026"'));
+  assert.ok(page.includes('href="/u/alice"'));
+  assert.ok(page.includes('href="/u/bob"'));
+  assert.ok(!page.includes('href="https://github.com/alice"'));
   assertScriptBudget(page, false);
 });
 
