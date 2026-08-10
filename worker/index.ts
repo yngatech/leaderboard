@@ -55,9 +55,11 @@ const ARCHIVE_CACHE_PREFIX = "https://ynga-git-board.internal/board-md-src/archi
 /**
  * Rendered pages. The current year sits inside every key because an archived
  * page's nav and footer are computed against it: on 1 January the keys roll
- * over and no stale navigation can outlive the year that drew it.
+ * over and no stale navigation can outlive the year that drew it. The build
+ * SHA gives each deployed commit a fresh rendered-page namespace.
  */
-const HTML_CACHE_PREFIX = "https://ynga-git-board.internal/board-html/v1/";
+const HTML_CACHE_PREFIX =
+  `https://ynga-git-board.internal/board-html/v1/${encodeURIComponent(__BUILD_COMMIT_SHA__)}/`;
 
 const TOKEN_MISSING = "The board is missing its GitHub token. Set the GITHUB_TOKEN secret.";
 /** The year in progress keeps moving. */

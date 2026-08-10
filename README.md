@@ -53,7 +53,9 @@ npm run deploy
 
 The year in progress caches for 30 minutes at the edge, 5 minutes in the browser.
 Finished years cache for 30 days at the edge, 1 day in the browser — they only
-move if someone retoggles private-contribution visibility.
+move if someone retoggles private-contribution visibility. Rendered-page cache
+keys include the deployed commit SHA, so a new commit renders fresh HTML at the
+edge while keeping the underlying contribution-data caches warm.
 
 ## Development
 
