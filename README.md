@@ -24,7 +24,7 @@ the chart hover, and every page works without it.
 - `worker/github.ts` — the people/account mapping (`PEOPLE`), GraphQL queries, and the
   batched archive fetch behind `/all`.
 - `worker/index.ts` — routing, edge caching, markdown rendering.
-- `worker/views/` — the HTML renderers: plain functions from board data to markup.
+- `worker/views/` — escaped Hono templates that render board data to HTML.
 - `worker/enhance.js` — the progressive-enhancement script; append `?nojs=1` to any
   page to see it without one.
 - `shared/` — types and the grid/ranking/formatting math, shared with the tests.
