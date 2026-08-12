@@ -119,7 +119,7 @@ test("templates compose trusted fragments and reject promises", () => {
     html`<ul>${items}</ul>`.toString(),
     "<ul><li>one &amp; only</li><li>two</li></ul>",
   );
-  // Bypass the compile-time interpolation constraint to exercise its runtime backstop.
+  // Pretend this Promise is a valid value so we can verify the runtime check rejects it.
   const asyncValue = Promise.resolve("later") as unknown as string;
   assert.throws(
     () => html`<p>${asyncValue}</p>`,
