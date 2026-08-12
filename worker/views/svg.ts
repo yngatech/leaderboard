@@ -6,7 +6,7 @@ import {
   formatOrdinal,
   weekdayIndex,
 } from "../../shared/format.ts";
-import { attr, escapeHtml } from "../html.ts";
+import { html, type Html } from "../html.ts";
 
 /* ---------------------------------------------------------------------------
    Static counterparts to the old Heatmap and YearStrip components: the same
@@ -60,7 +60,7 @@ function dayTitle(count: number, date: string, unit: string): string {
   return `${count} ${count === 1 ? unit.replace(/s$/, "") : unit} on ${formatDayLong(date)}`;
 }
 
-export function heatmapSvg(weeks: Grid, options: HeatmapOptions): string {
+export function heatmapSvg(weeks: Grid, options: HeatmapOptions): Html {
   const cell = options.cell ?? 9;
   const gap = options.gap ?? 3;
   const pitch = cell + gap;
@@ -71,7 +71,7 @@ export function heatmapSvg(weeks: Grid, options: HeatmapOptions): string {
   const height = 7 * pitch - gap + top;
   const rx = Math.max(1, Math.round(cell * 0.22));
 
-  const parts: string[] = [];
+  const parts: Html[] = [];
 
   if (options.months) {
     const ticks: { x: number; label: string }[] = [];
@@ -90,7 +90,12 @@ export function heatmapSvg(weeks: Grid, options: HeatmapOptions): string {
     if (ticks.length > 1 && ticks[1].x - ticks[0].x < 3 * pitch) ticks.shift();
     for (const tick of ticks) {
       parts.push(
-        `<text class="fill-dimmer font-mono text-[10px] tracking-[0.06em]" x="${tick.x}" y="${MONTH_BAND - 6}">${escapeHtml(tick.label)}</text>`,
+        html`<text
+          class="fill-dimmer font-mono text-[10px] tracking-[0.06em]"
+          x="${tick.x}"
+          y="${MONTH_BAND - 6}"
+          >${tick.label}</text
+        >`,
       );
     }
   }
@@ -102,15 +107,22 @@ export function heatmapSvg(weeks: Grid, options: HeatmapOptions): string {
     for (const day of week) {
       if (day.state === "outside") continue;
       const y = top + weekdayIndex(day.date) * pitch;
-      const level = day.state === "day" ? ` data-level="${day.level}"` : "";
+      const level = day.state === "day" ? html` data-level="${day.level}"` : null;
       const title =
-        day.state === "day"
-          ? `<title>${escapeHtml(dayTitle(day.count, day.date, unit))}</title>`
-          : "";
+        day.state === "day" ? html`<title>${dayTitle(day.count, day.date, unit)}</title>` : null;
       parts.push(
         // Level drives the ramp; "future" days are an outline rather than a
         // filled square, and only real days light up on hover.
-        `<rect class="fill-heat-0 transition-[fill] duration-150 data-[level=1]:fill-heat-1 data-[level=2]:fill-heat-2 data-[level=3]:fill-heat-3 data-[level=4]:fill-heat-4 data-[state=future]:fill-none data-[state=future]:stroke-future-line data-[state=future]:stroke-1 data-[state=day]:hover:stroke-1 data-[state=day]:hover:stroke-white/70" data-state="${day.state}"${level} x="${weekIndex * pitch}" y="${y}" width="${cell}" height="${cell}" rx="${rx}">${title}</rect>`,
+        html`<rect
+          class="fill-heat-0 transition-[fill] duration-150 data-[level=1]:fill-heat-1 data-[level=2]:fill-heat-2 data-[level=3]:fill-heat-3 data-[level=4]:fill-heat-4 data-[state=future]:fill-none data-[state=future]:stroke-future-line data-[state=future]:stroke-1 data-[state=day]:hover:stroke-1 data-[state=day]:hover:stroke-white/70"
+          data-state="${day.state}"${level}
+          x="${weekIndex * pitch}"
+          y="${y}"
+          width="${cell}"
+          height="${cell}"
+          rx="${rx}"
+          >${title}</rect
+        >`,
       );
 
       if (
@@ -133,11 +145,26 @@ export function heatmapSvg(weeks: Grid, options: HeatmapOptions): string {
     const mark: { level: number; points: string } = peakMark;
     parts.push(
       // The two brightest steps of the ramp need a dark marker to read.
-      `<polygon class="pointer-events-none fill-ink [shape-rendering:geometricPrecision] data-[level=3]:fill-void data-[level=4]:fill-void" data-level="${mark.level}" points="${mark.points}" aria-hidden="true"></polygon>`,
+      html`<polygon
+        class="pointer-events-none fill-ink [shape-rendering:geometricPrecision] data-[level=3]:fill-void data-[level=4]:fill-void"
+        data-level="${mark.level}"
+        points="${mark.points}"
+        aria-hidden="true"
+      ></polygon>`,
     );
   }
 
-  return `<svg class="block h-auto w-full" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${attr(options.label)}" style="max-width:${width}px">${parts.join("")}</svg>`;
+  return html`<svg
+    class="block h-auto w-full"
+    viewBox="0 0 ${width} ${height}"
+    width="${width}"
+    height="${height}"
+    role="img"
+    aria-label="${options.label}"
+    style="max-width:${width}px"
+  >
+    ${parts}
+  </svg>`;
 }
 
 export interface YearStripOptions {
@@ -164,7 +191,7 @@ function yearTooltip(item: YearCell): string {
 }
 
 /** The all-time counterpart to the heatmap: one row, one cell per year. */
-export function yearStripSvg(cells: YearCell[], options: YearStripOptions): string {
+export function yearStripSvg(cells: YearCell[], options: YearStripOptions): Html {
   const cell = options.cell ?? 30;
   const gap = options.gap ?? 4;
   const pitch = cell + gap;
@@ -174,23 +201,44 @@ export function yearStripSvg(cells: YearCell[], options: YearStripOptions): stri
   const height = cell + top;
   const rx = Math.max(1, Math.round(cell * 0.22));
 
-  const parts: string[] = [];
+  const parts: Html[] = [];
 
   if (options.labels) {
     cells.forEach((item, index) => {
       parts.push(
-        `<text class="fill-dimmer font-mono text-[10px] tracking-[0.06em]" x="${index * pitch}" y="${LABEL_BAND - 6}">${item.year}</text>`,
+        html`<text
+          class="fill-dimmer font-mono text-[10px] tracking-[0.06em]"
+          x="${index * pitch}"
+          y="${LABEL_BAND - 6}"
+          >${item.year}</text
+        >`,
       );
     });
   }
 
   cells.forEach((item, index) => {
     const tooltip = yearTooltip(item);
-    const rect = `<rect class="fill-heat-0 transition-[fill] duration-150 hover:stroke-1 hover:stroke-white/70 data-[level=1]:fill-heat-1 data-[level=2]:fill-heat-2 data-[level=3]:fill-heat-3 data-[level=4]:fill-heat-4${options.hrefFor ? " cursor-pointer" : ""}" data-state="day" data-level="${item.level}" x="${index * pitch}" y="${top}" width="${cell}" height="${cell}" rx="${rx}"><title>${escapeHtml(tooltip)}</title></rect>`;
+    const rect = html`<rect
+      class="fill-heat-0 transition-[fill] duration-150 hover:stroke-1 hover:stroke-white/70 data-[level=1]:fill-heat-1 data-[level=2]:fill-heat-2 data-[level=3]:fill-heat-3 data-[level=4]:fill-heat-4${options.hrefFor
+        ? " cursor-pointer"
+        : ""}"
+      data-state="day"
+      data-level="${item.level}"
+      x="${index * pitch}"
+      y="${top}"
+      width="${cell}"
+      height="${cell}"
+      rx="${rx}"
+      ><title>${tooltip}</title></rect
+    >`;
     // A native SVG link, so keyboard access and new-tab clicks come for free.
     parts.push(
       options.hrefFor
-        ? `<a href="${attr(options.hrefFor(item.year))}" aria-label="${attr(`Show ${item.year}: ${tooltip}`)}">${rect}</a>`
+        ? html`<a
+            href="${options.hrefFor(item.year)}"
+            aria-label="Show ${item.year}: ${tooltip}"
+            >${rect}</a
+          >`
         : rect,
     );
   });
@@ -202,11 +250,30 @@ export function yearStripSvg(cells: YearCell[], options: YearStripOptions): stri
       parts.push(
         // The two brightest steps of the ramp need a dark digit to read.
         // pointer-events-none keeps the cell's own hover and tooltip.
-        `<text class="pointer-events-none fill-ink font-mono font-medium data-[level=3]:fill-void data-[level=4]:fill-void" data-level="${item.level}" x="${index * pitch + cell / 2}" y="${top + cell / 2}" font-size="${Math.round(cell * 0.46)}" text-anchor="middle" dominant-baseline="central">${item.rank}</text>`,
+        html`<text
+          class="pointer-events-none fill-ink font-mono font-medium data-[level=3]:fill-void data-[level=4]:fill-void"
+          data-level="${item.level}"
+          x="${index * pitch + cell / 2}"
+          y="${top + cell / 2}"
+          font-size="${Math.round(cell * 0.46)}"
+          text-anchor="middle"
+          dominant-baseline="central"
+          >${item.rank}</text
+        >`,
       );
     });
   }
 
   const role = options.hrefFor ? "group" : "img";
-  return `<svg class="block h-auto w-full" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="${role}" aria-label="${attr(options.label)}" style="max-width:${width}px">${parts.join("")}</svg>`;
+  return html`<svg
+    class="block h-auto w-full"
+    viewBox="0 0 ${width} ${height}"
+    width="${width}"
+    height="${height}"
+    role="${role}"
+    aria-label="${options.label}"
+    style="max-width:${width}px"
+  >
+    ${parts}
+  </svg>`;
 }

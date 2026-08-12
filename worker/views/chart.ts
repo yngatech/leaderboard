@@ -6,7 +6,7 @@ import {
   formatNumber,
   formatRank,
 } from "../../shared/format.ts";
-import { attr, escapeHtml, jsonForScript } from "../html.ts";
+import { html, type Html, jsonForScript } from "../html.ts";
 
 /* ---------------------------------------------------------------------------
    The cumulative chart, drawn once at a fixed width. The SVG is width:100%
@@ -180,7 +180,7 @@ function linePath(
  * stopping dead at today. The x-axis still runs to 31 December, so the part of
  * the year that hasn't happened reads as empty rather than as a flat line.
  */
-export function cumulativeChartHtml(options: CumulativeChartOptions): string {
+export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
   const { series, year, today } = options;
 
   /**
@@ -374,37 +374,80 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): string {
             : `The top ${namedCount === 2 ? "two" : "three"} accounts are named beside the ends of their lines, with their current totals.`
         }${keyItems.length > 0 ? " Every remaining account's total is listed under the chart." : ""}`;
 
-  const svg: string[] = [];
+  const svg: Html[] = [];
 
-  svg.push(`<desc id="climb-chart-desc">${escapeHtml(description)}</desc>`);
+  svg.push(html`<desc id="climb-chart-desc">${description}</desc>`);
 
-  const backdrop: string[] = [];
+  const backdrop: Html[] = [];
   // The part of the year that hasn't happened, left deliberately bare.
   if (rightEdge - todayX > 1) {
     backdrop.push(
-      `<rect class="fill-[rgba(10,12,24,0.5)]" x="${todayX.toFixed(1)}" y="${PAD_TOP}" width="${(rightEdge - todayX).toFixed(1)}" height="${baseline - PAD_TOP}"></rect>`,
+      html`<rect
+        class="fill-[rgba(10,12,24,0.5)]"
+        x="${todayX.toFixed(1)}"
+        y="${PAD_TOP}"
+        width="${(rightEdge - todayX).toFixed(1)}"
+        height="${baseline - PAD_TOP}"
+      ></rect>`,
     );
   }
   for (const month of months) {
     backdrop.push(
-      `<line class="stroke-line-soft opacity-[0.55]" x1="${month.x.toFixed(1)}" x2="${month.x.toFixed(1)}" y1="${PAD_TOP}" y2="${baseline}"></line>`,
+      html`<line
+        class="stroke-line-soft opacity-[0.55]"
+        x1="${month.x.toFixed(1)}"
+        x2="${month.x.toFixed(1)}"
+        y1="${PAD_TOP}"
+        y2="${baseline}"
+      ></line>`,
     );
   }
   for (const value of gridValues) {
     const cls = value === 0 ? "stroke-line" : "stroke-line-soft [stroke-dasharray:1_5]";
     backdrop.push(
-      `<line class="${cls}" x1="${padLeft}" x2="${rightEdge.toFixed(1)}" y1="${yAt(value).toFixed(1)}" y2="${yAt(value).toFixed(1)}"></line><text class="fill-dimmer font-mono text-[10px] tracking-[0.06em]" x="${padLeft - 8}" y="${(yAt(value) + 3).toFixed(1)}" text-anchor="end">${formatNumber(value)}</text>`,
+      html`<line
+          class="${cls}"
+          x1="${padLeft}"
+          x2="${rightEdge.toFixed(1)}"
+          y1="${yAt(value).toFixed(1)}"
+          y2="${yAt(value).toFixed(1)}"
+        ></line
+        ><text
+          class="fill-dimmer font-mono text-[10px] tracking-[0.06em]"
+          x="${padLeft - 8}"
+          y="${(yAt(value) + 3).toFixed(1)}"
+          text-anchor="end"
+          >${formatNumber(value)}</text
+        >`,
     );
   }
   for (const month of months) {
     backdrop.push(
-      `<text class="fill-dimmer font-mono text-[10px] tracking-[0.06em]" x="${(month.x + 2).toFixed(1)}" y="${height - 7}">${escapeHtml(month.label)}</text>`,
+      html`<text
+        class="fill-dimmer font-mono text-[10px] tracking-[0.06em]"
+        x="${(month.x + 2).toFixed(1)}"
+        y="${height - 7}"
+        >${month.label}</text
+      >`,
     );
   }
   backdrop.push(
-    `<line class="stroke-[rgba(236,234,247,0.24)] [stroke-dasharray:2_4]" x1="${todayX.toFixed(1)}" x2="${todayX.toFixed(1)}" y1="${PAD_TOP - 6}" y2="${baseline}"></line><text class="fill-dim font-mono text-[9px] tracking-[0.12em] uppercase" x="${todayLabelX.toFixed(1)}" y="${PAD_TOP - 8}" text-anchor="${todayTight ? "end" : "start"}">today</text>`,
+    html`<line
+        class="stroke-[rgba(236,234,247,0.24)] [stroke-dasharray:2_4]"
+        x1="${todayX.toFixed(1)}"
+        x2="${todayX.toFixed(1)}"
+        y1="${PAD_TOP - 6}"
+        y2="${baseline}"
+      ></line
+      ><text
+        class="fill-dim font-mono text-[9px] tracking-[0.12em] uppercase"
+        x="${todayLabelX.toFixed(1)}"
+        y="${PAD_TOP - 8}"
+        text-anchor="${todayTight ? "end" : "start"}"
+        >today</text
+      >`,
   );
-  svg.push(`<g aria-hidden="true">${backdrop.join("")}</g>`);
+  svg.push(html`<g aria-hidden="true">${backdrop}</g>`);
 
   // The lines. Each drawn path is its own named image, so the chart reads out
   // one account at a time; the old invisible hit copies existed only for the
@@ -412,58 +455,135 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): string {
   const lines = stack
     .map(
       (entry) =>
-        `<path class="fill-none [stroke:var(--series,var(--color-dim))] [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:1.75]" data-series="${entry.index % SERIES_COLOURS.length}" d="${entry.d}" style="--series:${entry.colour}" role="img" aria-label="${attr(entry.label)}"></path>`,
-    )
-    .join("");
-  svg.push(`<g>${lines}</g>`);
+        html`<path
+          class="fill-none [stroke:var(--series,var(--color-dim))] [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:1.75]"
+          data-series="${entry.index % SERIES_COLOURS.length}"
+          d="${entry.d}"
+          style="--series:${entry.colour}"
+          role="img"
+          aria-label="${entry.label}"
+        ></path>`,
+    );
+  svg.push(html`<g>${lines}</g>`);
 
   // A dot on every line's last day, so the stop at today is unmissable.
   const dots = stack
     .filter((entry) => entry.item.points.length > 0)
     .map(
       (entry) =>
-        `<circle class="[fill:var(--series,var(--color-dim))] stroke-void [stroke-width:1]" data-series="${entry.index % SERIES_COLOURS.length}" cx="${xAt(entry.item.points.length - 1).toFixed(1)}" cy="${yAt(entry.item.total).toFixed(1)}" r="${dotRadius}" style="--series:${entry.colour}"></circle>`,
-    )
-    .join("");
-  svg.push(`<g aria-hidden="true">${dots}</g>`);
+        html`<circle
+          class="[fill:var(--series,var(--color-dim))] stroke-void [stroke-width:1]"
+          data-series="${entry.index % SERIES_COLOURS.length}"
+          cx="${xAt(entry.item.points.length - 1).toFixed(1)}"
+          cy="${yAt(entry.item.total).toFixed(1)}"
+          r="${dotRadius}"
+          style="--series:${entry.colour}"
+        ></circle>`,
+    );
+  svg.push(html`<g aria-hidden="true">${dots}</g>`);
 
   // The label rail. Hidden from assistive technology on purpose: the named
   // line paths already say the name and the total, and a second copy would
   // only make the chart read twice as long.
   if (rail && railLabels.length > 0) {
-    const railParts: string[] = [
+    const railParts: Html[] = [
       // One hairline is all the separation the rail needs.
-      `<line class="stroke-line-soft" x1="${rail.separatorX.toFixed(1)}" x2="${rail.separatorX.toFixed(1)}" y1="${PAD_TOP}" y2="${baseline}"></line>`,
+      html`<line
+        class="stroke-line-soft"
+        x1="${rail.separatorX.toFixed(1)}"
+        x2="${rail.separatorX.toFixed(1)}"
+        y1="${PAD_TOP}"
+        y2="${baseline}"
+      ></line>`,
     ];
     for (const label of railLabels) {
       const meta = label.rank
-        ? `<tspan class="fill-faint">${label.rank}</tspan><tspan class="fill-dim tabular-nums" dx="${RANK_DX}">${label.total}</tspan>`
-        : `<tspan class="fill-dim tabular-nums">${label.total}</tspan>`;
+        ? html`<tspan class="fill-faint">${label.rank}</tspan
+            ><tspan class="fill-dim tabular-nums" dx="${RANK_DX}">${label.total}</tspan>`
+        : html`<tspan class="fill-dim tabular-nums">${label.total}</tspan>`;
       railParts.push(
-        `<g style="--series:${label.colour}"><path class="fill-none [stroke:var(--series,var(--color-dim))] [stroke-linecap:round] [stroke-width:1] opacity-40" data-series="${label.index % SERIES_COLOURS.length}" d="${label.link}"></path><rect class="[fill:var(--series,var(--color-dim))]" x="${rail.ruleX.toFixed(1)}" y="${(label.y - RAIL_RULE_H / 2).toFixed(1)}" width="${RAIL_RULE_W}" height="${RAIL_RULE_H}" rx="1"></rect><text class="fill-ink font-mono text-[11px] font-medium tracking-[0.01em]" x="${rail.textX.toFixed(1)}" y="${(label.y + RAIL_NAME_DY).toFixed(1)}">${escapeHtml(label.name)}</text><text class="font-mono text-[9.5px] tracking-[0.04em]" x="${rail.textX.toFixed(1)}" y="${(label.y + RAIL_META_DY).toFixed(1)}">${meta}</text></g>`,
+        html`<g style="--series:${label.colour}">
+          <path
+            class="fill-none [stroke:var(--series,var(--color-dim))] [stroke-linecap:round] [stroke-width:1] opacity-40"
+            data-series="${label.index % SERIES_COLOURS.length}"
+            d="${label.link}"
+          ></path>
+          <rect
+            class="[fill:var(--series,var(--color-dim))]"
+            x="${rail.ruleX.toFixed(1)}"
+            y="${(label.y - RAIL_RULE_H / 2).toFixed(1)}"
+            width="${RAIL_RULE_W}"
+            height="${RAIL_RULE_H}"
+            rx="1"
+          ></rect>
+          <text
+            class="fill-ink font-mono text-[11px] font-medium tracking-[0.01em]"
+            x="${rail.textX.toFixed(1)}"
+            y="${(label.y + RAIL_NAME_DY).toFixed(1)}"
+            >${label.name}</text
+          ><text
+            class="font-mono text-[9.5px] tracking-[0.04em]"
+            x="${rail.textX.toFixed(1)}"
+            y="${(label.y + RAIL_META_DY).toFixed(1)}"
+            >${meta}</text
+          >
+        </g>`,
       );
     }
-    svg.push(`<g class="pointer-events-none" aria-hidden="true">${railParts.join("")}</g>`);
+    svg.push(html`<g class="pointer-events-none" aria-hidden="true">${railParts}</g>`);
   }
 
   // The key, demoted to whatever the chart didn't already say. With the rail
   // up it is the remainder — announced as such — and with three accounts or
   // fewer there is no remainder, so it goes away entirely.
-  let key = "";
+  let key: Html | null = null;
   if (keyItems.length > 0) {
     const heading = rail
-      ? `<h3 class="pt-px text-[0.6rem] leading-[11px] tracking-[0.2em] text-dimmer uppercase max-phone:basis-full max-phone:tracking-[0.14em]">the rest</h3>`
-      : "";
+      ? html`<h3
+          class="pt-px text-[0.6rem] leading-[11px] tracking-[0.2em] text-dimmer uppercase max-phone:basis-full max-phone:tracking-[0.14em]"
+        >
+          the rest
+        </h3>`
+      : null;
     const listLabel = rail
       ? "Contributions so far, accounts ranked fourth and below"
       : "Contributions so far, by account";
     const items = keyItems
       .map(
         (entry) =>
-          `<li class="flex min-w-0 items-center gap-[0.6rem] whitespace-nowrap max-phone:justify-start" data-series="${entry.index % SERIES_COLOURS.length}" style="--series:${seriesColour(entry.index)}"><span class="h-5 w-[2px] flex-none rounded-full [background:var(--series,var(--color-dim))]" aria-hidden="true"></span><span class="min-w-0"><span class="block overflow-hidden text-ellipsis text-[11px] leading-[11px] font-medium tracking-[0.01em] text-ink">${escapeHtml(entry.item.login)}</span><span class="mt-0.5 flex items-baseline gap-[0.5rem] text-[9.5px] leading-[9.5px] tracking-[0.04em]"><span class="text-faint">${formatRank(entry.rank)}</span><span class="text-dim tabular-nums">${formatNumber(entry.item.total)}</span></span></span></li>`,
-      )
-      .join("");
-    key = `<div class="mt-[0.85rem] flex flex-wrap items-start gap-x-[1.1rem] gap-y-[0.6rem]">${heading}<ul class="flex min-w-0 flex-1 list-none flex-wrap gap-x-[1.5rem] gap-y-[0.4rem] p-0 max-phone:grid max-phone:grid-cols-[repeat(auto-fit,minmax(140px,1fr))] max-phone:gap-x-4 max-phone:gap-y-[0.45rem]" aria-label="${attr(listLabel)}">${items}</ul></div>`;
+          html`<li
+            class="flex min-w-0 items-center gap-[0.6rem] whitespace-nowrap max-phone:justify-start"
+            data-series="${entry.index % SERIES_COLOURS.length}"
+            style="--series:${seriesColour(entry.index)}"
+          >
+            <span
+              class="h-5 w-[2px] flex-none rounded-full [background:var(--series,var(--color-dim))]"
+              aria-hidden="true"
+            ></span
+            ><span class="min-w-0"
+              ><span
+                class="block overflow-hidden text-ellipsis text-[11px] leading-[11px] font-medium tracking-[0.01em] text-ink"
+                >${entry.item.login}</span
+              ><span
+                class="mt-0.5 flex items-baseline gap-[0.5rem] text-[9.5px] leading-[9.5px] tracking-[0.04em]"
+                ><span class="text-faint">${formatRank(entry.rank)}</span
+                ><span class="text-dim tabular-nums"
+                  >${formatNumber(entry.item.total)}</span
+                ></span
+              ></span
+            >
+          </li>`,
+      );
+    key = html`<div
+      class="mt-[0.85rem] flex flex-wrap items-start gap-x-[1.1rem] gap-y-[0.6rem]"
+    >
+      ${heading}<ul
+        class="flex min-w-0 flex-1 list-none flex-wrap gap-x-[1.5rem] gap-y-[0.4rem] p-0 max-phone:grid max-phone:grid-cols-[repeat(auto-fit,minmax(140px,1fr))] max-phone:gap-x-4 max-phone:gap-y-[0.45rem]"
+        aria-label="${listLabel}"
+      >
+        ${items}
+      </ul>
+    </div>`;
   }
 
   /** Everything the hover readout needs to map a pointer back to a day. */
@@ -480,5 +600,34 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): string {
     })),
   };
 
-  return `<section class="mt-[clamp(2.25rem,5vw,3.25rem)] animate-rise" aria-labelledby="climb-heading"><div class="mb-[0.9rem] flex flex-wrap items-center gap-x-[0.85rem] gap-y-2 text-[0.66rem] tracking-[0.2em] text-dimmer uppercase max-phone:tracking-[0.14em]"><h2 id="climb-heading">cumulative contributions</h2><span class="h-px min-w-6 flex-[1_1_24px] bg-line-soft" aria-hidden="true"></span></div><div class="rounded-2xl border border-line bg-[linear-gradient(180deg,#12162b_0%,#0d1122_100%)] px-4 pt-[0.9rem] pb-[0.7rem] max-phone:px-[0.65rem] max-phone:pt-[0.7rem] max-phone:pb-2"><div class="relative w-full"><svg id="climb" class="block h-auto w-full" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="group" aria-label="${attr(`Running contribution totals for ${series.length} accounts in ${year}`)}" aria-describedby="climb-chart-desc">${svg.join("")}</svg></div></div>${key}<script type="application/json" id="climb-data">${jsonForScript(climbData)}</script></section>`;
+  return html`<section
+    class="mt-[clamp(2.25rem,5vw,3.25rem)] animate-rise"
+    aria-labelledby="climb-heading"
+  >
+    <div
+      class="mb-[0.9rem] flex flex-wrap items-center gap-x-[0.85rem] gap-y-2 text-[0.66rem] tracking-[0.2em] text-dimmer uppercase max-phone:tracking-[0.14em]"
+    >
+      <h2 id="climb-heading">cumulative contributions</h2>
+      <span class="h-px min-w-6 flex-[1_1_24px] bg-line-soft" aria-hidden="true"></span>
+    </div>
+    <div
+      class="rounded-2xl border border-line bg-[linear-gradient(180deg,#12162b_0%,#0d1122_100%)] px-4 pt-[0.9rem] pb-[0.7rem] max-phone:px-[0.65rem] max-phone:pt-[0.7rem] max-phone:pb-2"
+    >
+      <div class="relative w-full">
+        <svg
+          id="climb"
+          class="block h-auto w-full"
+          viewBox="0 0 ${width} ${height}"
+          width="${width}"
+          height="${height}"
+          role="group"
+          aria-label="Running contribution totals for ${series.length} accounts in ${year}"
+          aria-describedby="climb-chart-desc"
+        >
+          ${svg}
+        </svg>
+      </div>
+    </div>
+    ${key}<script type="application/json" id="climb-data">${jsonForScript(climbData)}</script>
+  </section>`;
 }
