@@ -16,7 +16,7 @@ import { formatDayShort, formatNumber, formatOrdinal } from "../../shared/format
 import { attr, escapeHtml } from "../html.ts";
 import { cumulativeChartHtml } from "./chart.ts";
 import { MIN_PAGE_YEAR, hrefForYear, pageHtml, type SiteChrome } from "./layout.ts";
-import { allTimeRowHtml, boardGoalLineHtml, userRowHtml } from "./rows.ts";
+import { allTimeRowHtml, boardGoalLineHtml, goalRailHtml, userRowHtml } from "./rows.ts";
 import { heatmapSvg, yearStripSvg } from "./svg.ts";
 
 const SITE_DESCRIPTION =
@@ -206,6 +206,81 @@ export function allPageHtml(options: AllPageOptions): string {
   });
 }
 
+/* ---------------------------------------------------------------------------
+   The account page's furniture.
+
+   A profile is one of the board's rows grown to page scale: identity and
+   career total on top, the plot in its recessed well, and a ledger welded
+   along the bottom edge where every number that qualifies the plot above it
+   lives. Because the ledger is part of the card rather than loose text beside
+   it, no statistic can drift off on its own — and because it borrows the row
+   goals band's tint, hairline and term type, the page still reads as board
+   furniture rather than a dashboard.
+--------------------------------------------------------------------------- */
+
+/** The card shell. Border colour is chosen per chapter: gold marks a leader,
+ *  exactly as it does on a rank-1 row. */
+const CARD = "animate-rise overflow-hidden rounded-2xl border bg-panel";
+
+/** Register one: who this is, and the number the whole card is about. */
+const CARD_HEAD =
+  "flex flex-wrap items-center gap-x-5 gap-y-4 px-[1.3rem] py-[1.25rem] max-phone:gap-x-4 max-phone:px-4 max-phone:py-4";
+
+/** Register two: the plot, recessed into the card and still free to scroll.
+ *  The hairline above it is added only where a head sits on top. */
+const CARD_WELL =
+  "overflow-x-auto bg-[linear-gradient(180deg,#12162b_0%,#0d1122_100%)] px-[1.3rem] pt-4 pb-[0.9rem] max-phone:px-4";
+
+/** Register three: the ledger, a shade under the well like a row's goals band. */
+const CARD_LEDGER =
+  "border-t border-line-soft bg-[rgba(10,12,24,0.32)] px-[1.3rem] py-[1rem] max-phone:px-4 max-phone:py-[0.85rem]";
+
+/** Same term type as the row goals band, so the two are one idiom. */
+const LEDGER_TERM = "text-[0.6rem] tracking-[0.16em] text-dimmer uppercase";
+
+/** The hairline between fields: vertical while they sit side by side, and
+ *  horizontal once a phone stacks them. */
+const LEDGER_RULE =
+  "border-l border-line-soft pl-5 max-phone:border-t max-phone:border-l-0 max-phone:pt-[0.75rem] max-phone:pl-0";
+
+const LEDGER_GRID = "grid gap-x-5 gap-y-[0.75rem] font-mono text-[0.74rem] leading-[1.55]";
+
+/** One figure per ledger anchors it; the rest of the band stays sentence-sized. */
+const LEDGER_FIGURE =
+  "font-display text-[1.5rem] leading-none font-extrabold tracking-[-0.03em] tabular-nums text-ink max-phone:text-[1.35rem]";
+const LEDGER_FIGURE_LEAD =
+  "font-display text-[1.5rem] leading-none font-extrabold tracking-[-0.03em] tabular-nums text-accent max-phone:text-[1.35rem]";
+
+/** A number that qualifies another number: milestone, margin, peak. */
+const LEDGER_VALUE = "font-medium tabular-nums text-ink";
+
+/** Wide first column, because only that field carries a rail. */
+function ledgerColumns(count: number): string {
+  if (count >= 3) {
+    return "grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)_minmax(0,1fr)] max-phone:grid-cols-1";
+  }
+  if (count === 2) return "grid-cols-2 max-phone:grid-cols-1";
+  return "grid-cols-1";
+}
+
+interface LedgerField {
+  /** Static micro-label; never interpolated from GitHub data. */
+  term: string;
+  body: string;
+}
+
+/** The band itself. No fields means no band, rather than an empty strip. */
+function ledgerHtml(fields: LedgerField[]): string {
+  if (fields.length === 0) return "";
+  const items = fields
+    .map(
+      (field, index) =>
+        `<div class="min-w-0${index > 0 ? ` ${LEDGER_RULE}` : ""}"><dt class="${LEDGER_TERM}">${field.term}</dt><dd class="mt-[0.45rem] min-w-0 break-words text-dim">${field.body}</dd></div>`,
+    )
+    .join("");
+  return `<div class="${CARD_LEDGER}"><dl class="${LEDGER_GRID} ${ledgerColumns(fields.length)}">${items}</dl></div>`;
+}
+
 export interface UserPageOptions {
   chrome: SiteChrome;
   /** The account's all-time record; the page's source of truth. */
@@ -233,6 +308,7 @@ export function userPageHtml(options: UserPageOptions): string {
 
   const grid = boardUser ? userGrid(boardUser.weeks, year, today) : null;
   const peak = grid ? peakDay(grid) : null;
+  const goals = boardIndex >= 0 ? userGoals(board, boardIndex) : null;
 
   const firstActive = years.find((y) => (user.byYear[String(y)] ?? 0) > 0) ?? null;
   /** Competition ranking across every account's all-time total. */
@@ -245,39 +321,87 @@ export function userPageHtml(options: UserPageOptions): string {
       : "";
 
   const sinceCaption = firstActive ? `contributions since ${firstActive}` : "contributions";
-  const rankLine = allRank
-    ? `<span class="mt-[0.4rem] text-[0.68rem] text-dim">${formatOrdinal(allRank)} on the all-time board</span>`
-    : "";
 
-  const bestLine = best
-    ? `<p class="mt-[0.9rem] text-[0.72rem] text-dim">Best year: <strong class="font-medium text-ink">${formatNumber(best.count)}</strong> contributions in ${best.year}</p>`
-    : "";
+  /** Leading the board is worth exactly the marks a rank-1 row wears: a gold
+   *  edge on the card and a gold total. The sentences stay quiet. */
+  const leadsAllTime = allRank === 1;
+  const leadsYear = boardRank === 1;
 
-  let liveSection: string;
-  if (boardUser && grid) {
-    const peakLine = peak
-      ? `<p>Busiest day: <strong class="font-medium text-ink">${formatNumber(peak.count)}</strong> contributions on ${escapeHtml(formatDayShort(peak.date))}</p>`
-      : "";
-    const rankNote = boardRank ? ` · ${formatOrdinal(boardRank)} on the ${year} board` : "";
-    liveSection = `<section aria-label="${attr(`${user.login} in ${year}`)}"><div class="${PLOT_PANEL}">${heatmapSvg(grid, {
-      cell: 17,
-      gap: 3,
-      months: true,
-      peakDate: peak?.date,
-      label: `${user.login} made ${formatNumber(boardUser.totalContributions)} contributions in ${year}`,
-    })}</div><div class="mt-[0.9rem] flex flex-wrap items-center justify-between gap-x-6 gap-y-3 text-[0.72rem] text-dim"><p><strong class="font-medium text-ink">${formatNumber(boardUser.totalContributions)}</strong> contributions${rankNote}</p>${peakLine}</div></section>`;
-  } else {
-    liveSection = `<p class="text-[0.78rem] leading-[1.6] text-dim">No GitHub data came back for ${escapeHtml(user.login)} in ${year}.</p>`;
+  /* ---- the career ledger: what the year strip above it adds up to ---- */
+  const careerFields: LedgerField[] = [];
+  if (best) {
+    careerFields.push({
+      term: "best year",
+      body: `<p><strong class="${LEDGER_FIGURE}">${formatNumber(best.count)}</strong> contributions in ${best.year}</p>`,
+    });
+  }
+  if (allRank) {
+    careerFields.push({
+      term: "standing",
+      body: `<p>${formatOrdinal(allRank)} on the all-time board</p>`,
+    });
   }
 
-  const main = `<section class="mt-[clamp(2.5rem,6vw,4rem)] animate-rise" aria-labelledby="user-heading"><div class="flex flex-wrap items-center gap-5"><a href="${attr(user.url)}" target="_blank" rel="noreferrer noopener" tabindex="-1"><img class="size-[72px] rounded-2xl border border-line bg-heat-0 saturate-[0.85] transition-[filter,border-color] duration-200 hover:border-accent/40 hover:saturate-100 max-phone:size-[56px]" src="${attr(user.avatarUrl)}" alt="" width="72" height="72"></a><div class="min-w-0"><a class="font-display text-[clamp(1.6rem,4.5vw,2.2rem)] leading-none font-extrabold tracking-[-0.03em] text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[4px]" href="${attr(user.url)}" target="_blank" rel="noreferrer noopener" id="user-heading">${escapeHtml(user.login)}</a><p class="mt-[0.35rem] text-[0.78rem] text-dim">${escapeHtml(user.name ?? "—")}</p>${follows}</div><div class="ml-auto flex flex-col items-end text-right max-phone:ml-0 max-phone:w-full max-phone:items-start max-phone:text-left"><span class="font-display text-[clamp(2.2rem,7vw,3.2rem)] leading-none font-extrabold tracking-[-0.04em] tabular-nums">${formatNumber(user.total)}</span><span class="mt-[0.35rem] text-[0.62rem] tracking-[0.12em] text-dimmer uppercase">${sinceCaption}</span>${rankLine}</div></div><div class="mt-[1.9rem] ${PLOT_PANEL}">${yearStripSvg(cells, {
+  const identityCard = `<section class="mt-[clamp(2.5rem,6vw,4rem)] ${CARD} ${leadsAllTime ? "border-accent/32" : "border-line-soft"}" aria-labelledby="user-heading"><div class="${CARD_HEAD}"><a class="shrink-0" href="${attr(user.url)}" target="_blank" rel="noreferrer noopener" tabindex="-1"><img class="size-[72px] rounded-2xl border border-line bg-heat-0 saturate-[0.85] transition-[filter,border-color] duration-200 hover:border-accent/40 hover:saturate-100 max-phone:size-[56px]" src="${attr(user.avatarUrl)}" alt="" width="72" height="72"></a><div class="min-w-0 flex-1"><h2 class="font-display text-[clamp(1.6rem,4.5vw,2.2rem)] leading-[1.05] font-extrabold tracking-[-0.03em] break-words" id="user-heading"><a class="text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[4px]" href="${attr(user.url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(user.login)}</a></h2><p class="mt-[0.35rem] text-[0.78rem] break-words text-dim">${escapeHtml(user.name ?? "—")}</p>${follows}</div><div class="ml-auto flex shrink-0 flex-col items-end text-right max-phone:ml-0 max-phone:w-full max-phone:items-start max-phone:text-left"><span class="font-display text-[clamp(2.2rem,7vw,3.2rem)] leading-none font-extrabold tracking-[-0.04em] tabular-nums${leadsAllTime ? " text-accent" : ""}">${formatNumber(user.total)}</span><span class="mt-[0.35rem] text-[0.62rem] tracking-[0.12em] text-dimmer uppercase">${sinceCaption}</span></div></div><div class="border-t border-line-soft ${CARD_WELL}">${yearStripSvg(cells, {
     cell: 70,
     gap: 6,
     labels: true,
     podium: true,
     label: `${user.login}, year by year`,
     hrefFor: (y) => hrefForYear(y, chrome.thisYear),
-  })}</div>${bestLine}</section><div class="${SECTION_RULE}"><span>${year}</span><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span></div>${liveSection}`;
+  })}</div>${ledgerHtml(careerFields)}</section>`;
+
+  let liveSection: string;
+  if (boardUser && grid) {
+    /* ---- the year ledger: the running total and what it is chasing ---- */
+    const liveFields: LedgerField[] = [];
+
+    let running = `<p><strong class="${leadsYear ? LEDGER_FIGURE_LEAD : LEDGER_FIGURE}">${formatNumber(boardUser.totalContributions)}</strong> contributions</p>`;
+    if (goals?.nextMilestone) {
+      // The rail turns "next milestone at 5,000" into a distance you can see,
+      // using the same determinate device as the board's own target line.
+      const toGo =
+        goals.toMilestone === null
+          ? ""
+          : ` <span class="opacity-60">·</span> <span class="tabular-nums">${formatNumber(goals.toMilestone)} to go</span>`;
+      running += `<div class="mt-[0.7rem] max-w-[24rem]">${goalRailHtml(boardUser.totalContributions, goals.nextMilestone)}<p class="mt-[0.5rem] text-dimmer">next milestone at <strong class="${LEDGER_VALUE}">${formatNumber(goals.nextMilestone)}</strong>${toGo}</p></div>`;
+    }
+    liveFields.push({ term: `${year} so far`, body: running });
+
+    let rankGap = "";
+    if (goals?.above) {
+      rankGap = goals.above.behind > 0
+        ? `<strong class="${LEDGER_VALUE}">${formatNumber(goals.above.behind)}</strong> behind <span class="text-ink">${escapeHtml(goals.above.login)}</span>`
+        : `level with <span class="text-ink">${escapeHtml(goals.above.login)}</span>`;
+    } else if (goals?.leadMargin !== null && goals?.leadMargin !== undefined) {
+      rankGap = `leads by <strong class="${LEDGER_VALUE}">${formatNumber(goals.leadMargin)}</strong>`;
+    }
+    if (boardRank) {
+      liveFields.push({
+        term: "standing",
+        body: `<p>${formatOrdinal(boardRank)} on the ${year} board${rankGap ? ` <span class="text-dimmer">—</span> ${rankGap}` : ""}</p>`,
+      });
+    }
+
+    liveFields.push({
+      term: "busiest day",
+      body: peak
+        ? `<p><strong class="${LEDGER_VALUE}">${formatNumber(peak.count)}</strong> contributions on ${escapeHtml(formatDayShort(peak.date))}</p>`
+        : `<p class="text-dimmer">no activity yet</p>`,
+    });
+
+    liveSection = `<section class="${CARD} [animation-delay:90ms] ${leadsYear ? "border-accent/32" : "border-line-soft"}" aria-label="${attr(`${user.login} in ${year}`)}"><div class="${CARD_WELL}">${heatmapSvg(grid, {
+      cell: 17,
+      gap: 3,
+      months: true,
+      peakDate: peak?.date,
+      label: `${user.login} made ${formatNumber(boardUser.totalContributions)} contributions in ${year}`,
+    })}</div>${ledgerHtml(liveFields)}</section>`;
+  } else {
+    liveSection = `<section class="animate-rise rounded-2xl border border-line-soft bg-panel px-[1.3rem] py-[1.15rem] [animation-delay:90ms] max-phone:px-4" aria-label="${attr(`${user.login} in ${year}`)}"><p class="text-[0.78rem] leading-[1.6] text-dim">No GitHub data came back for ${escapeHtml(user.login)} in ${year}.</p></section>`;
+  }
+
+  const main = `${identityCard}<div class="${SECTION_RULE}"><span>${year}</span><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span></div>${liveSection}`;
 
   return pageHtml({
     chrome,
