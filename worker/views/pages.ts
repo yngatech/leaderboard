@@ -13,7 +13,7 @@ import {
   userYearStrip,
 } from "../../shared/board.ts";
 import { formatDayShort, formatNumber, formatOrdinal } from "../../shared/format.ts";
-import { attr, escapeHtml } from "../html.ts";
+import { html, type Html } from "../html.ts";
 import { cumulativeChartHtml } from "./chart.ts";
 import { MIN_PAGE_YEAR, hrefForYear, pageHtml, type SiteChrome } from "./layout.ts";
 import { allTimeRowHtml, boardGoalLineHtml, goalRailHtml, userRowHtml } from "./rows.ts";
@@ -23,22 +23,46 @@ const SITE_DESCRIPTION =
   "GitHub contribution leaderboard and heatmaps for the ynga.tech friends.";
 
 /** The big number, its caption and the goal line under it. */
-function heroHtml(total: number, caption: string, extra = ""): string {
-  return `<div><p class="bg-[linear-gradient(96deg,var(--color-heat-4)_12%,var(--color-heat-3)_58%,var(--color-heat-2)_96%)] bg-clip-text font-display text-[clamp(3.6rem,12vw,7.5rem)] leading-[0.8] font-extrabold tracking-[-0.055em] tabular-nums text-transparent">${formatNumber(total)}</p><h2 class="mt-[0.9rem] max-w-[44ch] font-mono text-[0.8rem] leading-[1.6] font-normal text-dim" id="pulse-heading">${escapeHtml(caption)}</h2>${extra}</div>`;
+function heroHtml(total: number, caption: string, extra: Html | null = null): Html {
+  return html`<div>
+    <p
+      class="bg-[linear-gradient(96deg,var(--color-heat-4)_12%,var(--color-heat-3)_58%,var(--color-heat-2)_96%)] bg-clip-text font-display text-[clamp(3.6rem,12vw,7.5rem)] leading-[0.8] font-extrabold tracking-[-0.055em] tabular-nums text-transparent"
+    >
+      ${formatNumber(total)}
+    </p>
+    <h2
+      class="mt-[0.9rem] max-w-[44ch] font-mono text-[0.8rem] leading-[1.6] font-normal text-dim"
+      id="pulse-heading"
+    >
+      ${caption}
+    </h2>
+    ${extra}
+  </div>`;
 }
 
 /** The five-step swatch legend, with the outlined "to come" cell on live years. */
-function legendHtml(withFuture: boolean): string {
+function legendHtml(withFuture: boolean): Html {
   const swatches = [0, 1, 2, 3, 4]
     .map(
       (level) =>
-        `<i class="size-[11px] rounded-[3px] bg-heat-0 data-[level=1]:bg-heat-1 data-[level=2]:bg-heat-2 data-[level=3]:bg-heat-3 data-[level=4]:bg-heat-4" data-level="${level}"></i>`,
-    )
-    .join("");
+        html`<i
+          class="size-[11px] rounded-[3px] bg-heat-0 data-[level=1]:bg-heat-1 data-[level=2]:bg-heat-2 data-[level=3]:bg-heat-3 data-[level=4]:bg-heat-4"
+          data-level="${level}"
+        ></i>`,
+    );
   const future = withFuture
-    ? `<span class="w-2" aria-hidden="true"></span><i class="size-[11px] rounded-[3px] border border-future-line bg-transparent" data-state="future"></i><span>to come</span>`
-    : "";
-  return `<div class="flex items-center gap-[0.32rem] tracking-[0.04em] text-dimmer"><span>less</span>${swatches}<span>more</span>${future}</div>`;
+    ? html`<span class="w-2" aria-hidden="true"></span
+        ><i
+          class="size-[11px] rounded-[3px] border border-future-line bg-transparent"
+          data-state="future"
+        ></i
+        ><span>to come</span>`
+    : null;
+  return html`<div
+    class="flex items-center gap-[0.32rem] tracking-[0.04em] text-dimmer"
+  >
+    <span>less</span>${swatches}<span>more</span>${future}
+  </div>`;
 }
 
 const PLOT_PANEL =
@@ -47,14 +71,29 @@ const PLOT_PANEL =
 const SECTION_RULE =
   "mt-[clamp(2.25rem,5vw,3.25rem)] mb-4 flex items-center gap-[0.85rem] text-[0.66rem] tracking-[0.2em] text-dimmer uppercase";
 
-function missingNoteHtml(missing: string[]): string {
-  if (missing.length === 0) return "";
-  return `<p class="mt-[1.1rem] text-[0.7rem] leading-[1.6] text-dimmer">No GitHub data came back for ${escapeHtml(missing.join(", "))}. The account may have been renamed or removed.</p>`;
+function missingNoteHtml(missing: string[]): Html | null {
+  if (missing.length === 0) return null;
+  return html`<p class="mt-[1.1rem] text-[0.7rem] leading-[1.6] text-dimmer">
+    No GitHub data came back for ${missing.join(", ")}. The account may have been renamed or
+    removed.
+  </p>`;
 }
 
 /** The "Nothing here." card, shared by the 404 page and an unknown login. */
-function nothingHereHtml(detail: string, thisYear: number): string {
-  return `<section class="mt-[clamp(2.5rem,6vw,4rem)] rounded-2xl border border-line bg-panel p-[1.6rem]"><p class="font-display text-[1.3rem] font-semibold tracking-[-0.02em] text-ink">Nothing here.</p><p class="mt-2 max-w-[60ch] text-[0.78rem] leading-[1.6] text-dim">${escapeHtml(detail)}</p><a class="mt-[1.1rem] inline-block cursor-pointer rounded-[9px] border border-accent/50 bg-transparent px-[1.1rem] py-[0.55rem] font-mono text-[0.75rem] tracking-[0.05em] text-accent no-underline transition-colors duration-200 hover:bg-accent/12" href="/">Show ${thisYear}</a></section>`;
+function nothingHereHtml(detail: string, thisYear: number): Html {
+  return html`<section
+    class="mt-[clamp(2.5rem,6vw,4rem)] rounded-2xl border border-line bg-panel p-[1.6rem]"
+  >
+    <p class="font-display text-[1.3rem] font-semibold tracking-[-0.02em] text-ink">
+      Nothing here.
+    </p>
+    <p class="mt-2 max-w-[60ch] text-[0.78rem] leading-[1.6] text-dim">${detail}</p>
+    <a
+      class="mt-[1.1rem] inline-block cursor-pointer rounded-[9px] border border-accent/50 bg-transparent px-[1.1rem] py-[0.55rem] font-mono text-[0.75rem] tracking-[0.05em] text-accent no-underline transition-colors duration-200 hover:bg-accent/12"
+      href="/"
+      >Show ${thisYear}</a
+    >
+  </section>`;
 }
 
 export interface YearPageOptions {
@@ -95,8 +134,12 @@ export function yearPageHtml(options: YearPageOptions): string {
   const goal = live ? boardGoal(board) : null;
 
   const busiestLine = busiest
-    ? `<p>Busiest day: <strong class="font-medium text-ink">${formatNumber(busiest.count)}</strong> contributions on ${escapeHtml(formatDayShort(busiest.date))}</p>`
-    : "";
+    ? html`<p>
+        Busiest day:
+        <strong class="font-medium text-ink">${formatNumber(busiest.count)}</strong>
+        contributions on ${formatDayShort(busiest.date)}
+      </p>`
+    : null;
 
   const rowsHtml = board
     .map((user, index) =>
@@ -109,25 +152,40 @@ export function yearPageHtml(options: YearPageOptions): string {
         highestDailyTotal,
         goals: live ? userGoals(board, index) : null,
       }),
-    )
-    .join("");
+    );
 
   /** Only the year in progress has a "so far" worth drawing. */
   const climb = live ? cumulativeSeries(board, year, today) : [];
-  const chartHtml = climb.length > 0 ? cumulativeChartHtml({ series: climb, year, today }) : "";
-
-  const main = `<section class="mt-[clamp(2.5rem,6vw,4rem)] animate-rise" aria-labelledby="pulse-heading">${heroHtml(
+  const chartHtml = climb.length > 0 ? cumulativeChartHtml({ series: climb, year, today }) : null;
+  const hero = heroHtml(
     total,
     `contributions from ${board.length} accounts in ${year}`,
-    goal ? boardGoalLineHtml(goal) : "",
-  )}<div class="mt-[1.9rem] ${PLOT_PANEL}">${heatmapSvg(pulse, {
+    goal ? boardGoalLineHtml(goal) : null,
+  );
+
+  const main = html`<section
+      class="mt-[clamp(2.5rem,6vw,4rem)] animate-rise"
+      aria-labelledby="pulse-heading"
+    >
+      ${hero}<div class="mt-[1.9rem] ${PLOT_PANEL}">${heatmapSvg(pulse, {
     cell: 17,
     gap: 3,
     months: true,
     unit: "contributions",
     peakDate: busiest?.date,
     label: `All ${board.length} accounts combined, day by day, in ${year}`,
-  })}</div><div class="mt-[0.9rem] flex flex-wrap items-center justify-between gap-x-6 gap-y-3 text-[0.72rem] text-dim">${busiestLine}${legendHtml(live)}</div></section><div class="${SECTION_RULE}"><span>the board</span><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span></div><main class="flex flex-col gap-[0.6rem]">${rowsHtml}</main>${missingNoteHtml(options.missing)}${chartHtml}`;
+  })}</div>
+      <div
+        class="mt-[0.9rem] flex flex-wrap items-center justify-between gap-x-6 gap-y-3 text-[0.72rem] text-dim"
+      >
+        ${busiestLine}${legendHtml(live)}
+      </div>
+    </section>
+    <div class="${SECTION_RULE}">
+      <span>the board</span><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span>
+    </div>
+    <main class="flex flex-col gap-[0.6rem]">${rowsHtml}</main>
+    ${missingNoteHtml(options.missing)}${chartHtml}`;
 
   return pageHtml({
     chrome,
@@ -167,8 +225,11 @@ export function allPageHtml(options: AllPageOptions): string {
   const span = years.length > 0 ? `${years[0]}–${years[years.length - 1]}` : "";
 
   const bestLine = best
-    ? `<p>Biggest year: <strong class="font-medium text-ink">${formatNumber(best.count)}</strong> contributions in ${best.year}</p>`
-    : "";
+    ? html`<p>
+        Biggest year: <strong class="font-medium text-ink">${formatNumber(best.count)}</strong>
+        contributions in ${best.year}
+      </p>`
+    : null;
 
   const rowsHtml = ranked
     .map((user, index) =>
@@ -181,19 +242,31 @@ export function allPageHtml(options: AllPageOptions): string {
         highestTotal,
         highestYearTotal,
       }),
-    )
-    .join("");
+    );
+  const hero = heroHtml(total, `contributions from ${users.length} accounts, ${span}`);
 
-  const main = `<section class="mt-[clamp(2.5rem,6vw,4rem)] animate-rise" aria-labelledby="pulse-heading">${heroHtml(
-    total,
-    `contributions from ${users.length} accounts, ${span}`,
-  )}<div class="mt-[1.9rem] ${PLOT_PANEL}">${yearStripSvg(pulse, {
+  const main = html`<section
+      class="mt-[clamp(2.5rem,6vw,4rem)] animate-rise"
+      aria-labelledby="pulse-heading"
+    >
+      ${hero}<div class="mt-[1.9rem] ${PLOT_PANEL}">${yearStripSvg(pulse, {
     cell: 70,
     gap: 6,
     labels: true,
     label: `All ${users.length} accounts combined, year by year, ${span}`,
     hrefFor: (year) => hrefForYear(year, chrome.thisYear),
-  })}</div><div class="mt-[0.9rem] flex flex-wrap items-center justify-between gap-x-6 gap-y-3 text-[0.72rem] text-dim">${bestLine}${legendHtml(false)}</div></section><div class="${SECTION_RULE}"><span>the board</span><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span></div><main class="flex flex-col gap-[0.6rem]">${rowsHtml}</main>${missingNoteHtml(options.missing)}`;
+  })}</div>
+      <div
+        class="mt-[0.9rem] flex flex-wrap items-center justify-between gap-x-6 gap-y-3 text-[0.72rem] text-dim"
+      >
+        ${bestLine}${legendHtml(false)}
+      </div>
+    </section>
+    <div class="${SECTION_RULE}">
+      <span>the board</span><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span>
+    </div>
+    <main class="flex flex-col gap-[0.6rem]">${rowsHtml}</main>
+    ${missingNoteHtml(options.missing)}`;
 
   return pageHtml({
     chrome,
@@ -266,19 +339,23 @@ function ledgerColumns(count: number): string {
 interface LedgerField {
   /** Static micro-label; never interpolated from GitHub data. */
   term: string;
-  body: string;
+  body: Html;
 }
 
 /** The band itself. No fields means no band, rather than an empty strip. */
-function ledgerHtml(fields: LedgerField[]): string {
-  if (fields.length === 0) return "";
+function ledgerHtml(fields: LedgerField[]): Html | null {
+  if (fields.length === 0) return null;
   const items = fields
     .map(
       (field, index) =>
-        `<div class="min-w-0${index > 0 ? ` ${LEDGER_RULE}` : ""}"><dt class="${LEDGER_TERM}">${field.term}</dt><dd class="mt-[0.45rem] min-w-0 break-words text-dim">${field.body}</dd></div>`,
-    )
-    .join("");
-  return `<div class="${CARD_LEDGER}"><dl class="${LEDGER_GRID} ${ledgerColumns(fields.length)}">${items}</dl></div>`;
+        html`<div class="min-w-0${index > 0 ? ` ${LEDGER_RULE}` : ""}">
+          <dt class="${LEDGER_TERM}">${field.term}</dt>
+          <dd class="mt-[0.45rem] min-w-0 break-words text-dim">${field.body}</dd>
+        </div>`,
+    );
+  return html`<div class="${CARD_LEDGER}">
+    <dl class="${LEDGER_GRID} ${ledgerColumns(fields.length)}">${items}</dl>
+  </div>`;
 }
 
 export interface UserPageOptions {
@@ -317,8 +394,12 @@ export function userPageHtml(options: UserPageOptions): string {
 
   const follows =
     user.followers !== null
-      ? `<p class="mt-[0.4rem] flex flex-wrap gap-[0.3rem] text-[0.7rem] text-dimmer"><span>${formatNumber(user.followers ?? 0)} followers</span><span class="opacity-60">·</span><span>${formatNumber(user.following ?? 0)} following</span></p>`
-      : "";
+      ? html`<p class="mt-[0.4rem] flex flex-wrap gap-[0.3rem] text-[0.7rem] text-dimmer">
+          <span>${formatNumber(user.followers ?? 0)} followers</span
+          ><span class="opacity-60">·</span
+          ><span>${formatNumber(user.following ?? 0)} following</span>
+        </p>`
+      : null;
 
   const sinceCaption = firstActive ? `contributions since ${firstActive}` : "contributions";
 
@@ -332,76 +413,173 @@ export function userPageHtml(options: UserPageOptions): string {
   if (best) {
     careerFields.push({
       term: "best year",
-      body: `<p><strong class="${LEDGER_FIGURE}">${formatNumber(best.count)}</strong> contributions in ${best.year}</p>`,
+      body: html`<p>
+        <strong class="${LEDGER_FIGURE}">${formatNumber(best.count)}</strong> contributions in
+        ${best.year}
+      </p>`,
     });
   }
   if (allRank) {
     careerFields.push({
       term: "standing",
-      body: `<p>${formatOrdinal(allRank)} on the all-time board</p>`,
+      body: html`<p>${formatOrdinal(allRank)} on the all-time board</p>`,
     });
   }
 
-  const identityCard = `<section class="mt-[clamp(2.5rem,6vw,4rem)] ${CARD} ${leadsAllTime ? "border-accent/32" : "border-line-soft"}" aria-labelledby="user-heading"><div class="${CARD_HEAD}"><a class="shrink-0" href="${attr(user.url)}" target="_blank" rel="noreferrer noopener" tabindex="-1"><img class="size-[72px] rounded-2xl border border-line bg-heat-0 saturate-[0.85] transition-[filter,border-color] duration-200 hover:border-accent/40 hover:saturate-100 max-phone:size-[56px]" src="${attr(user.avatarUrl)}" alt="" width="72" height="72"></a><div class="min-w-0 flex-1"><h2 class="font-display text-[clamp(1.6rem,4.5vw,2.2rem)] leading-[1.05] font-extrabold tracking-[-0.03em] break-words" id="user-heading"><a class="text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[4px]" href="${attr(user.url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(user.login)}</a></h2><p class="mt-[0.35rem] text-[0.78rem] break-words text-dim">${escapeHtml(user.name ?? "—")}</p>${follows}</div><div class="ml-auto flex shrink-0 flex-col items-end text-right max-phone:ml-0 max-phone:w-full max-phone:items-start max-phone:text-left"><span class="font-display text-[clamp(2.2rem,7vw,3.2rem)] leading-none font-extrabold tracking-[-0.04em] tabular-nums${leadsAllTime ? " text-accent" : ""}">${formatNumber(user.total)}</span><span class="mt-[0.35rem] text-[0.62rem] tracking-[0.12em] text-dimmer uppercase">${sinceCaption}</span></div></div><div class="border-t border-line-soft ${CARD_WELL}">${yearStripSvg(cells, {
+  const identityCard = html`<section
+    class="mt-[clamp(2.5rem,6vw,4rem)] ${CARD} ${leadsAllTime
+      ? "border-accent/32"
+      : "border-line-soft"}"
+    aria-labelledby="user-heading"
+  >
+    <div class="${CARD_HEAD}">
+      <a
+        class="shrink-0"
+        href="${user.url}"
+        target="_blank"
+        rel="noreferrer noopener"
+        tabindex="-1"
+        ><img
+          class="size-[72px] rounded-2xl border border-line bg-heat-0 saturate-[0.85] transition-[filter,border-color] duration-200 hover:border-accent/40 hover:saturate-100 max-phone:size-[56px]"
+          src="${user.avatarUrl}"
+          alt=""
+          width="72"
+          height="72"
+      /></a>
+      <div class="min-w-0 flex-1">
+        <h2
+          class="font-display text-[clamp(1.6rem,4.5vw,2.2rem)] leading-[1.05] font-extrabold tracking-[-0.03em] break-words"
+          id="user-heading"
+        >
+          <a
+            class="text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[4px]"
+            href="${user.url}"
+            target="_blank"
+            rel="noreferrer noopener"
+            >${user.login}</a
+          >
+        </h2>
+        <p class="mt-[0.35rem] text-[0.78rem] break-words text-dim">${user.name ?? "—"}</p>
+        ${follows}
+      </div>
+      <div
+        class="ml-auto flex shrink-0 flex-col items-end text-right max-phone:ml-0 max-phone:w-full max-phone:items-start max-phone:text-left"
+      >
+        <span
+          class="font-display text-[clamp(2.2rem,7vw,3.2rem)] leading-none font-extrabold tracking-[-0.04em] tabular-nums${leadsAllTime
+            ? " text-accent"
+            : ""}"
+          >${formatNumber(user.total)}</span
+        ><span
+          class="mt-[0.35rem] text-[0.62rem] tracking-[0.12em] text-dimmer uppercase"
+          >${sinceCaption}</span
+        >
+      </div>
+    </div>
+    <div class="border-t border-line-soft ${CARD_WELL}">${yearStripSvg(cells, {
     cell: 70,
     gap: 6,
     labels: true,
     podium: true,
     label: `${user.login}, year by year`,
     hrefFor: (y) => hrefForYear(y, chrome.thisYear),
-  })}</div>${ledgerHtml(careerFields)}</section>`;
+  })}</div>
+    ${ledgerHtml(careerFields)}
+  </section>`;
 
-  let liveSection: string;
+  let liveSection: Html;
   if (boardUser && grid) {
     /* ---- the year ledger: the running total and what it is chasing ---- */
     const liveFields: LedgerField[] = [];
 
-    let running = `<p><strong class="${leadsYear ? LEDGER_FIGURE_LEAD : LEDGER_FIGURE}">${formatNumber(boardUser.totalContributions)}</strong> contributions</p>`;
-    if (goals?.nextMilestone) {
+    const milestone = goals?.nextMilestone
+      ? (() => {
       // The rail turns "next milestone at 5,000" into a distance you can see,
       // using the same determinate device as the board's own target line.
       const toGo =
         goals.toMilestone === null
-          ? ""
-          : ` <span class="opacity-60">·</span> <span class="tabular-nums">${formatNumber(goals.toMilestone)} to go</span>`;
-      running += `<div class="mt-[0.7rem] max-w-[24rem]">${goalRailHtml(boardUser.totalContributions, goals.nextMilestone)}<p class="mt-[0.5rem] text-dimmer">next milestone at <strong class="${LEDGER_VALUE}">${formatNumber(goals.nextMilestone)}</strong>${toGo}</p></div>`;
-    }
+          ? null
+          : html` <span class="opacity-60">·</span>
+              <span class="tabular-nums">${formatNumber(goals.toMilestone)} to go</span>`;
+        return html`<div class="mt-[0.7rem] max-w-[24rem]">
+          ${goalRailHtml(boardUser.totalContributions, goals.nextMilestone)}
+          <p class="mt-[0.5rem] text-dimmer">
+            next milestone at
+            <strong class="${LEDGER_VALUE}">${formatNumber(goals.nextMilestone)}</strong>${toGo}
+          </p>
+        </div>`;
+      })()
+      : null;
+    const running = html`<p>
+        <strong class="${leadsYear ? LEDGER_FIGURE_LEAD : LEDGER_FIGURE}"
+          >${formatNumber(boardUser.totalContributions)}</strong
+        >
+        contributions
+      </p>
+      ${milestone}`;
     liveFields.push({ term: `${year} so far`, body: running });
 
-    let rankGap = "";
+    let rankGap: Html | null = null;
     if (goals?.above) {
-      rankGap = goals.above.behind > 0
-        ? `<strong class="${LEDGER_VALUE}">${formatNumber(goals.above.behind)}</strong> behind <span class="text-ink">${escapeHtml(goals.above.login)}</span>`
-        : `level with <span class="text-ink">${escapeHtml(goals.above.login)}</span>`;
+      rankGap =
+        goals.above.behind > 0
+          ? html`<strong class="${LEDGER_VALUE}">${formatNumber(goals.above.behind)}</strong>
+              behind <span class="text-ink">${goals.above.login}</span>`
+          : html`level with <span class="text-ink">${goals.above.login}</span>`;
     } else if (goals?.leadMargin !== null && goals?.leadMargin !== undefined) {
-      rankGap = `leads by <strong class="${LEDGER_VALUE}">${formatNumber(goals.leadMargin)}</strong>`;
+      rankGap = html`leads by
+        <strong class="${LEDGER_VALUE}">${formatNumber(goals.leadMargin)}</strong>`;
     }
     if (boardRank) {
       liveFields.push({
         term: "standing",
-        body: `<p>${formatOrdinal(boardRank)} on the ${year} board${rankGap ? ` <span class="text-dimmer">—</span> ${rankGap}` : ""}</p>`,
+        body: html`<p>
+          ${formatOrdinal(boardRank)} on the ${year} board${rankGap
+            ? html` <span class="text-dimmer">—</span> ${rankGap}`
+            : null}
+        </p>`,
       });
     }
 
     liveFields.push({
       term: "busiest day",
       body: peak
-        ? `<p><strong class="${LEDGER_VALUE}">${formatNumber(peak.count)}</strong> contributions on ${escapeHtml(formatDayShort(peak.date))}</p>`
-        : `<p class="text-dimmer">no activity yet</p>`,
+        ? html`<p>
+            <strong class="${LEDGER_VALUE}">${formatNumber(peak.count)}</strong> contributions on
+            ${formatDayShort(peak.date)}
+          </p>`
+        : html`<p class="text-dimmer">no activity yet</p>`,
     });
 
-    liveSection = `<section class="${CARD} [animation-delay:90ms] ${leadsYear ? "border-accent/32" : "border-line-soft"}" aria-label="${attr(`${user.login} in ${year}`)}"><div class="${CARD_WELL}">${heatmapSvg(grid, {
+    liveSection = html`<section
+      class="${CARD} [animation-delay:90ms] ${leadsYear
+        ? "border-accent/32"
+        : "border-line-soft"}"
+      aria-label="${user.login} in ${year}"
+    >
+      <div class="${CARD_WELL}">${heatmapSvg(grid, {
       cell: 17,
       gap: 3,
       months: true,
       peakDate: peak?.date,
       label: `${user.login} made ${formatNumber(boardUser.totalContributions)} contributions in ${year}`,
-    })}</div>${ledgerHtml(liveFields)}</section>`;
+    })}</div>
+      ${ledgerHtml(liveFields)}
+    </section>`;
   } else {
-    liveSection = `<section class="animate-rise rounded-2xl border border-line-soft bg-panel px-[1.3rem] py-[1.15rem] [animation-delay:90ms] max-phone:px-4" aria-label="${attr(`${user.login} in ${year}`)}"><p class="text-[0.78rem] leading-[1.6] text-dim">No GitHub data came back for ${escapeHtml(user.login)} in ${year}.</p></section>`;
+    liveSection = html`<section
+      class="animate-rise rounded-2xl border border-line-soft bg-panel px-[1.3rem] py-[1.15rem] [animation-delay:90ms] max-phone:px-4"
+      aria-label="${user.login} in ${year}"
+    >
+      <p class="text-[0.78rem] leading-[1.6] text-dim">
+        No GitHub data came back for ${user.login} in ${year}.
+      </p>
+    </section>`;
   }
 
-  const main = `${identityCard}<div class="${SECTION_RULE}"><span>${year}</span><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span></div>${liveSection}`;
+  const main = html`${identityCard}<div class="${SECTION_RULE}">
+      <span>${year}</span><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span>
+    </div>${liveSection}`;
 
   return pageHtml({
     chrome,
@@ -441,7 +619,20 @@ export function unknownUserPageHtml(chrome: SiteChrome, login: string): string {
 }
 
 export function errorPageHtml(chrome: SiteChrome, message: string): string {
-  const main = `<section class="mt-[clamp(2.5rem,6vw,4rem)] rounded-2xl border border-heat-3/45 bg-heat-3/8 p-[1.6rem]" role="alert"><p class="font-display text-[1.3rem] font-semibold tracking-[-0.02em] text-ink">The board didn't load.</p><p class="mt-2 max-w-[60ch] text-[0.78rem] leading-[1.6] text-dim">${escapeHtml(message)}</p><a class="mt-[1.1rem] inline-block cursor-pointer rounded-[9px] border border-accent/50 bg-transparent px-[1.1rem] py-[0.55rem] font-mono text-[0.75rem] tracking-[0.05em] text-accent no-underline transition-colors duration-200 hover:bg-accent/12" href="">Try again</a></section>`;
+  const main = html`<section
+    class="mt-[clamp(2.5rem,6vw,4rem)] rounded-2xl border border-heat-3/45 bg-heat-3/8 p-[1.6rem]"
+    role="alert"
+  >
+    <p class="font-display text-[1.3rem] font-semibold tracking-[-0.02em] text-ink">
+      The board didn't load.
+    </p>
+    <p class="mt-2 max-w-[60ch] text-[0.78rem] leading-[1.6] text-dim">${message}</p>
+    <a
+      class="mt-[1.1rem] inline-block cursor-pointer rounded-[9px] border border-accent/50 bg-transparent px-[1.1rem] py-[0.55rem] font-mono text-[0.75rem] tracking-[0.05em] text-accent no-underline transition-colors duration-200 hover:bg-accent/12"
+      href=""
+      >Try again</a
+    >
+  </section>`;
   return pageHtml({
     chrome,
     title: "error",

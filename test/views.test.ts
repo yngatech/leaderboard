@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AllTime, Board } from "../shared/types.ts";
-import { attr, escapeHtml, jsonForScript } from "../worker/html.ts";
+import { html, jsonForScript } from "../worker/html.ts";
 import type { SiteChrome } from "../worker/views/layout.ts";
 import {
   allPageHtml,
@@ -105,12 +105,12 @@ function assertScriptBudget(page: string, withChart: boolean) {
   assert.equal(all.length, withChart ? 2 : 1);
 }
 
-test("escapes the five HTML-significant characters", () => {
+test("templates escape interpolated text and attributes", () => {
+  const unsafe = `<img src="x" onerror='a&b'>`;
   assert.equal(
-    escapeHtml(`<img src="x" onerror='a&b'>`),
-    "&lt;img src=&quot;x&quot; onerror=&#39;a&amp;b&#39;&gt;",
+    html`<p data-value="${unsafe}">${unsafe}</p>`.toString(),
+    '<p data-value="&lt;img src=&quot;x&quot; onerror=&#39;a&amp;b&#39;&gt;">&lt;img src=&quot;x&quot; onerror=&#39;a&amp;b&#39;&gt;</p>',
   );
-  assert.equal(attr(2026), "2026");
 });
 
 test("inline JSON cannot close its own script element", () => {
@@ -194,10 +194,10 @@ test("all-time page ranks users and links every year cell", () => {
   // alice (820) ranks above bob (100).
   assert.ok(page.indexOf(">alice<") < page.indexOf(">bob<"));
   // The group strip's cells link to the year boards; the live year is "/".
-  assert.ok(page.includes('<a href="/2024"'));
-  assert.ok(page.includes('<a href="/2025"'));
+  assert.match(page, /<a\s+href="\/2024"/);
+  assert.match(page, /<a\s+href="\/2025"/);
   assert.ok(page.includes('aria-label="Show 2026'));
-  assert.ok(!page.includes('<a href="/2026"'));
+  assert.doesNotMatch(page, /<a\s+href="\/2026"/);
   assert.ok(page.includes('href="/u/alice"'));
   assert.ok(page.includes('href="/u/bob"'));
   assert.ok(!page.includes('href="https://github.com/alice"'));
@@ -220,14 +220,14 @@ test("user page reads from both feeds and links its year strip", () => {
   // Rankings and best-year values are derived from the two feeds.
   assert.ok(page.includes("1st on the all-time board"));
   assert.ok(page.includes("1st on the 2026 board"));
-  assert.ok(page.includes(">400</strong> contributions in 2025"));
-  assert.ok(page.includes(">320</strong> contributions"));
-  assert.ok(page.includes("next milestone at <strong"));
-  assert.ok(page.includes(">500</strong>"));
-  assert.ok(page.includes("1st on the 2026 board <span"));
-  assert.ok(page.includes("leads by <strong"));
-  assert.ok(page.includes(">280</strong>"));
-  assert.ok(page.includes('<a href="/2024"'));
+  assert.match(page, />\s*400<\/strong>\s+contributions in\s+2025/);
+  assert.match(page, />\s*320<\/strong\s*>\s+contributions/);
+  assert.match(page, /next milestone at\s+<strong/);
+  assert.match(page, />\s*500<\/strong>/);
+  assert.match(page, /1st on the 2026 board\s*<span/);
+  assert.match(page, /leads by\s+<strong/);
+  assert.match(page, />\s*280<\/strong>/);
+  assert.match(page, /<a\s+href="\/2024"/);
   // User pages have no arrow-key routing.
   assert.ok(!page.includes("data-prev-href"));
   assert.ok(!page.includes("data-next-href"));
@@ -247,11 +247,11 @@ test("user page shows the gap to the account directly above", () => {
     generatedAt: GENERATED,
   });
 
-  assert.ok(page.includes(">40</strong> contributions"));
-  assert.ok(page.includes("next milestone at <strong"));
-  assert.ok(page.includes(">100</strong>"));
-  assert.ok(page.includes("2nd on the 2026 board <span"));
-  assert.ok(page.includes(">280</strong> behind <span class=\"text-ink\">alice</span>"));
+  assert.match(page, />\s*40<\/strong>\s+contributions/);
+  assert.match(page, /next milestone at\s+<strong/);
+  assert.match(page, />\s*100<\/strong>/);
+  assert.match(page, /2nd on the 2026 board\s*<span/);
+  assert.match(page, />\s*280<\/strong>\s+behind\s+<span class="text-ink">alice<\/span>/);
 });
 
 test("a user missing from the live board falls back honestly", () => {

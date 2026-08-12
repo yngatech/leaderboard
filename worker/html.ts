@@ -1,21 +1,19 @@
-/**
- * Minimal HTML escaping for the string-template views. Every interpolation of
- * text that originates outside this repo — GitHub display names above all —
- * must pass through here. Logins are `[A-Za-z0-9-]` but get escaped anyway;
- * the discipline is cheaper than the audit.
- */
-export function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
+import { html as honoHtml, raw } from "hono/html";
+import type { HtmlEscapedString } from "hono/utils/html";
 
-/** Escapes a value for a double-quoted attribute position. */
-export function attr(value: string | number): string {
-  return escapeHtml(String(value));
+export type Html = HtmlEscapedString;
+
+/**
+ * Synchronous Hono templates for the server-rendered views. None of our
+ * interpolations are promises, so narrowing Hono's async-capable return type
+ * here keeps the rest of the renderer synchronous and composable.
+ */
+export function html(strings: TemplateStringsArray, ...values: unknown[]): Html {
+  const rendered = honoHtml(strings, ...values);
+  if (rendered instanceof Promise) {
+    throw new TypeError("View templates must not interpolate promises");
+  }
+  return rendered;
 }
 
 /**
@@ -23,6 +21,6 @@ export function attr(value: string | number): string {
  * only sequence that can break out of that element is `</script>`, and `<`
  * never needs to appear unescaped inside JSON.
  */
-export function jsonForScript(value: unknown): string {
-  return JSON.stringify(value).replaceAll("<", "\\u003c");
+export function jsonForScript(value: unknown): Html {
+  return raw(JSON.stringify(value).replaceAll("<", "\\u003c"));
 }
