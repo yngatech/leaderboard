@@ -221,11 +221,37 @@ test("user page reads from both feeds and links its year strip", () => {
   assert.ok(page.includes("1st on the all-time board"));
   assert.ok(page.includes("1st on the 2026 board"));
   assert.ok(page.includes(">400</strong> contributions in 2025"));
+  assert.ok(page.includes(">320</strong> contributions"));
+  assert.ok(page.includes("next milestone at <strong"));
+  assert.ok(page.includes(">500</strong>"));
+  assert.ok(page.includes("1st on the 2026 board <span"));
+  assert.ok(page.includes("leads by <strong"));
+  assert.ok(page.includes(">280</strong>"));
   assert.ok(page.includes('<a href="/2024"'));
   // User pages have no arrow-key routing.
   assert.ok(!page.includes("data-prev-href"));
   assert.ok(!page.includes("data-next-href"));
   assertScriptBudget(page, false);
+});
+
+test("user page shows the gap to the account directly above", () => {
+  const data = makeAllTime();
+  const page = userPageHtml({
+    chrome,
+    user: data.users[1],
+    board: makeBoard(),
+    allUsers: data.users,
+    years: data.years,
+    year: 2026,
+    today: "2026-08-10",
+    generatedAt: GENERATED,
+  });
+
+  assert.ok(page.includes(">40</strong> contributions"));
+  assert.ok(page.includes("next milestone at <strong"));
+  assert.ok(page.includes(">100</strong>"));
+  assert.ok(page.includes("2nd on the 2026 board <span"));
+  assert.ok(page.includes(">280</strong> behind <span class=\"text-ink\">alice</span>"));
 });
 
 test("a user missing from the live board falls back honestly", () => {
@@ -243,6 +269,8 @@ test("a user missing from the live board falls back honestly", () => {
 
   assert.ok(page.includes("No GitHub data came back for bob in 2026."));
   assert.ok(!page.includes("on the 2026 board"));
+  assert.ok(!page.includes("next milestone"));
+  assert.ok(!page.includes("behind alice"));
 });
 
 test("not-found and error pages stand alone", () => {
