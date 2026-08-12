@@ -557,6 +557,20 @@ async function handleMarkdown(year: number, env: Env, ctx: ExecutionContext): Pr
    Upstream failures become an error page and are never cached.
 --------------------------------------------------------------------------- */
 
+/**
+ * Vite's local Cache API persists across restarts while uncommitted builds
+ * retain the same Git SHA. Bypass only rendered documents in development so
+ * template edits are visible immediately; the data caches can stay warm.
+ */
+async function renderedPageHit(cacheKey: Request): Promise<Response | undefined> {
+  if (__DEV__) return undefined;
+  return caches.default.match(cacheKey);
+}
+
+function cacheRenderedPage(ctx: ExecutionContext, cacheKey: Request, response: Response): void {
+  if (!__DEV__) ctx.waitUntil(caches.default.put(cacheKey, response));
+}
+
 /** Turns a failed feed response into the error page, carrying its status. */
 async function pageFromFailure(response: Response): Promise<Response> {
   const body = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -567,12 +581,11 @@ async function pageFromFailure(response: Response): Promise<Response> {
 }
 
 async function handleYearPage(year: number, env: Env, ctx: ExecutionContext): Promise<Response> {
-  const cache = caches.default;
   const cacheKey = new Request(`${HTML_CACHE_PREFIX}${currentYear()}/year/${year}`, {
     method: "GET",
   });
 
-  const hit = await cache.match(cacheKey);
+  const hit = await renderedPageHit(cacheKey);
   if (hit) return withBrowserHeaders(hit, "HIT", year);
 
   const { response } = await boardJson(year, env, ctx);
@@ -599,15 +612,14 @@ async function handleYearPage(year: number, env: Env, ctx: ExecutionContext): Pr
     },
   });
 
-  ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
+  cacheRenderedPage(ctx, cacheKey, fresh.clone());
   return withBrowserHeaders(fresh, "MISS", year);
 }
 
 async function handleAllPage(env: Env, ctx: ExecutionContext): Promise<Response> {
-  const cache = caches.default;
   const cacheKey = new Request(`${HTML_CACHE_PREFIX}${currentYear()}/all`, { method: "GET" });
 
-  const hit = await cache.match(cacheKey);
+  const hit = await renderedPageHit(cacheKey);
   if (hit) return withBrowserHeaders(hit, "HIT");
 
   const { response } = await allTimeJson(env, ctx);
@@ -628,7 +640,7 @@ async function handleAllPage(env: Env, ctx: ExecutionContext): Promise<Response>
     },
   });
 
-  ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
+  cacheRenderedPage(ctx, cacheKey, fresh.clone());
   return withBrowserHeaders(fresh, "MISS");
 }
 
@@ -636,12 +648,11 @@ async function handleAllPage(env: Env, ctx: ExecutionContext): Promise<Response>
  *  for the year strip. `login` is a canonical entry from PEOPLE, never raw
  *  visitor input, so the cache key set stays enumerable. */
 async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): Promise<Response> {
-  const cache = caches.default;
   const cacheKey = new Request(`${HTML_CACHE_PREFIX}${currentYear()}/u/${login}`, {
     method: "GET",
   });
 
-  const hit = await cache.match(cacheKey);
+  const hit = await renderedPageHit(cacheKey);
   if (hit) return withBrowserHeaders(hit, "HIT");
 
   const [boardResult, allResult] = await Promise.all([
@@ -684,7 +695,7 @@ async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): P
     },
   });
 
-  ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
+  cacheRenderedPage(ctx, cacheKey, fresh.clone());
   return withBrowserHeaders(fresh, "MISS");
 }
 
@@ -698,10 +709,16 @@ function withBrowserHeaders(
   cacheState: "HIT" | "MISS",
   year: number | null = null,
 ): Response {
+  const headers = new Headers(response.headers);
+  if (__DEV__) {
+    headers.set("Cache-Control", "no-store");
+    headers.set("X-Board-Cache", "BYPASS");
+    return new Response(response.body, { status: response.status, headers });
+  }
+
   const archived = year !== null && year !== currentYear();
   const maxAge = archived ? BROWSER_ARCHIVE_TTL_SECONDS : BROWSER_TTL_SECONDS;
   const staleFor = archived ? ARCHIVE_TTL_SECONDS : LIVE_TTL_SECONDS;
-  const headers = new Headers(response.headers);
   headers.set("Cache-Control", `public, max-age=${maxAge}, stale-while-revalidate=${staleFor}`);
   headers.set("X-Board-Cache", cacheState);
   return new Response(response.body, { status: response.status, headers });

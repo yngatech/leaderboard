@@ -11,3 +11,4 @@ declare module "*.js?url" {
 
 /** Injected by the Vite `define` in vite.config.ts. */
 declare const __BUILD_COMMIT_SHA__: string;
+declare const __DEV__: boolean;

@@ -15,15 +15,16 @@ function buildCommitSha(): string {
   }
 }
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   // The Worker runs inside the dev server in workerd, so every route — the
   // rendered pages included — is handled for real rather than proxied.
   plugins: [tailwindcss(), cloudflare()],
   define: {
     __BUILD_COMMIT_SHA__: JSON.stringify(buildCommitSha()),
+    __DEV__: JSON.stringify(command === "serve"),
   },
   build: {
     emptyOutDir: true,
     target: "es2022",
   },
-});
+}));
