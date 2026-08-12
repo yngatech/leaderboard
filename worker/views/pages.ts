@@ -71,6 +71,12 @@ const PLOT_PANEL =
 const SECTION_RULE =
   "mt-[clamp(2.25rem,5vw,3.25rem)] mb-4 flex items-center gap-[0.85rem] text-[0.66rem] tracking-[0.2em] text-dimmer uppercase";
 
+function sectionRuleHtml(label: string | number): Html {
+  return html`<div class="${SECTION_RULE}">
+    <span>${label}</span><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span>
+  </div>`;
+}
+
 function missingNoteHtml(missing: string[]): Html | null {
   if (missing.length === 0) return null;
   return html`<p class="mt-[1.1rem] text-[0.7rem] leading-[1.6] text-dimmer">
@@ -181,9 +187,7 @@ export function yearPageHtml(options: YearPageOptions): string {
         ${busiestLine}${legendHtml(live)}
       </div>
     </section>
-    <div class="${SECTION_RULE}">
-      <span>the board</span><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span>
-    </div>
+    ${sectionRuleHtml("the board")}
     <main class="flex flex-col gap-[0.6rem]">${rowsHtml}</main>
     ${missingNoteHtml(options.missing)}${chartHtml}`;
 
@@ -262,9 +266,7 @@ export function allPageHtml(options: AllPageOptions): string {
         ${bestLine}${legendHtml(false)}
       </div>
     </section>
-    <div class="${SECTION_RULE}">
-      <span>the board</span><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span>
-    </div>
+    ${sectionRuleHtml("the board")}
     <main class="flex flex-col gap-[0.6rem]">${rowsHtml}</main>
     ${missingNoteHtml(options.missing)}`;
 
@@ -492,8 +494,8 @@ export function userPageHtml(options: UserPageOptions): string {
     /* ---- the year ledger: the running total and what it is chasing ---- */
     const liveFields: LedgerField[] = [];
 
-    const milestone = goals?.nextMilestone
-      ? (() => {
+    let milestone: Html | null = null;
+    if (goals?.nextMilestone) {
       // The rail turns "next milestone at 5,000" into a distance you can see,
       // using the same determinate device as the board's own target line.
       const toGo =
@@ -501,15 +503,14 @@ export function userPageHtml(options: UserPageOptions): string {
           ? null
           : html` <span class="opacity-60">·</span>
               <span class="tabular-nums">${formatNumber(goals.toMilestone)} to go</span>`;
-        return html`<div class="mt-[0.7rem] max-w-[24rem]">
-          ${goalRailHtml(boardUser.totalContributions, goals.nextMilestone)}
-          <p class="mt-[0.5rem] text-dimmer">
-            next milestone at
-            <strong class="${LEDGER_VALUE}">${formatNumber(goals.nextMilestone)}</strong>${toGo}
-          </p>
-        </div>`;
-      })()
-      : null;
+      milestone = html`<div class="mt-[0.7rem] max-w-[24rem]">
+        ${goalRailHtml(boardUser.totalContributions, goals.nextMilestone)}
+        <p class="mt-[0.5rem] text-dimmer">
+          next milestone at
+          <strong class="${LEDGER_VALUE}">${formatNumber(goals.nextMilestone)}</strong>${toGo}
+        </p>
+      </div>`;
+    }
     const running = html`<p>
         <strong class="${leadsYear ? LEDGER_FIGURE_LEAD : LEDGER_FIGURE}"
           >${formatNumber(boardUser.totalContributions)}</strong
@@ -577,9 +578,7 @@ export function userPageHtml(options: UserPageOptions): string {
     </section>`;
   }
 
-  const main = html`${identityCard}<div class="${SECTION_RULE}">
-      <span>${year}</span><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span>
-    </div>${liveSection}`;
+  const main = html`${identityCard}${sectionRuleHtml(year)}${liveSection}`;
 
   return pageHtml({
     chrome,

@@ -113,6 +113,20 @@ test("templates escape interpolated text and attributes", () => {
   );
 });
 
+test("templates compose trusted fragments and reject promises", () => {
+  const items = [html`<li>${"one & only"}</li>`, html`<li>two</li>`];
+  assert.equal(
+    html`<ul>${items}</ul>`.toString(),
+    "<ul><li>one &amp; only</li><li>two</li></ul>",
+  );
+  // Pretend this Promise is a valid value so we can verify the runtime check rejects it.
+  const asyncValue = Promise.resolve("later") as unknown as string;
+  assert.throws(
+    () => html`<p>${asyncValue}</p>`,
+    /must not interpolate promises/,
+  );
+});
+
 test("inline JSON cannot close its own script element", () => {
   const json = jsonForScript({ evil: "</script><script>alert(1)" });
   assert.ok(!json.includes("</script>"));
