@@ -14,5 +14,12 @@
     "noUnusedParameters": true,
     "allowImportingTsExtensions": true
   },
-  "include": [".", "../worker/github.ts", "../worker/html.ts", "../worker/views", "../shared"]
+  "include": [
+    ".",
+    "../playwright.config.ts",
+    "../worker/github.ts",
+    "../worker/html.ts",
+    "../worker/views",
+    "../shared"
+  ]
 }

@@ -7,12 +7,16 @@
     "preview": "npm run build && vite preview",
     "build": "npm run typecheck && vite build",
     "test": "node --test test/*.test.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "node test/browser/run-ui.ts",
+    "test:all": "npm test && npm run test:e2e",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p worker/tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit",
     "deploy": "npm run build && wrangler deploy"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.51.1",
     "@cloudflare/workers-types": "^5.20260722.1",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.13.3",
     "tailwindcss": "^4.3.3",
