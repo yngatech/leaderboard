@@ -1,7 +1,7 @@
 import type { AllTimeUser, Board, ContributionWeek, UserProfile } from "./types";
 import { levelFor, quartiles, type Thresholds } from "./contributions.ts";
 import { BOARD_MILESTONES, nextMilestone, PERSONAL_MILESTONES } from "./milestones.ts";
-import { weekdayIndex, type FirstDayOfWeek } from "./format.ts";
+import { parseDay, weekdayIndex, type FirstDayOfWeek } from "./format.ts";
 
 export { levelFor, quartiles };
 export type { Thresholds } from "./contributions.ts";
@@ -274,6 +274,68 @@ export function peakDay(grid: Grid): PeakDay | null {
     }
   }
   return best;
+}
+
+/**
+ * A card is one calendar year, which on 2 January is an empty grid and a zero.
+ * So it keeps showing the finished year until the second Monday of January.
+ *
+ * Monday because the grid's weeks start there, so the switch lands on a column
+ * boundary rather than mid-week. The second because the first can fall on the
+ * 1st itself — in a year that opens on a Monday that rule would be no rule at
+ * all — and the second is never sooner than the 8th or later than the 14th.
+ */
+const ROLLOVER_WEEK = 2;
+
+export function featuredYear(today: string): number {
+  const date = parseDay(today);
+  const year = date.getUTCFullYear();
+  if (date.getUTCMonth() > 0) return year;
+
+  // Intl's Monday=1…Sunday=7, so this is how far 1 January sits from a Monday.
+  const opensOn = parseDay(`${year}-01-01`).getUTCDay() || 7;
+  const firstMonday = 1 + ((8 - opensOn) % 7);
+  return date.getUTCDate() < firstMonday + 7 * (ROLLOVER_WEEK - 1) ? year - 1 : year;
+}
+
+export interface YearShape {
+  activeDays: number;
+  bestDay: PeakDay | null;
+  /** Active days running back from the most recent elapsed day. */
+  currentStreak: number;
+  longestStreak: number;
+}
+
+/**
+ * What one account's year looks like from the inside: no other account is
+ * involved, so a card can carry these without ranking anybody.
+ */
+export function yearShape(grid: Grid): YearShape {
+  // Weeks are chronological and so are the days inside them, so this flattens
+  // back into the order the year actually happened in.
+  const days = grid.flat().filter((cell) => cell.state === "day");
+
+  let activeDays = 0;
+  let longestStreak = 0;
+  let running = 0;
+  for (const day of days) {
+    if (day.count > 0) {
+      activeDays += 1;
+      running += 1;
+      if (running > longestStreak) longestStreak = running;
+    } else {
+      running = 0;
+    }
+  }
+
+  // The trailing run: `running` is exactly that, since the loop ends on the
+  // most recent elapsed day.
+  return {
+    activeDays,
+    bestDay: peakDay(grid),
+    currentStreak: running,
+    longestStreak,
+  };
 }
 
 export interface RankGap {

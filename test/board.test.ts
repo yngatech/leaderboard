@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { AllTimeUser, Board } from "../shared/types.ts";
-import { boardGoal, cumulativeSeries, userGoals, userGrid, userProfile } from "../shared/board.ts";
+import {
+  boardGoal,
+  cumulativeSeries,
+  featuredYear,
+  userGoals,
+  userGrid,
+  userProfile,
+  yearShape,
+} from "../shared/board.ts";
 import { weekdayIndex } from "../shared/format.ts";
 
 function boardWithDays(days: Board[0]["weeks"][0]["days"]): Board {
@@ -218,4 +226,75 @@ test("tracks the board-wide goal from the summed totals", () => {
     nextMilestone: null,
     remaining: null,
   });
+});
+
+test("reads a year's shape from the days that have already happened", () => {
+  const grid = userGrid(
+    [
+      {
+        days: [
+          { date: "2026-01-01", count: 3, level: 1 },
+          { date: "2026-01-02", count: 0, level: 0 },
+          { date: "2026-01-03", count: 9, level: 4 },
+          { date: "2026-01-04", count: 1, level: 1 },
+          { date: "2026-01-05", count: 2, level: 1 },
+        ],
+      },
+    ],
+    2026,
+    "2026-01-05",
+  );
+
+  assert.deepEqual(yearShape(grid), {
+    activeDays: 4,
+    bestDay: { date: "2026-01-03", count: 9 },
+    // The run has to reach the most recent elapsed day to be current.
+    currentStreak: 3,
+    longestStreak: 3,
+  });
+});
+
+test("ends the current streak on a silent most recent day", () => {
+  const grid = userGrid(
+    [
+      {
+        days: [
+          { date: "2026-01-01", count: 5, level: 2 },
+          { date: "2026-01-02", count: 5, level: 2 },
+          { date: "2026-01-03", count: 0, level: 0 },
+        ],
+      },
+    ],
+    2026,
+    "2026-01-03",
+  );
+
+  const shape = yearShape(grid);
+  assert.equal(shape.currentStreak, 0);
+  assert.equal(shape.longestStreak, 2);
+});
+
+test("reports an empty year without a best day", () => {
+  const shape = yearShape(userGrid([], 2026, "2026-01-10"));
+  assert.equal(shape.activeDays, 0);
+  assert.equal(shape.bestDay, null);
+  assert.equal(shape.longestStreak, 0);
+});
+
+test("holds the finished year until the second Monday of January", () => {
+  // 1 January 2027 is a Friday, so the Mondays are the 4th and the 11th.
+  assert.equal(featuredYear("2026-12-31"), 2026);
+  assert.equal(featuredYear("2027-01-01"), 2026);
+  assert.equal(featuredYear("2027-01-10"), 2026);
+  assert.equal(featuredYear("2027-01-11"), 2027);
+  assert.equal(featuredYear("2027-02-01"), 2027);
+
+  // 2024 opens on a Monday, the case where a first-Monday rule would hand
+  // over no grace at all. The second Monday is the 8th.
+  assert.equal(featuredYear("2024-01-07"), 2023);
+  assert.equal(featuredYear("2024-01-08"), 2024);
+
+  // 2023 opens on a Sunday: the Mondays are the 2nd and the 9th.
+  assert.equal(featuredYear("2023-01-08"), 2022);
+  assert.equal(featuredYear("2023-01-09"), 2023);
 });
