@@ -3,7 +3,6 @@ import { DurableObject } from "cloudflare:workers";
 import { featuredYear, todayIso, userGrid, userProfile, yearShape } from "../shared/board";
 import { formatDayYear } from "../shared/format";
 import { nextMilestone, PERSONAL_MILESTONES } from "../shared/milestones";
-import { CARD_FONTS } from "./fonts";
 import { absentCardSvg, cardSvg } from "./views/card";
 import { apiCatalog } from "./api-catalog";
 import {
@@ -23,6 +22,9 @@ import {
   userPageHtml,
   yearPageHtml,
 } from "./views/pages";
+// Encoded at build time: a card is an isolated document and cannot fetch a font.
+import displayFont from "./fonts/display.woff2?inline";
+import monoFont from "./fonts/mono.woff2?inline";
 import enhanceUrl from "./enhance.js?url";
 import stylesUrl from "./styles.css?url";
 import {
@@ -115,6 +117,7 @@ const AVATAR_MAX_BYTES = 256 * 1024;
 const AVATAR_TTL_SECONDS = 7 * 24 * 60 * 60;
 /** Cards move on the live schedule: the all-time figure changes every day. */
 const CARD_TTL_SECONDS = LIVE_TTL_SECONDS;
+const CARD_FONTS = { display: displayFont, mono: monoFont };
 const API_CATALOG_PATH = "/.well-known/api-catalog";
 const API_CATALOG_PROFILE = "https://www.rfc-editor.org/info/rfc9727";
 

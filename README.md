@@ -56,10 +56,11 @@ at the edge.
 An `<img>` renders SVG as an isolated document that may not fetch anything, so
 the card inlines what it needs: the avatar as a data URI (cached separately
 from the card, since profile pictures outlive deployments) and both site
-typefaces, subset to the characters a card can print, from `worker/fonts.ts`.
-Regenerate those with `node scripts/subset-fonts.ts` after changing the
-character set — never at build time, so a deploy cannot depend on Google Fonts
-being up. Both faces are OFL-1.1; the licences are in `worker/fonts/`.
+typefaces from `worker/fonts/`, subset to the characters a card can print and
+imported with Vite's `?inline`, which encodes them at build time. Refetch the
+subsets with `node scripts/subset-fonts.ts` after changing the character set —
+never at build time, so a deploy cannot depend on Google Fonts being up. Both
+faces are OFL-1.1; the licences sit beside them.
 
 Two caveats worth knowing before filing a bug. GitHub caches proxied images on
 its own schedule, so a card in a README lags the site by hours whatever

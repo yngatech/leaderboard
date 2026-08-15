@@ -27,10 +27,11 @@ export interface CardUser {
 }
 
 /**
- * Base64 woff2 payloads. A remote font URL never loads inside an <img>, but a
- * data URI is not a fetch, so subsetting the site's two faces down to the
- * characters a card can contain buys the board's own typography for ~10 KB.
- * Omit them and the card falls back to the system stacks.
+ * `data:` URIs for the two faces, as Vite's `?inline` hands them over. A remote
+ * font URL never loads inside an <img>, but a data URI is not a fetch, so
+ * subsetting the site's two faces down to the characters a card can contain
+ * buys the board's own typography for ~15 KB. Omit them and the card falls
+ * back to the system stacks.
  */
 export interface CardFonts {
   /** Bricolage Grotesque, digits only — the two numbers. */
@@ -96,8 +97,8 @@ const ADVANCE = 0.6;
 /** @font-face rules, or nothing when the card is rendering unembellished. */
 function fontFaces(fonts: CardFonts | undefined): string {
   if (!fonts) return "";
-  const face = (family: string, weight: number, data: string) =>
-    `@font-face{font-family:'${family}';font-style:normal;font-weight:${weight};src:url(data:font/woff2;base64,${data}) format('woff2');}`;
+  const face = (family: string, weight: number, source: string) =>
+    `@font-face{font-family:'${family}';font-style:normal;font-weight:${weight};src:url(${source}) format('woff2');}`;
   return `${face("DM Mono", 400, fonts.mono)}${face("Bricolage Grotesque", 800, fonts.display)}`;
 }
 function monoWidth(text: string, size: number): number {

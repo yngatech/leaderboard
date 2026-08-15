@@ -132,9 +132,20 @@ test("lays out without an avatar rather than reaching for one", () => {
 test("inlines the typefaces only when it is given them", () => {
   assert.ok(!cardSvg(makeCard()).includes("@font-face"));
 
-  const dressed = cardSvg(makeCard({ fonts: { display: "RElTUExBWQ==", mono: "TU9OTw==" } }));
-  assert.match(dressed, /@font-face\{font-family:'DM Mono'.+base64,TU9OTw==\)/);
-  assert.match(dressed, /@font-face\{font-family:'Bricolage Grotesque'.+base64,RElTUExBWQ==\)/);
+  // The shape Vite's `?inline` hands over: a whole data URI, used verbatim.
+  const dressed = cardSvg(
+    makeCard({
+      fonts: {
+        display: "data:font/woff2;base64,RElTUExBWQ==",
+        mono: "data:font/woff2;base64,TU9OTw==",
+      },
+    }),
+  );
+  assert.match(dressed, /@font-face\{font-family:'DM Mono'.+url\(data:font\/woff2;base64,TU9OTw==\)/);
+  assert.match(
+    dressed,
+    /@font-face\{font-family:'Bricolage Grotesque'.+url\(data:font\/woff2;base64,RElTUExBWQ==\)/,
+  );
 });
 
 test("states an absent account rather than drawing it a zero", () => {
