@@ -3,16 +3,16 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["node"],
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2022"],
+    "types": ["@cloudflare/workers-types/index.d.ts"],
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "allowImportingTsExtensions": true
+    "noUnusedParameters": true
   },
-  "include": ["test", "worker/github.ts", "worker/html.ts", "worker/views", "shared"]
+  "include": [".", "../shared"]
 }
