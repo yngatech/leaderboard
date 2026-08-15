@@ -77,6 +77,7 @@ npm run typecheck
 npm test             # fast unit and renderer tests
 npx playwright install chromium # once per machine
 npm run test:e2e     # progressive-enhancement browser tests
+npm run test:e2e:ui  # interactive runner, opened in T3 Preview
 npm run test:all     # both test suites
 npm run preview      # build, then serve the built Worker
 npm run deploy       # typecheck, build, wrangler deploy
