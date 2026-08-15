@@ -35,6 +35,8 @@ export interface PageOptions {
   generatedAt?: string | null;
   /** Live pages refresh on the half hour; archived years sit still. */
   liveCopy?: boolean;
+  /** Machine-readable representation of this page's data. */
+  alternate?: string;
   main: Html;
 }
 
@@ -170,6 +172,9 @@ export function pageHtml(options: PageOptions): string {
     <meta name="color-scheme" content="dark">
     <title>git board — ${options.title}</title>
     <meta name="description" content="${options.description}">
+    ${options.alternate
+      ? html`<link rel="alternate" type="application/json" href="${options.alternate}">`
+      : null}
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

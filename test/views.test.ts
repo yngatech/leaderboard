@@ -148,6 +148,9 @@ test("live year page carries goals, future legend, chart and nav targets", () =>
   assert.ok(!page.includes('href="https://github.com/alice"'));
   // The enhance script has a machine-readable timestamp to upgrade.
   assert.ok(page.includes('<time datetime="2026-08-10T12:00:00.000Z" data-ago>'));
+  assert.ok(
+    page.includes('<link rel="alternate" type="application/json" href="/api/board?year=2026">'),
+  );
 
   assertScriptBudget(page, true);
 });
@@ -214,6 +217,7 @@ test("all-time page ranks users and links every year cell", () => {
   assert.doesNotMatch(page, /<a\s+href="\/2026"/);
   assert.ok(page.includes('href="/u/alice"'));
   assert.ok(page.includes('href="/u/bob"'));
+  assert.ok(page.includes('<link rel="alternate" type="application/json" href="/api/all">'));
   assert.ok(!page.includes('href="https://github.com/alice"'));
   assertScriptBudget(page, false);
 });
@@ -245,6 +249,9 @@ test("user page reads from both feeds and links its year strip", () => {
   // User pages have no arrow-key routing.
   assert.ok(!page.includes("data-prev-href"));
   assert.ok(!page.includes("data-next-href"));
+  assert.ok(
+    page.includes('<link rel="alternate" type="application/json" href="/api/users/alice">'),
+  );
   assertScriptBudget(page, false);
 });
 

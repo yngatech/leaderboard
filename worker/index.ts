@@ -105,6 +105,10 @@ function html(body: string, init: ResponseInit = {}): Response {
   });
 }
 
+function alternateLink(href: string): string {
+  return `<${href}>; rel="alternate"; type="application/json"`;
+}
+
 /** Fixed inputs every rendered page shares, resolved once per request. */
 function siteChrome(): SiteChrome {
   return {
@@ -638,6 +642,7 @@ async function handleYearPage(year: number, env: Env, ctx: ExecutionContext): Pr
   const fresh = html(page, {
     headers: {
       "Cache-Control": `public, max-age=${edgeTtl(year)}`,
+      Link: alternateLink(`/api/board?year=${year}`),
       "X-Board-Generated": generatedAt,
       "X-Board-Year": String(year),
     },
@@ -666,6 +671,7 @@ async function handleAllPage(env: Env, ctx: ExecutionContext): Promise<Response>
     headers: {
       // Includes the year in progress, so it expires on the live schedule.
       "Cache-Control": `public, max-age=${LIVE_TTL_SECONDS}`,
+      Link: alternateLink("/api/all"),
       "X-Board-Generated": generatedAt,
       "X-Board-Year": "all",
     },
@@ -721,6 +727,7 @@ async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): P
   const fresh = html(page, {
     headers: {
       "Cache-Control": `public, max-age=${LIVE_TTL_SECONDS}`,
+      Link: alternateLink(`/api/users/${login}`),
       "X-Board-Generated": generatedAt,
       "X-Board-Year": String(currentYear()),
     },
