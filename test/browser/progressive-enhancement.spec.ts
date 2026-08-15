@@ -1,23 +1,9 @@
-import { readFile } from "node:fs/promises";
-import type { BrowserContext } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 import type { Board } from "../../shared/types.ts";
-import type { SiteChrome } from "../../worker/views/layout.ts";
 import { yearPageHtml } from "../../worker/views/pages.ts";
+import { chrome, ORIGIN, serveFixture } from "./fixture.ts";
 
-const ORIGIN = "https://board.test";
 const generatedAt = new Date(Date.now() - 2 * 60_000).toISOString();
-const enhanceScript = await readFile(
-  new URL("../../worker/enhance.js", import.meta.url),
-  "utf8",
-);
-
-const chrome: SiteChrome = {
-  thisYear: 2026,
-  stylesUrl: "/assets/styles.css",
-  enhanceUrl: "/assets/enhance.js",
-  buildSha: "0123456789abcdef0123456789abcdef01234567",
-};
 
 const board: Board = [
   {
@@ -58,40 +44,12 @@ const pageHtml = yearPageHtml({
   missing: [],
 });
 
-async function serveFixture(context: BrowserContext): Promise<void> {
-  await context.route("**/*", async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-
-    if (url.origin !== ORIGIN) {
-      await route.abort();
-      return;
-    }
-
-    if (url.pathname === "/assets/enhance.js") {
-      await route.fulfill({ contentType: "text/javascript", body: enhanceScript });
-      return;
-    }
-
-    if (url.pathname === "/assets/styles.css") {
-      await route.fulfill({ contentType: "text/css", body: "" });
-      return;
-    }
-
-    if (request.resourceType() === "document") {
-      await route.fulfill({ contentType: "text/html", body: pageHtml });
-      return;
-    }
-
-    await route.abort();
-  });
-}
 
 test.describe("without JavaScript", () => {
   test.use({ javaScriptEnabled: false });
 
   test("the server-rendered page remains useful", async ({ page, context }) => {
-    await serveFixture(context);
+    await serveFixture(context, pageHtml);
 
     await page.goto(ORIGIN);
 
@@ -107,7 +65,7 @@ test.describe("without JavaScript", () => {
 });
 
 test("JavaScript upgrades the timestamp and adds keyboard navigation", async ({ page, context }) => {
-  await serveFixture(context);
+  await serveFixture(context, pageHtml);
 
   await page.goto(ORIGIN);
 

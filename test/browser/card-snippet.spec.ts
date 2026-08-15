@@ -1,27 +1,15 @@
-import { readFile } from "node:fs/promises";
-import type { BrowserContext } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 import type { AllTime, Board } from "../../shared/types.ts";
-import type { SiteChrome } from "../../worker/views/layout.ts";
 import { userPageHtml } from "../../worker/views/pages.ts";
+import { chrome, ORIGIN, serveFixture } from "./fixture.ts";
 
 /**
  * The button is the one control on the site that does nothing without a
  * clipboard, so it ships hidden and the snippet stands on its own.
  */
 
-const ORIGIN = "https://board.test";
 const SNIPPET =
   "[![alice on the ynga git board](https://leaderboard.ynga.tech/u/alice.svg)](https://leaderboard.ynga.tech/u/alice)";
-
-const enhanceScript = await readFile(new URL("../../worker/enhance.js", import.meta.url), "utf8");
-
-const chrome: SiteChrome = {
-  thisYear: 2026,
-  stylesUrl: "/assets/styles.css",
-  enhanceUrl: "/assets/enhance.js",
-  buildSha: "0123456789abcdef0123456789abcdef01234567",
-};
 
 const board: Board = [
   {
@@ -60,49 +48,18 @@ const pageHtml = userPageHtml({
   generatedAt: new Date().toISOString(),
 });
 
-async function serveFixture(context: BrowserContext): Promise<void> {
-  await context.route("**/*", async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-
-    if (url.origin !== ORIGIN) {
-      await route.abort();
-      return;
-    }
-
-    if (url.pathname === "/assets/enhance.js") {
-      await route.fulfill({ contentType: "text/javascript", body: enhanceScript });
-      return;
-    }
-
-    if (url.pathname === "/assets/styles.css") {
-      await route.fulfill({ contentType: "text/css", body: "" });
-      return;
-    }
-
-    // The preview points at the live route; a stub stands in for it here.
-    if (url.pathname === "/u/alice.svg") {
-      await route.fulfill({
-        contentType: "image/svg+xml",
-        body: '<svg xmlns="http://www.w3.org/2000/svg" width="409" height="252"></svg>',
-      });
-      return;
-    }
-
-    if (request.resourceType() === "document") {
-      await route.fulfill({ contentType: "text/html", body: pageHtml });
-      return;
-    }
-
-    await route.abort();
-  });
-}
+// The preview points at the live route; a stub stands in for it here.
+const CARD_STUB = {
+  path: "/u/alice.svg",
+  contentType: "image/svg+xml",
+  body: '<svg xmlns="http://www.w3.org/2000/svg" width="409" height="252"></svg>',
+};
 
 test.describe("without JavaScript", () => {
   test.use({ javaScriptEnabled: false });
 
   test("the snippet is readable and the button stays out of the way", async ({ page, context }) => {
-    await serveFixture(context);
+    await serveFixture(context, pageHtml, [CARD_STUB]);
 
     await page.goto(ORIGIN);
 
@@ -114,7 +71,7 @@ test.describe("without JavaScript", () => {
 });
 
 test("JavaScript adds a button that copies the snippet", async ({ page, context }) => {
-  await serveFixture(context);
+  await serveFixture(context, pageHtml, [CARD_STUB]);
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: ORIGIN });
 
   await page.goto(ORIGIN);
