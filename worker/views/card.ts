@@ -5,18 +5,13 @@ import { html, raw, type Html } from "../html.ts";
 /* ---------------------------------------------------------------------------
    The README card: one account's year as a standalone SVG document.
 
-   Nothing here may depend on the site. A card is loaded through an <img>, and
-   in that context the SVG is its own document with no stylesheet, no script
-   and no permission to fetch anything — so every colour is inline, the avatar
-   arrives as a data URI, and the type is a system stack rather than the site's
-   webfonts. Text is monospaced throughout, which is also what makes the
-   layout possible: advance width is 0.6em a character, so a label can be
-   measured here instead of by a browser we never get to talk to.
+   A card is loaded through an <img>, where the SVG is its own document with no
+   stylesheet, no script and no permission to fetch anything, so everything it
+   needs is inline. Mono type throughout also makes the layout possible: at a
+   0.6em advance a label can be measured here rather than by a browser.
 
-   The card mentions nobody else: a total, a target, and the year's own shape.
-   It is drawn from a leaderboard but does not carry a standing, because a
-   standing is a fact about a group, and last of nine is not something to hand
-   somebody for their profile.
+   No standing, deliberately: that is a fact about a group, and last of nine is
+   not something to hand somebody for their profile.
 --------------------------------------------------------------------------- */
 
 export interface CardUser {
@@ -27,24 +22,16 @@ export interface CardUser {
 }
 
 /**
- * `data:` URIs for the two faces, as Vite's `?inline` hands them over. A remote
- * font URL never loads inside an <img>, but a data URI is not a fetch, so
- * subsetting the site's two faces down to the characters a card can contain
- * buys the board's own typography for ~15 KB. Omit them and the card falls
- * back to the system stacks.
+ * `data:` URIs, as Vite's `?inline` hands them over: a remote font URL never
+ * loads inside an <img>, but a data URI is not a fetch. Omit them and the card
+ * falls back to the system stacks.
  */
 export interface CardFonts {
-  /** Bricolage Grotesque, digits only — the two numbers. */
   display: string;
-  /** DM Mono, latin — everything else. */
   mono: string;
 }
 
-/**
- * The milestone half of `UserGoals`. A `UserGoals` satisfies this, so callers
- * can pass one straight through; naming only what the card draws keeps the
- * comparative half from creeping back in through the type.
- */
+/** The milestone half of `UserGoals`, which satisfies this structurally. */
 export interface CardGoal {
   nextMilestone: number | null;
   toMilestone: number | null;
@@ -55,7 +42,6 @@ export interface CardInput {
   year: number;
   /** The year the grid covers. */
   total: number;
-  /** Every year on the board, which is the figure GitHub's own graph can't show. */
   allTime: number;
   /** First year with any contributions, so the all-time figure has a span. */
   firstYear: number;
@@ -75,17 +61,14 @@ const DIM = "#918fb4";
 const FAINT = "#7a7899";
 
 const PAD = 20;
-/**
- * A 7px pitch is what lets two cards sit side by side in a README: 53 weeks
- * plus the padding has to clear GitHub's ~890px content column twice over.
- */
+/** A 7px pitch is what fits two cards side by side in a README column. */
 const CELL = 5;
 const GAP = 2;
 const PITCH = CELL + GAP;
 const MONTH_BAND = 13;
 const AVATAR = 44;
 const BAR_HEIGHT = 5;
-/** Matches .scale in the stylesheet, so the track can be measured against it. */
+/** Matches .scale below, so the track can be measured against it. */
 const SCALE_SIZE = 10;
 
 const MONO_STACK = "'DM Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
@@ -94,7 +77,6 @@ const DISPLAY_STACK = "'Bricolage Grotesque', 'Trebuchet MS', system-ui, sans-se
 /** DM Mono and every fallback in the stack sit at a 0.6em advance. */
 const ADVANCE = 0.6;
 
-/** @font-face rules, or nothing when the card is rendering unembellished. */
 function fontFaces(fonts: CardFonts | undefined): string {
   if (!fonts) return "";
   const face = (family: string, weight: number, source: string) =>
@@ -110,16 +92,11 @@ function clamp(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
-/**
- * One line of colour under the bar. The milestone is not in here any more: it
- * labels the end of the track it belongs to, where it needs no words at all.
- */
+/** One line of colour under the bar; the milestone labels the track instead. */
 function facts(input: CardInput): string {
   const lines: string[] = [];
   const { activeDays, bestDay, currentStreak } = input.shape;
 
-  // No "of 227": the card is already a year, and the denominator was another
-  // number in a line that only has room to be read once.
   if (activeDays > 0) lines.push(`${activeDays} active ${activeDays === 1 ? "day" : "days"}`);
   if (currentStreak > 1) lines.push(`${currentStreak}-day streak`);
   else if (bestDay) {
@@ -130,11 +107,8 @@ function facts(input: CardInput): string {
 }
 
 /**
- * One initial a month, centred over the column the 1st actually falls in —
- * not the first column the month owns outright. A month that opens mid-week
- * shares that column with the month before it, and pointing at the following
- * week to avoid saying so puts every label a column right of its own data.
- * Single letters are what make the honest position legible at a 7px pitch.
+ * One initial a month, centred over the column holding the 1st — not the first
+ * column the month owns outright, which is a column to the right of its data.
  */
 function monthTicks(grid: Grid): { x: number; label: string }[] {
   const ticks: { x: number; label: string }[] = [];
@@ -151,12 +125,10 @@ function monthTicks(grid: Grid): { x: number; label: string }[] {
 }
 
 /**
- * The year's total as a fraction of the next milestone, which is exactly what
- * the numbers at either end of the track say: 0 here, 5,000 there, 2,949 of
- * the way along. Measuring across the current rung instead (2,500 → 5,000)
- * makes the bar move faster, but it cannot be labelled honestly and it
- * inverts on a shelf — the leader on 2,949 would show less bar than an
- * account on 796, because their rung is four times as wide.
+ * The total against the next milestone, which is what the numbers at either
+ * end of the track say. Measuring across the current rung instead (2,500 →
+ * 5,000) moves faster but inverts on a shelf: 2,949 would show less bar than
+ * 796, whose rung is four times narrower.
  */
 function milestoneProgress(total: number, next: number | null): number {
   if (next === null || next <= 0) return 1;
@@ -169,16 +141,9 @@ export function cardSvg(input: CardInput): string {
   const gridWidth = Math.max(0, grid.length * PITCH - GAP);
   const width = gridWidth + PAD * 2;
 
-  /*
-   * Vertical rhythm, top down. Each band knows only its own height.
-   *
-   * The two totals share a row, at one size, reading left to right: the year
-   * the grid draws, then the career it belongs to. Stacking them diagonally —
-   * the career small and high, the year large and low — put the smaller number
-   * first in reading order and the larger one first in the eye, and the two
-   * orders fought. Both numbers lead their own label, so each figure arrives
-   * before the words that qualify it.
-   */
+  /* Vertical rhythm, top down. The two totals share a row at one size:
+     stacked diagonally at different sizes, reading order and hierarchy
+     disagreed about which came first. */
   const headerY = PAD;
   const statsTop = headerY + AVATAR + 18;
   const totalBaseline = statsTop + 22;
@@ -211,7 +176,6 @@ export function cardSvg(input: CardInput): string {
     ></image>`);
   }
 
-  // The header is identity and nothing else now, so the name has the row.
   const nameRoom = Math.floor((width - PAD - textX) / (15 * ADVANCE));
 
   parts.push(
@@ -227,33 +191,26 @@ export function cardSvg(input: CardInput): string {
 
   parts.push(
     html`<text class="total" x="${PAD}" y="${totalBaseline}">${formatNumber(input.total)}</text>`,
-    // Cased here rather than in CSS: text-transform is a browser nicety and
-    // the card should render the same in whatever rasterises it.
+    // Cased here, not in CSS: text-transform is a browser nicety.
     html`<text class="label" x="${PAD}" y="${totalLabelBaseline}">IN ${year}</text>`,
     html`<text class="total" x="${width - PAD}" y="${totalBaseline}" text-anchor="end">${career}</text>`,
-    // Stated with its span: "all time" alone says nothing about how long that
-    // is, and this is the figure GitHub's own rolling-year graph cannot show.
+    // Stated with its span: "all time" alone says nothing about how long.
     html`<text class="label" x="${width - PAD}" y="${totalLabelBaseline}" text-anchor="end"
       >CONTRIBUTIONS SINCE ${input.firstYear}</text
     >`,
   );
 
-  /*
-   * The bar, flanked by the two ends of its own scale. Naming where the track
-   * starts and where it finishes is what makes it legible to someone who has
-   * never seen this board: without them a filled bar is decoration, and the
-   * sentence that used to carry the target ("2,200 to 5,000") sat above the
-   * right end describing something the reader had to take on faith.
-   */
+  /* The bar, flanked by the ends of its own scale — unlabelled, a filled bar
+     is decoration to anyone who has not seen this board before. */
   const target = input.goals.nextMilestone;
   const progress = milestoneProgress(input.total, target);
-  // Past the top of the ladder there is no scale to label, only a full bar.
+  // Past the top of the ladder there is nothing to count towards.
   const scale = target === null ? null : { from: "0", to: formatNumber(target) };
 
   const trackX = scale === null ? PAD : PAD + monoWidth(scale.from, SCALE_SIZE) + 8;
   const trackEnd = scale === null ? width - PAD : width - PAD - monoWidth(scale.to, SCALE_SIZE) - 8;
   const track = Math.max(0, trackEnd - trackX);
-  // The scale reads on the bar's centre line rather than its baseline.
+  // Reads on the bar's centre line rather than its baseline.
   const scaleBaseline = barY + BAR_HEIGHT + 1;
 
   if (scale) {
@@ -332,19 +289,15 @@ export function cardSvg(input: CardInput): string {
 }
 
 /**
- * A roster account GitHub has no data for — renamed, deleted, suspended, or
- * simply unreachable this hour. It gets a card rather than a 404, because a
- * 404 is a broken image on somebody's profile, and a card that says so is
- * worth more there than a red icon. It is deliberately not a zero: an account
- * with no data has not had a quiet year, and drawing it an empty grid would
- * claim it did.
+ * A roster account GitHub has no data for: renamed, deleted, suspended. A card
+ * rather than a 404, which would be a broken image on somebody's profile, and
+ * deliberately not a zero — an empty grid would claim they had a quiet year.
  */
 export function absentCardSvg(input: AbsentCardInput): string {
   const { user } = input;
   const width = ABSENT_WIDTH;
   const headerY = PAD;
-  // A deleted account has no avatar to fetch either, and holding the full
-  // header band open for one that never arrives leaves a hole in a short card.
+  // Usually no avatar to fetch either; holding the band open leaves a hole.
   const messageBaseline = headerY + (user.avatar ? AVATAR : 26) + 26;
   const footerBaseline = messageBaseline + 22;
   const height = footerBaseline + 10;
@@ -364,10 +317,8 @@ export function absentCardSvg(input: AbsentCardInput): string {
     ></image>`);
   }
 
-  // The same wording the board itself uses for a missing account, so the card
-  // and the site do not describe one situation two ways. An account with no
-  // data usually has no display name either, so the heading falls back to the
-  // handle and the second line is dropped rather than repeating it.
+  // The board's own wording, so site and card do not differ. No display name
+  // either, usually, so the heading takes the handle and the sub line goes.
   const message = "No GitHub data for this account.";
   const heading = user.name ?? `@${user.login}`;
 
@@ -406,13 +357,10 @@ interface Document {
 }
 
 /**
- * The shell both cards share: shape, palette, type, and the panel itself.
- *
- * The milestone gradient is pinned to the track in user space rather than to
- * the filled rect, so the ramp stays put and the fill uncovers it: a tenth of
- * the way to the milestone is a tenth of the ramp, not a whole one squeezed
- * into a tenth of the bar. Explaining that here rather than in an SVG comment
- * keeps a paragraph of prose out of every card we serve.
+ * The shell both cards share. The ramp is pinned to the track in user space,
+ * not to the filled rect, so the fill uncovers it rather than squeezing a
+ * whole gradient into a tenth of the bar. (In here, not an SVG comment: that
+ * would ship in every card.)
  */
 function document({ width, height, alt, fonts, body }: Document): string {
   return `<?xml version="1.0" encoding="UTF-8"?>\n${html`<svg

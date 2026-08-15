@@ -6,9 +6,8 @@ import type { SiteChrome } from "../../worker/views/layout.ts";
 import { userPageHtml } from "../../worker/views/pages.ts";
 
 /**
- * The snippet an account copies into their profile README. The button is the
- * one control on the site that does nothing without a clipboard, so it ships
- * hidden and the markup underneath has to stand on its own.
+ * The button is the one control on the site that does nothing without a
+ * clipboard, so it ships hidden and the snippet stands on its own.
  */
 
 const ORIGIN = "https://board.test";
@@ -81,7 +80,7 @@ async function serveFixture(context: BrowserContext): Promise<void> {
       return;
     }
 
-    // The card preview points at the live route; a 1x1 stands in for it here.
+    // The preview points at the live route; a stub stands in for it here.
     if (url.pathname === "/u/alice.svg") {
       await route.fulfill({
         contentType: "image/svg+xml",
@@ -123,10 +122,8 @@ test("JavaScript adds a button that copies the snippet", async ({ page, context 
   const button = page.getByRole("button", { name: "copy" });
   await expect(button).toBeVisible();
 
-  // The confirmation lasts 1.6s and then puts the resting label back, which is
-  // short enough that polling for it races the timer. Recording the changes as
-  // they happen tests the same behaviour without depending on when the
-  // assertion gets to look.
+  // The confirmation lasts 1.6s before the resting label returns, which is
+  // short enough that polling for it races the timer.
   await page.evaluate(() => {
     const target = document.querySelector("button[data-copy]");
     const seen: string[] = [];

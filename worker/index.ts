@@ -831,9 +831,8 @@ async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): P
 
 /* ---------------------------------------------------------------------------
    README cards
-   An SVG loaded through an <img> is its own document: it may not fetch, so the
-   avatar and both typefaces travel inside it. Everything else is the same
-   pull-through-the-cache shape as the rendered pages.
+   An SVG loaded through an <img> may not fetch, so the avatar and both
+   typefaces travel inside it. Otherwise the same shape as the rendered pages.
 --------------------------------------------------------------------------- */
 
 /** workerd has no Buffer, and spreading 96 KB into fromCharCode overflows. */
@@ -847,13 +846,11 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 /**
- * One account's avatar as a data URI. A card without a face is a worse card,
- * not a broken one, so every failure here returns null and the renderer lays
- * out without it.
+ * One account's avatar as a data URI. Every failure returns null and the card
+ * lays out without a face, which is worse but not broken.
  */
 async function avatarDataUri(login: string, ctx: ExecutionContext): Promise<string | null> {
   const cache = caches.default;
-  // `login` is canonical, from PEOPLE.
   const cacheKey = new Request(`${AVATAR_CACHE_PREFIX}${login}`, { method: "GET" });
 
   const hit = await cache.match(cacheKey);
@@ -899,10 +896,8 @@ function svg(body: string, init: ResponseInit = {}): Response {
 }
 
 /**
- * The card for one account. `login` is a canonical PEOPLE entry, so the key
- * set stays enumerable, and the year comes from `featuredYear` rather than the
- * calendar: in the first days of January the card still shows the year that
- * just finished instead of an empty grid.
+ * The card for one account. `login` is a canonical PEOPLE entry, so the key set
+ * stays enumerable; the year comes from `featuredYear`, not the calendar.
  */
 async function handleUserCard(login: string, env: Env, ctx: ExecutionContext): Promise<Response> {
   const year = Math.max(MIN_YEAR, featuredYear(todayIso()));
@@ -915,9 +910,8 @@ async function handleUserCard(login: string, env: Env, ctx: ExecutionContext): P
     boardJson(year, env, ctx),
     allTimeJson(env, ctx),
   ]);
-  // An upstream failure gets no card at all. A non-200 leaves whatever GitHub
-  // has already cached in place; an error card would replace someone's README
-  // image with our bad hour.
+  // No card at all on failure: a non-200 leaves whatever GitHub has cached in
+  // place, where an error card would replace someone's README image.
   if (!boardResult.response.ok) return cardFromFailure(boardResult.response);
   if (!allResult.response.ok) return cardFromFailure(allResult.response);
 
@@ -930,8 +924,7 @@ async function handleUserCard(login: string, env: Env, ctx: ExecutionContext): P
   const career = data.users.find((other) => other.login === login);
   const user = board.find((other) => other.login === login);
 
-  // On the roster, but GitHub has nothing for the account: renamed, deleted,
-  // suspended. Says so, briefly, and expires quickly enough to heal itself.
+  // On the roster but absent upstream. Expires quickly enough to heal.
   if (!user || !career) {
     return svg(
       absentCardSvg({
@@ -1265,8 +1258,8 @@ export default {
       const canonical = PEOPLE.map((person) => person.accounts[0]).find(
         (account) => account.toLowerCase() === requested.toLowerCase(),
       );
-      // Off the roster is a 404, not a card. This is the whole abuse story:
-      // the set of cards that exist is the set of accounts on the board.
+      // Off the roster is a 404. The set of cards that exist is the roster,
+      // which is the whole abuse story — see the README.
       if (!canonical) {
         return text(`No leaderboard account named ${requested}.\n`, {
           status: 404,
@@ -1283,7 +1276,6 @@ export default {
           login: canonical,
           message: error instanceof Error ? error.message : String(error),
         });
-        // No body worth caching: leave the last good card wherever it is.
         return text("The card could not be drawn.\n", {
           status: 500,
           headers: { "Cache-Control": "no-store" },

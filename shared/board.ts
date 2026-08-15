@@ -277,15 +277,12 @@ export function peakDay(grid: Grid): PeakDay | null {
 }
 
 /**
- * A card is one calendar year, which on 2 January is an empty grid and a zero.
- * So it keeps showing the finished year until the second Monday of January.
- *
- * Monday because the grid's weeks start there, so the switch lands on a column
- * boundary rather than mid-week. The second because the first can fall on the
- * 1st itself — in a year that opens on a Monday that rule would be no rule at
- * all — and the second is never sooner than the 8th or later than the 14th.
+ * A card keeps showing the finished year until the second Monday of January,
+ * rather than an empty grid and a zero. Monday to land on a column boundary;
+ * the second because the first can fall on the 1st and grant no grace at all.
  */
 const ROLLOVER_WEEK = 2;
+
 
 export function featuredYear(today: string): number {
   const date = parseDay(today);
@@ -306,13 +303,9 @@ export interface YearShape {
   longestStreak: number;
 }
 
-/**
- * What one account's year looks like from the inside: no other account is
- * involved, so a card can carry these without ranking anybody.
- */
+/** One account's year from the inside, with no other account involved. */
 export function yearShape(grid: Grid): YearShape {
-  // Weeks are chronological and so are the days inside them, so this flattens
-  // back into the order the year actually happened in.
+  // Weeks and the days inside them are both chronological.
   const days = grid.flat().filter((cell) => cell.state === "day");
 
   let activeDays = 0;
@@ -328,8 +321,7 @@ export function yearShape(grid: Grid): YearShape {
     }
   }
 
-  // The trailing run: `running` is exactly that, since the loop ends on the
-  // most recent elapsed day.
+  // `running` is the trailing run: the loop ends on the most recent day.
   return {
     activeDays,
     bestDay: peakDay(grid),

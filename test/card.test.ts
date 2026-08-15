@@ -38,10 +38,9 @@ function makeCard(overrides: Partial<CardInput> = {}): CardInput {
 }
 
 /**
- * A card is consumed as an image, so a malformed document does not degrade —
- * it fails to render at all, silently, in somebody's README. This is the shape
- * that bites: an interpolated attribute fragment comes back escaped, and the
- * quotes it needed become &quot; inside the tag.
+ * A card is consumed as an image: malformed, it silently fails to render at
+ * all. The shape that bites is an interpolated attribute fragment coming back
+ * escaped, with the quotes it needed turned into &quot; inside the tag.
  */
 function assertWellFormed(document: string): void {
   assert.ok(document.startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
@@ -59,7 +58,6 @@ test("draws the year, the career total and the milestone as a scale", () => {
   assert.match(card, /108/);
   assert.match(card, /CONTRIBUTIONS SINCE 2019/);
   assert.match(card, /4,820/);
-  // The target names the far end of the bar rather than a sentence about it.
   assert.match(card, /class="scale"[^>]*>0</);
   assert.match(card, /class="scale"[^>]*>250</);
   // The accessible name carries both figures, since the grid cannot.
@@ -72,16 +70,14 @@ test("never mentions another account", () => {
   for (const comparative of ["behind", "ahead", "level with"]) {
     assert.ok(!card.includes(comparative), `card mentions "${comparative}"`);
   }
-  // A place, in the shape the dropped ranked card drew it. Matched as a
-  // pattern because a bare "#1" also matches every hex colour on the card.
+  // As a pattern: a bare "#1" also matches every hex colour on the card.
   assert.doesNotMatch(card, /#\d+ of \d+/);
 });
 
 test("reads the year's own shape into the facts column", () => {
   const card = cardSvg(makeCard());
 
-  // Four active days, the last three of them consecutive and running up to
-  // today, so the streak wins the line the best day would otherwise take.
+  // The last three run up to today, so the streak takes the best day's line.
   assert.match(card, /4 active days/);
   assert.match(card, /3-day streak/);
   assert.ok(!card.includes("best day"));
@@ -110,8 +106,7 @@ test("drops the scale past the top of the ladder", () => {
 test("lays out one cell a day and one initial a month", () => {
   const card = cardSvg(makeCard());
 
-  // Every day the grid covers, drawn or still to come, minus the days that
-  // belong to the years either side of it.
+  // Every day the grid covers, minus the years either side of it.
   const days = makeCard().grid.flat().filter((cell) => cell.state !== "outside").length;
   assert.equal(card.match(/rx="1.5"/g)?.length, days);
 
@@ -157,7 +152,7 @@ test("states an absent account rather than drawing it a zero", () => {
   assertWellFormed(card);
   assert.match(card, /No GitHub data for this account\./);
   assert.match(card, /leaderboard\.ynga\.tech\/u\/alice/);
-  // Nothing that could be read as a total, and no grid to read as a quiet year.
+  // No total, and no grid that could be read as a quiet year.
   assert.ok(!card.includes("CONTRIBUTIONS"));
   assert.ok(!card.includes('rx="1.5"'));
 });
