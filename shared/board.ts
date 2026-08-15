@@ -1,10 +1,22 @@
-import type { AllTimeUser, Board, ContributionWeek } from "./types";
+import type { AllTimeUser, Board, ContributionWeek, UserProfile } from "./types";
 import { levelFor, quartiles, type Thresholds } from "./contributions.ts";
 import { BOARD_MILESTONES, nextMilestone, PERSONAL_MILESTONES } from "./milestones.ts";
 import { weekdayIndex, type FirstDayOfWeek } from "./format.ts";
 
 export { levelFor, quartiles };
 export type { Thresholds } from "./contributions.ts";
+
+/** Combine the same two feeds used by the account page into its JSON form. */
+export function userProfile(user: AllTimeUser, board: Board, year: number): UserProfile {
+  const current = board.find((other) => other.login === user.login);
+  return {
+    ...user,
+    currentYear: year,
+    current: current
+      ? { totalContributions: current.totalContributions, weeks: current.weeks }
+      : null,
+  };
+}
 
 export type CellState =
   /** A day in the year that has already happened. */

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { Board } from "../shared/types.ts";
-import { boardGoal, cumulativeSeries, userGoals, userGrid } from "../shared/board.ts";
+import type { AllTimeUser, Board } from "../shared/types.ts";
+import { boardGoal, cumulativeSeries, userGoals, userGrid, userProfile } from "../shared/board.ts";
 import { weekdayIndex } from "../shared/format.ts";
 
 function boardWithDays(days: Board[0]["weeks"][0]["days"]): Board {
@@ -39,6 +39,30 @@ test("builds a daily cumulative series through today", () => {
       ],
     },
   ]);
+});
+
+test("builds a user API profile from the page's all-time and current feeds", () => {
+  const board = boardWithDays([{ date: "2026-01-01", count: 2, level: 1 }]);
+  const user: AllTimeUser = {
+    login: "alice",
+    name: "Alice Example",
+    avatarUrl: "https://avatars.example/alice",
+    url: "https://github.com/alice",
+    followers: 12,
+    following: 3,
+    byYear: { "2025": 10, "2026": 2 },
+    total: 12,
+  };
+
+  assert.deepEqual(userProfile(user, board, 2026), {
+    ...user,
+    currentYear: 2026,
+    current: {
+      totalContributions: 2,
+      weeks: board[0].weeks,
+    },
+  });
+  assert.equal(userProfile(user, [], 2026).current, null);
 });
 
 test("uses the full calendar for a finished leap year", () => {
