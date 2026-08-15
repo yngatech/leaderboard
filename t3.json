@@ -19,7 +19,7 @@
     },
     {
       "name": "Browser Tests",
-      "command": "npm run test:e2e -- --ui --ui-port=$((T3CODE_WORKSPACE_PORT + 1))",
+      "command": "npm run test:e2e:ui",
       "icon": "test"
     }
   ]
