@@ -1,6 +1,7 @@
 import type { AllTime, AllTimeUser, Board } from "../shared/types";
 import { DurableObject } from "cloudflare:workers";
 import { todayIso, userProfile } from "../shared/board";
+import { apiCatalog } from "./api-catalog";
 import type { ArchiveTotals } from "./github";
 import { PEOPLE, currentYear, fetchArchiveTotals, fetchBoard, GitHubError, MIN_YEAR } from "./github";
 import type { SiteChrome } from "./views/layout";
@@ -70,6 +71,8 @@ const BROWSER_TTL_SECONDS = 5 * 60;
 const BROWSER_ARCHIVE_TTL_SECONDS = 24 * 60 * 60;
 
 const SITE = "https://leaderboard.ynga.tech";
+const API_CATALOG_PATH = "/.well-known/api-catalog";
+const API_CATALOG_PROFILE = "https://www.rfc-editor.org/info/rfc9727";
 
 function edgeTtl(year: number): number {
   return year === currentYear() ? LIVE_TTL_SECONDS : ARCHIVE_TTL_SECONDS;
@@ -105,8 +108,27 @@ function html(body: string, init: ResponseInit = {}): Response {
   });
 }
 
-function alternateLink(href: string): string {
-  return `<${href}>; rel="alternate"; type="application/json"`;
+function catalogLink(): string {
+  return `<${API_CATALOG_PATH}>; rel="api-catalog"; type="application/linkset+json"`;
+}
+
+function pageLinks(alternate: string): string {
+  return `<${alternate}>; rel="alternate"; type="application/json", ${catalogLink()}`;
+}
+
+function handleApiCatalog(request: Request): Response {
+  const origin = new URL(request.url).origin;
+  const body = apiCatalog(
+    origin,
+    PEOPLE.map((person) => person.accounts[0]),
+  );
+  return new Response(request.method === "HEAD" ? null : JSON.stringify(body), {
+    headers: {
+      "Content-Type": `application/linkset+json; charset=utf-8; profile="${API_CATALOG_PROFILE}"`,
+      "Cache-Control": `public, max-age=${BROWSER_ARCHIVE_TTL_SECONDS}`,
+      Link: catalogLink(),
+    },
+  });
 }
 
 /** Fixed inputs every rendered page shares, resolved once per request. */
@@ -642,7 +664,7 @@ async function handleYearPage(year: number, env: Env, ctx: ExecutionContext): Pr
   const fresh = html(page, {
     headers: {
       "Cache-Control": `public, max-age=${edgeTtl(year)}`,
-      Link: alternateLink(`/api/board?year=${year}`),
+      Link: pageLinks(`/api/board?year=${year}`),
       "X-Board-Generated": generatedAt,
       "X-Board-Year": String(year),
     },
@@ -671,7 +693,7 @@ async function handleAllPage(env: Env, ctx: ExecutionContext): Promise<Response>
     headers: {
       // Includes the year in progress, so it expires on the live schedule.
       "Cache-Control": `public, max-age=${LIVE_TTL_SECONDS}`,
-      Link: alternateLink("/api/all"),
+      Link: pageLinks("/api/all"),
       "X-Board-Generated": generatedAt,
       "X-Board-Year": "all",
     },
@@ -727,7 +749,7 @@ async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): P
   const fresh = html(page, {
     headers: {
       "Cache-Control": `public, max-age=${LIVE_TTL_SECONDS}`,
-      Link: alternateLink(`/api/users/${login}`),
+      Link: pageLinks(`/api/users/${login}`),
       "X-Board-Generated": generatedAt,
       "X-Board-Year": String(currentYear()),
     },
@@ -947,6 +969,13 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const readOnly = request.method === "GET" || request.method === "HEAD";
+
+    if (url.pathname === API_CATALOG_PATH) {
+      if (!readOnly) {
+        return json({ error: `Use GET for ${API_CATALOG_PATH}.`, status: 405 }, { status: 405 });
+      }
+      return handleApiCatalog(request);
+    }
 
     if (url.pathname === "/api/board") {
       if (!readOnly) {

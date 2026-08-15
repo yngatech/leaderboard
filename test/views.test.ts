@@ -105,6 +105,14 @@ function assertScriptBudget(page: string, withChart: boolean) {
   assert.equal(all.length, withChart ? 2 : 1);
 }
 
+function assertApiCatalogDiscovery(page: string) {
+  assert.ok(
+    page.includes(
+      '<link rel="api-catalog" type="application/linkset+json" href="/.well-known/api-catalog">',
+    ),
+  );
+}
+
 test("templates escape interpolated text and attributes", () => {
   const unsafe = `<img src="x" onerror='a&b'>`;
   assert.equal(
@@ -151,6 +159,7 @@ test("live year page carries goals, future legend, chart and nav targets", () =>
   assert.ok(
     page.includes('<link rel="alternate" type="application/json" href="/api/board?year=2026">'),
   );
+  assertApiCatalogDiscovery(page);
 
   assertScriptBudget(page, true);
 });
@@ -218,6 +227,7 @@ test("all-time page ranks users and links every year cell", () => {
   assert.ok(page.includes('href="/u/alice"'));
   assert.ok(page.includes('href="/u/bob"'));
   assert.ok(page.includes('<link rel="alternate" type="application/json" href="/api/all">'));
+  assertApiCatalogDiscovery(page);
   assert.ok(!page.includes('href="https://github.com/alice"'));
   assertScriptBudget(page, false);
 });
@@ -252,6 +262,7 @@ test("user page reads from both feeds and links its year strip", () => {
   assert.ok(
     page.includes('<link rel="alternate" type="application/json" href="/api/users/alice">'),
   );
+  assertApiCatalogDiscovery(page);
   assertScriptBudget(page, false);
 });
 
