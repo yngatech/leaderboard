@@ -8,7 +8,7 @@
     "build": "npm run typecheck && vite build",
     "test": "node --test test/*.test.ts",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui --ui-port=$(( ${T3CODE_WORKSPACE_PORT:--1} + 1 ))",
+    "test:e2e:ui": "node test/browser/run-ui.ts",
     "test:all": "npm test && npm run test:e2e",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p worker/tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit",
     "deploy": "npm run build && wrangler deploy"
