@@ -14,6 +14,7 @@ the chart hover, and every page works without it.
 | `/{year}` | An archived year, 2008 through the current one |
 | `/all` | All-time: one year-strip per account, ranked by career total |
 | `/u/{login}` | One account across every year |
+| `/u/{login}.svg` | That account's year as a card, for a profile README |
 | `/{year}.md` | Markdown rankings for a year |
 | `/all.md` | Markdown table, one row per account, one column per year |
 | `/api/board?year=` | Board JSON for a year (`year` defaults to the current one) |
@@ -26,13 +27,45 @@ the chart hover, and every page works without it.
 - `worker/github.ts` — the people/account mapping (`PEOPLE`), GraphQL queries, and the
   batched archive fetch behind `/all`.
 - `worker/index.ts` — routing, edge caching, markdown rendering.
-- `worker/views/` — escaped Hono templates that render board data to HTML.
+- `worker/views/` — escaped Hono templates that render board data to HTML, plus
+  `card.ts`, which renders the standalone SVG served at `/u/{login}.svg`.
 - `worker/enhance.js` — the progressive-enhancement script; append `?nojs=1` to any
   page to see it without one.
 - `shared/` — types and the grid/ranking/formatting/date math, shared with the tests.
 
 Every route reads through one per-year JSON cache entry, so the pages, the API
 and the markdown views never disagree about the numbers.
+
+## README cards
+
+`/u/{login}.svg` draws one account's year — the calendar grid, the year's
+total, the all-time total, and the distance to the next milestone — as a card
+to embed in a GitHub profile. Each account page carries the snippet:
+
+```markdown
+[![login on the ynga git board](https://leaderboard.ynga.tech/u/login.svg)](https://leaderboard.ynga.tech/u/login)
+```
+
+Only accounts in `PEOPLE` have a card; anything else is a 404. That is the
+whole abuse story, and it has to be, because GitHub serves README images
+through its own proxy: requests arrive from GitHub with no viewer `Referer` or
+`Origin`, so an embed and a hotlink are indistinguishable. What makes the route
+safe is that the set of cards that exist is small, enumerable and fully cached
+at the edge.
+
+An `<img>` renders SVG as an isolated document that may not fetch anything, so
+the card inlines what it needs: the avatar as a data URI (cached separately
+from the card, since profile pictures outlive deployments) and both site
+typefaces, subset to the characters a card can print, from `worker/fonts.ts`.
+Regenerate those with `node scripts/subset-fonts.ts` after changing the
+character set — never at build time, so a deploy cannot depend on Google Fonts
+being up. Both faces are OFL-1.1; the licences are in `worker/fonts/`.
+
+Two caveats worth knowing before filing a bug. GitHub caches proxied images on
+its own schedule, so a card in a README lags the site by hours whatever
+`Cache-Control` we send. And in the first days of January a card still shows
+the year that just finished — it switches on the second Monday, rather than
+showing an empty grid and a zero for a fortnight.
 
 ## Discord notifications
 
