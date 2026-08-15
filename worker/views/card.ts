@@ -1,0 +1,474 @@
+import type { Grid, YearShape } from "../../shared/board.ts";
+import { formatDayShort, formatMonth, formatNumber, weekdayIndex } from "../../shared/format.ts";
+import { html, raw, type Html } from "../html.ts";
+
+/* ---------------------------------------------------------------------------
+   The README card: one account's year as a standalone SVG document.
+
+   Nothing here may depend on the site. A card is loaded through an <img>, and
+   in that context the SVG is its own document with no stylesheet, no script
+   and no permission to fetch anything — so every colour is inline, the avatar
+   arrives as a data URI, and the type is a system stack rather than the site's
+   webfonts. Text is monospaced throughout, which is also what makes the
+   layout possible: advance width is 0.6em a character, so a label can be
+   measured here instead of by a browser we never get to talk to.
+
+   The card mentions nobody else: a total, a target, and the year's own shape.
+   It is drawn from a leaderboard but does not carry a standing, because a
+   standing is a fact about a group, and last of nine is not something to hand
+   somebody for their profile.
+--------------------------------------------------------------------------- */
+
+export interface CardUser {
+  login: string;
+  name: string | null;
+  /** `data:` URI. Remote hrefs never load inside an <img>, so this or nothing. */
+  avatar: string | null;
+}
+
+/**
+ * Base64 woff2 payloads. A remote font URL never loads inside an <img>, but a
+ * data URI is not a fetch, so subsetting the site's two faces down to the
+ * characters a card can contain buys the board's own typography for ~10 KB.
+ * Omit them and the card falls back to the system stacks.
+ */
+export interface CardFonts {
+  /** Bricolage Grotesque, digits only — the two numbers. */
+  display: string;
+  /** DM Mono, latin — everything else. */
+  mono: string;
+}
+
+/**
+ * The milestone half of `UserGoals`. A `UserGoals` satisfies this, so callers
+ * can pass one straight through; naming only what the card draws keeps the
+ * comparative half from creeping back in through the type.
+ */
+export interface CardGoal {
+  nextMilestone: number | null;
+  toMilestone: number | null;
+}
+
+export interface CardInput {
+  user: CardUser;
+  year: number;
+  /** The year the grid covers. */
+  total: number;
+  /** Every year on the board, which is the figure GitHub's own graph can't show. */
+  allTime: number;
+  /** First year with any contributions, so the all-time figure has a span. */
+  firstYear: number;
+  grid: Grid;
+  shape: YearShape;
+  goals: CardGoal;
+  fonts?: CardFonts;
+  /** ISO timestamp the underlying board was generated. */
+  generatedAt: string;
+  site: string;
+}
+
+/* Palette, lifted from the site theme. Inline because the card has no CSS. */
+const HEAT = ["#191e38", "#4c2a70", "#9b3273", "#e2603a", "#ffc24d"] as const;
+const INK = "#eceaf7";
+const DIM = "#918fb4";
+const FAINT = "#7a7899";
+
+const PAD = 20;
+/**
+ * A 7px pitch is what lets two cards sit side by side in a README: 53 weeks
+ * plus the padding has to clear GitHub's ~890px content column twice over.
+ */
+const CELL = 5;
+const GAP = 2;
+const PITCH = CELL + GAP;
+const MONTH_BAND = 13;
+const AVATAR = 44;
+const BAR_HEIGHT = 5;
+/** Matches .scale in the stylesheet, so the track can be measured against it. */
+const SCALE_SIZE = 10;
+
+const MONO_STACK = "'DM Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+const DISPLAY_STACK = "'Bricolage Grotesque', 'Trebuchet MS', system-ui, sans-serif";
+
+/** DM Mono and every fallback in the stack sit at a 0.6em advance. */
+const ADVANCE = 0.6;
+
+/** @font-face rules, or nothing when the card is rendering unembellished. */
+function fontFaces(fonts: CardFonts | undefined): string {
+  if (!fonts) return "";
+  const face = (family: string, weight: number, data: string) =>
+    `@font-face{font-family:'${family}';font-style:normal;font-weight:${weight};src:url(data:font/woff2;base64,${data}) format('woff2');}`;
+  return `${face("DM Mono", 400, fonts.mono)}${face("Bricolage Grotesque", 800, fonts.display)}`;
+}
+function monoWidth(text: string, size: number): number {
+  return text.length * size * ADVANCE;
+}
+
+/** Truncates to a character budget, since the card cannot reflow. */
+function clamp(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+}
+
+/**
+ * One line of colour under the bar. The milestone is not in here any more: it
+ * labels the end of the track it belongs to, where it needs no words at all.
+ */
+function facts(input: CardInput): string {
+  const lines: string[] = [];
+  const { activeDays, bestDay, currentStreak } = input.shape;
+
+  // No "of 227": the card is already a year, and the denominator was another
+  // number in a line that only has room to be read once.
+  if (activeDays > 0) lines.push(`${activeDays} active ${activeDays === 1 ? "day" : "days"}`);
+  if (currentStreak > 1) lines.push(`${currentStreak}-day streak`);
+  else if (bestDay) {
+    lines.push(`best day ${formatNumber(bestDay.count)} on ${formatDayShort(bestDay.date)}`);
+  }
+
+  return lines.join(" · ");
+}
+
+/**
+ * One initial a month, centred over the column the 1st actually falls in —
+ * not the first column the month owns outright. A month that opens mid-week
+ * shares that column with the month before it, and pointing at the following
+ * week to avoid saying so puts every label a column right of its own data.
+ * Single letters are what make the honest position legible at a 7px pitch.
+ */
+function monthTicks(grid: Grid): { x: number; label: string }[] {
+  const ticks: { x: number; label: string }[] = [];
+  grid.forEach((week, index) => {
+    for (const day of week) {
+      if (day.state === "outside" || day.date.slice(8) !== "01") continue;
+      ticks.push({
+        x: index * PITCH + CELL / 2,
+        label: formatMonth(day.date).charAt(0).toUpperCase(),
+      });
+    }
+  });
+  return ticks;
+}
+
+/**
+ * The year's total as a fraction of the next milestone, which is exactly what
+ * the numbers at either end of the track say: 0 here, 5,000 there, 2,949 of
+ * the way along. Measuring across the current rung instead (2,500 → 5,000)
+ * makes the bar move faster, but it cannot be labelled honestly and it
+ * inverts on a shelf — the leader on 2,949 would show less bar than an
+ * account on 796, because their rung is four times as wide.
+ */
+function milestoneProgress(total: number, next: number | null): number {
+  if (next === null || next <= 0) return 1;
+  return Math.min(1, Math.max(0, total / next));
+}
+
+export function cardSvg(input: CardInput): string {
+  const { user, year, grid } = input;
+
+  const gridWidth = Math.max(0, grid.length * PITCH - GAP);
+  const width = gridWidth + PAD * 2;
+
+  /*
+   * Vertical rhythm, top down. Each band knows only its own height.
+   *
+   * The two totals share a row, at one size, reading left to right: the year
+   * the grid draws, then the career it belongs to. Stacking them diagonally —
+   * the career small and high, the year large and low — put the smaller number
+   * first in reading order and the larger one first in the eye, and the two
+   * orders fought. Both numbers lead their own label, so each figure arrives
+   * before the words that qualify it.
+   */
+  const headerY = PAD;
+  const statsTop = headerY + AVATAR + 18;
+  const totalBaseline = statsTop + 22;
+  const totalLabelBaseline = totalBaseline + 13;
+  const barY = totalLabelBaseline + 16;
+  const factsBaseline = barY + BAR_HEIGHT + 15;
+  const gridTop = factsBaseline + 12;
+  const cellsTop = gridTop + MONTH_BAND;
+  const gridBottom = cellsTop + 7 * PITCH - GAP;
+  // The 9px footer sits on its baseline with a descender below it, so an equal
+  // gap above and below the number reads as too low. Two pixels up.
+  const footerBaseline = gridBottom + 17;
+  const height = footerBaseline + 10;
+
+  const parts: Html[] = [];
+
+  /* --- header: avatar, name, career total -------------------------------- */
+
+  const textX = PAD + (user.avatar ? AVATAR + 13 : 0);
+
+  if (user.avatar) {
+    parts.push(html`<image
+      href="${user.avatar}"
+      x="${PAD}"
+      y="${headerY}"
+      width="${AVATAR}"
+      height="${AVATAR}"
+      clip-path="url(#avatar)"
+      preserveAspectRatio="xMidYMid slice"
+    ></image>`);
+  }
+
+  // The header is identity and nothing else now, so the name has the row.
+  const nameRoom = Math.floor((width - PAD - textX) / (15 * ADVANCE));
+
+  parts.push(
+    html`<text class="name" x="${textX}" y="${headerY + 19}"
+      >${clamp(user.name ?? user.login, nameRoom)}</text
+    >`,
+    html`<text class="sub" x="${textX}" y="${headerY + 36}">@${user.login}</text>`,
+  );
+
+  /* --- the number, and what it is chasing ------------------------------- */
+
+  const career = formatNumber(input.allTime);
+
+  parts.push(
+    html`<text class="total" x="${PAD}" y="${totalBaseline}">${formatNumber(input.total)}</text>`,
+    // Cased here rather than in CSS: text-transform is a browser nicety and
+    // the card should render the same in whatever rasterises it.
+    html`<text class="label" x="${PAD}" y="${totalLabelBaseline}">IN ${year}</text>`,
+    html`<text class="total" x="${width - PAD}" y="${totalBaseline}" text-anchor="end">${career}</text>`,
+    // Stated with its span: "all time" alone says nothing about how long that
+    // is, and this is the figure GitHub's own rolling-year graph cannot show.
+    html`<text class="label" x="${width - PAD}" y="${totalLabelBaseline}" text-anchor="end"
+      >CONTRIBUTIONS SINCE ${input.firstYear}</text
+    >`,
+  );
+
+  /*
+   * The bar, flanked by the two ends of its own scale. Naming where the track
+   * starts and where it finishes is what makes it legible to someone who has
+   * never seen this board: without them a filled bar is decoration, and the
+   * sentence that used to carry the target ("2,200 to 5,000") sat above the
+   * right end describing something the reader had to take on faith.
+   */
+  const target = input.goals.nextMilestone;
+  const progress = milestoneProgress(input.total, target);
+  // Past the top of the ladder there is no scale to label, only a full bar.
+  const scale = target === null ? null : { from: "0", to: formatNumber(target) };
+
+  const trackX = scale === null ? PAD : PAD + monoWidth(scale.from, SCALE_SIZE) + 8;
+  const trackEnd = scale === null ? width - PAD : width - PAD - monoWidth(scale.to, SCALE_SIZE) - 8;
+  const track = Math.max(0, trackEnd - trackX);
+  // The scale reads on the bar's centre line rather than its baseline.
+  const scaleBaseline = barY + BAR_HEIGHT + 1;
+
+  if (scale) {
+    parts.push(
+      html`<text class="scale" x="${PAD}" y="${scaleBaseline}">${scale.from}</text>`,
+      html`<text class="scale" x="${width - PAD}" y="${scaleBaseline}" text-anchor="end"
+        >${scale.to}</text
+      >`,
+    );
+  }
+
+  parts.push(
+    html`<rect x="${trackX}" y="${barY}" width="${track}" height="${BAR_HEIGHT}" rx="${BAR_HEIGHT / 2}" fill="#191e38"></rect>`,
+  );
+  if (progress > 0) {
+    parts.push(
+      html`<rect
+        x="${trackX}"
+        y="${barY}"
+        width="${Math.max(BAR_HEIGHT, track * progress).toFixed(1)}"
+        height="${BAR_HEIGHT}"
+        rx="${BAR_HEIGHT / 2}"
+        fill="url(#ramp)"
+      ></rect>`,
+    );
+  }
+
+  const summary = facts(input);
+  if (summary !== "") {
+    parts.push(html`<text class="fact" x="${PAD}" y="${factsBaseline}">${summary}</text>`);
+  }
+
+  /* --- the year --------------------------------------------------------- */
+
+  for (const tick of monthTicks(grid)) {
+    parts.push(
+      html`<text class="month" x="${PAD + tick.x}" y="${gridTop + 8}" text-anchor="middle"
+        >${tick.label}</text
+      >`,
+    );
+  }
+
+  grid.forEach((week, weekIndex) => {
+    for (const day of week) {
+      if (day.state === "outside") continue;
+      const future = day.state === "future";
+      // An attribute fragment, not a string: interpolated markup would be escaped.
+      const stroke = future ? html` stroke="rgba(236,234,247,0.09)"` : null;
+      parts.push(
+        html`<rect
+          x="${PAD + weekIndex * PITCH}"
+          y="${cellsTop + weekdayIndex(day.date) * PITCH}"
+          width="${CELL}"
+          height="${CELL}"
+          rx="1.5"
+          fill="${future ? "none" : HEAT[day.level]}"${stroke}
+        ></rect>`,
+      );
+    }
+  });
+
+  /* --- footer ------------------------------------------------------------ */
+
+  parts.push(
+    html`<text class="foot" x="${PAD}" y="${footerBaseline}"
+      >${input.site.replace(/^https?:\/\//, "")}/u/${user.login}</text
+    >`,
+    html`<text class="foot" x="${width - PAD}" y="${footerBaseline}" text-anchor="end"
+      >as of ${formatDayShort(input.generatedAt.slice(0, 10))}</text
+    >`,
+  );
+
+  const alt = `${user.name ?? user.login}: ${formatNumber(input.total)} GitHub contributions in ${year}, ${career} since ${input.firstYear}.`;
+
+  return document({ width, height, alt, fonts: input.fonts, body: parts });
+}
+
+/**
+ * A roster account GitHub has no data for — renamed, deleted, suspended, or
+ * simply unreachable this hour. It gets a card rather than a 404, because a
+ * 404 is a broken image on somebody's profile, and a card that says so is
+ * worth more there than a red icon. It is deliberately not a zero: an account
+ * with no data has not had a quiet year, and drawing it an empty grid would
+ * claim it did.
+ */
+export function absentCardSvg(input: AbsentCardInput): string {
+  const { user } = input;
+  const width = ABSENT_WIDTH;
+  const headerY = PAD;
+  // A deleted account has no avatar to fetch either, and holding the full
+  // header band open for one that never arrives leaves a hole in a short card.
+  const messageBaseline = headerY + (user.avatar ? AVATAR : 26) + 26;
+  const footerBaseline = messageBaseline + 22;
+  const height = footerBaseline + 10;
+  const textX = PAD + (user.avatar ? AVATAR + 13 : 0);
+
+  const parts: Html[] = [];
+
+  if (user.avatar) {
+    parts.push(html`<image
+      href="${user.avatar}"
+      x="${PAD}"
+      y="${headerY}"
+      width="${AVATAR}"
+      height="${AVATAR}"
+      clip-path="url(#avatar)"
+      preserveAspectRatio="xMidYMid slice"
+    ></image>`);
+  }
+
+  // The same wording the board itself uses for a missing account, so the card
+  // and the site do not describe one situation two ways. An account with no
+  // data usually has no display name either, so the heading falls back to the
+  // handle and the second line is dropped rather than repeating it.
+  const message = "No GitHub data for this account.";
+  const heading = user.name ?? `@${user.login}`;
+
+  parts.push(
+    html`<text class="name" x="${textX}" y="${headerY + 19}">${clamp(heading, 24)}</text>`,
+  );
+  if (user.name !== null) {
+    parts.push(html`<text class="sub" x="${textX}" y="${headerY + 36}">@${user.login}</text>`);
+  }
+
+  parts.push(
+    html`<text class="fact" x="${PAD}" y="${messageBaseline}">${message}</text>`,
+    html`<text class="foot" x="${PAD}" y="${footerBaseline}"
+      >${input.site.replace(/^https?:\/\//, "")}/u/${user.login}</text
+    >`,
+  );
+
+  return document({ width, height, alt: message, fonts: input.fonts, body: parts });
+}
+
+export interface AbsentCardInput {
+  user: CardUser;
+  site: string;
+  fonts?: CardFonts;
+}
+
+/** Card width when there is no grid to set it. */
+const ABSENT_WIDTH = 409;
+
+interface Document {
+  width: number;
+  height: number;
+  alt: string;
+  fonts: CardFonts | undefined;
+  body: Html[];
+}
+
+/**
+ * The shell both cards share: shape, palette, type, and the panel itself.
+ *
+ * The milestone gradient is pinned to the track in user space rather than to
+ * the filled rect, so the ramp stays put and the fill uncovers it: a tenth of
+ * the way to the milestone is a tenth of the ramp, not a whole one squeezed
+ * into a tenth of the bar. Explaining that here rather than in an SVG comment
+ * keeps a paragraph of prose out of every card we serve.
+ */
+function document({ width, height, alt, fonts, body }: Document): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>\n${html`<svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="${width}"
+    height="${height}"
+    viewBox="0 0 ${width} ${height}"
+    role="img"
+    aria-label="${alt}"
+    font-family="${MONO_STACK}"
+  >
+    <title>${alt}</title>
+    <defs>
+      <clipPath id="avatar">
+        <rect x="${PAD}" y="${PAD}" width="${AVATAR}" height="${AVATAR}" rx="${AVATAR / 2}"></rect>
+      </clipPath>
+      <linearGradient
+        id="ramp"
+        gradientUnits="userSpaceOnUse"
+        x1="${PAD}"
+        y1="0"
+        x2="${width - PAD}"
+        y2="0"
+      >
+        <stop offset="0" stop-color="${HEAT[2]}"></stop>
+        <stop offset="1" stop-color="${HEAT[4]}"></stop>
+      </linearGradient>
+      <radialGradient id="aurora-a" cx="0.36" cy="0" r="0.9">
+        <stop offset="0" stop-color="#9b3273" stop-opacity="0.30"></stop>
+        <stop offset="1" stop-color="#9b3273" stop-opacity="0"></stop>
+      </radialGradient>
+      <radialGradient id="aurora-b" cx="0.94" cy="0.06" r="0.7">
+        <stop offset="0" stop-color="#ffc24d" stop-opacity="0.13"></stop>
+        <stop offset="1" stop-color="#ffc24d" stop-opacity="0"></stop>
+      </radialGradient>
+    </defs>
+    <style>
+      ${raw(fontFaces(fonts))}
+      .name { fill: ${INK}; font-size: 15px; font-weight: 500; }
+      .sub { fill: ${DIM}; font-size: 11px; }
+      .label { fill: ${FAINT}; font-size: 9px; letter-spacing: 0.08em; }
+      /* No tracking: on a single centred glyph it is a half-pixel of lean. */
+      .month { fill: ${FAINT}; font-size: 9px; }
+      .total {
+        fill: ${INK};
+        font-family: ${DISPLAY_STACK};
+        font-size: 30px;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+      }
+      .scale { fill: ${DIM}; font-size: 10px; }
+      .fact { fill: ${DIM}; font-size: 11px; }
+      .foot { fill: ${FAINT}; font-size: 9px; }
+    </style>
+    <rect x="0.5" y="0.5" width="${width - 1}" height="${height - 1}" rx="12" fill="#12162b" stroke="#262c4c"></rect>
+    <rect x="0.5" y="0.5" width="${width - 1}" height="${height - 1}" rx="12" fill="url(#aurora-a)"></rect>
+    <rect x="0.5" y="0.5" width="${width - 1}" height="${height - 1}" rx="12" fill="url(#aurora-b)"></rect>
+    ${body}
+  </svg>`}\n`;
+}
