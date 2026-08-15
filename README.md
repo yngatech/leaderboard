@@ -19,6 +19,7 @@ the chart hover, and every page works without it.
 | `/api/board?year=` | Board JSON for a year (`year` defaults to the current one) |
 | `/api/all` | All-time JSON |
 | `/api/users/{login}` | One account's all-time totals and current-year daily JSON |
+| `/.well-known/api-catalog` | RFC 9727 API catalogue as a JSON Linkset |
 
 ## Layout
 

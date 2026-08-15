@@ -175,6 +175,7 @@ export function pageHtml(options: PageOptions): string {
     ${options.alternate
       ? html`<link rel="alternate" type="application/json" href="${options.alternate}">`
       : null}
+    <link rel="api-catalog" type="application/linkset+json" href="/.well-known/api-catalog">
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
