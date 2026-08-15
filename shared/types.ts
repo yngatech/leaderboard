@@ -45,6 +45,14 @@ export interface AllTime {
   users: AllTimeUser[];
 }
 
+/** The machine-readable counterpart of an account page. */
+export interface UserProfile extends AllTimeUser {
+  /** The year represented by `current`. */
+  currentYear: number;
+  /** Daily detail for the current year, or null when GitHub omitted the account. */
+  current: Pick<BoardUser, "totalContributions" | "weeks"> | null;
+}
+
 export interface BoardError {
   error: string;
   status: number;

@@ -18,6 +18,7 @@ the chart hover, and every page works without it.
 | `/all.md` | Markdown table, one row per account, one column per year |
 | `/api/board?year=` | Board JSON for a year (`year` defaults to the current one) |
 | `/api/all` | All-time JSON |
+| `/api/users/{login}` | One account's all-time totals and current-year daily JSON |
 
 ## Layout
 

@@ -1,6 +1,6 @@
 import type { AllTime, AllTimeUser, Board } from "../shared/types";
 import { DurableObject } from "cloudflare:workers";
-import { todayIso } from "../shared/board";
+import { todayIso, userProfile } from "../shared/board";
 import type { ArchiveTotals } from "./github";
 import { PEOPLE, currentYear, fetchArchiveTotals, fetchBoard, GitHubError, MIN_YEAR } from "./github";
 import type { SiteChrome } from "./views/layout";
@@ -516,6 +516,37 @@ async function handleAllApi(env: Env, ctx: ExecutionContext): Promise<Response> 
   return withBrowserHeaders(response, cache);
 }
 
+/** JSON counterpart of `/u/{login}`, assembled from the same cached feeds. */
+async function handleUserApi(login: string, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const [boardResult, allResult] = await Promise.all([
+    boardJson(currentYear(), env, ctx),
+    allTimeJson(env, ctx),
+  ]);
+  if (!boardResult.response.ok) return boardResult.response;
+  if (!allResult.response.ok) return allResult.response;
+
+  const board = (await boardResult.response.json()) as Board;
+  const data = (await allResult.response.json()) as AllTime;
+  const user = data.users.find((other) => other.login === login);
+  if (!user) {
+    return json(
+      { error: `No leaderboard account named ${login}.`, status: 404 },
+      { status: 404, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  const generatedAt = allResult.response.headers.get("X-Board-Generated") ?? new Date().toISOString();
+  const fresh = json(userProfile(user, board, currentYear()), {
+    headers: {
+      "Cache-Control": `public, max-age=${LIVE_TTL_SECONDS}`,
+      "X-Board-Generated": generatedAt,
+      "X-Board-Year": String(currentYear()),
+    },
+  });
+  const cache = boardResult.cache === "HIT" && allResult.cache === "HIT" ? "HIT" : "MISS";
+  return withBrowserHeaders(fresh, cache);
+}
+
 async function handleMarkdown(year: number, env: Env, ctx: ExecutionContext): Promise<Response> {
   const cache = caches.default;
   const cacheKey = new Request(`${MARKDOWN_CACHE_PREFIX}${year}`, { method: "GET" });
@@ -925,6 +956,38 @@ export default {
         return await handleAllApi(env, ctx);
       } catch (error) {
         console.error("all-time api failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return json(
+          { error: "The board could not be assembled.", status: 500 },
+          { status: 500, headers: { "Cache-Control": "no-store" } },
+        );
+      }
+    }
+
+    const userApiMatch = /^\/api\/users\/([A-Za-z0-9][A-Za-z0-9-]*)\/?$/.exec(url.pathname);
+    if (userApiMatch) {
+      if (!readOnly) {
+        return json({ error: "Use GET for user APIs.", status: 405 }, { status: 405 });
+      }
+      const requested = userApiMatch[1];
+      const canonical = PEOPLE.map((person) => person.accounts[0]).find(
+        (account) => account.toLowerCase() === requested.toLowerCase(),
+      );
+      if (!canonical) {
+        return json(
+          { error: `No leaderboard account named ${requested}.`, status: 404 },
+          { status: 404, headers: { "Cache-Control": "no-store" } },
+        );
+      }
+      if (url.pathname !== `/api/users/${canonical}`) {
+        return Response.redirect(`${url.origin}/api/users/${canonical}`, 308);
+      }
+      try {
+        return await handleUserApi(canonical, env, ctx);
+      } catch (error) {
+        console.error("user api failed", {
+          login: canonical,
           message: error instanceof Error ? error.message : String(error),
         });
         return json(
