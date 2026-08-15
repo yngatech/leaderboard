@@ -248,7 +248,6 @@ test("reads a year's shape from the days that have already happened", () => {
   assert.deepEqual(yearShape(grid), {
     activeDays: 4,
     bestDay: { date: "2026-01-03", count: 9 },
-    // The run has to reach the most recent elapsed day to be current.
     currentStreak: 3,
     longestStreak: 3,
   });
@@ -289,8 +288,7 @@ test("holds the finished year until the second Monday of January", () => {
   assert.equal(featuredYear("2027-01-11"), 2027);
   assert.equal(featuredYear("2027-02-01"), 2027);
 
-  // 2024 opens on a Monday, the case where a first-Monday rule would hand
-  // over no grace at all. The second Monday is the 8th.
+  // 2024 opens on a Monday, where a first-Monday rule would grant no grace.
   assert.equal(featuredYear("2024-01-07"), 2023);
   assert.equal(featuredYear("2024-01-08"), 2024);
 

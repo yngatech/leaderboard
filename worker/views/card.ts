@@ -87,12 +87,10 @@ function monoWidth(text: string, size: number): number {
   return text.length * size * ADVANCE;
 }
 
-/** Truncates to a character budget, since the card cannot reflow. */
 function clamp(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
-/** One line of colour under the bar; the milestone labels the track instead. */
 function facts(input: CardInput): string {
   const lines: string[] = [];
   const { activeDays, bestDay, currentStreak } = input.shape;
@@ -153,8 +151,7 @@ export function cardSvg(input: CardInput): string {
   const gridTop = factsBaseline + 12;
   const cellsTop = gridTop + MONTH_BAND;
   const gridBottom = cellsTop + 7 * PITCH - GAP;
-  // The 9px footer sits on its baseline with a descender below it, so an equal
-  // gap above and below the number reads as too low. Two pixels up.
+  // Two pixels up: the descender makes an even gap read as too low.
   const footerBaseline = gridBottom + 17;
   const height = footerBaseline + 10;
 

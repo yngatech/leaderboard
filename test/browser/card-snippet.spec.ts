@@ -48,7 +48,6 @@ const pageHtml = userPageHtml({
   generatedAt: new Date().toISOString(),
 });
 
-// The preview points at the live route; a stub stands in for it here.
 const CARD_STUB = {
   path: "/u/alice.svg",
   contentType: "image/svg+xml",
@@ -65,7 +64,6 @@ test.describe("without JavaScript", () => {
 
     await expect(page.locator("#card-snippet")).toHaveText(SNIPPET);
     await expect(page.getByRole("img", { name: "The alice contribution card" })).toBeVisible();
-    // Nothing offers an action the page cannot perform.
     await expect(page.getByRole("button", { name: "copy" })).toBeHidden();
   });
 });

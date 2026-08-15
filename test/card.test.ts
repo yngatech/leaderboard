@@ -60,7 +60,6 @@ test("draws the year, the career total and the milestone as a scale", () => {
   assert.match(card, /4,820/);
   assert.match(card, /class="scale"[^>]*>0</);
   assert.match(card, /class="scale"[^>]*>250</);
-  // The accessible name carries both figures, since the grid cannot.
   assert.match(card, /<title>Alice Example: 108 GitHub contributions in 2026, 4,820 since 2019\.</);
 });
 
@@ -88,7 +87,6 @@ test("reads the year's own shape into the facts column", () => {
       shape: yearShape(userGrid([{ days: [{ date: "2026-01-02", count: 90, level: 4 }] }], 2026, TODAY)),
     }),
   );
-  // One active day, no run to speak of: the best day takes the line instead.
   assert.match(quiet, /1 active day\b/);
   assert.match(quiet, /best day 90 on 2 Jan/);
 });
@@ -97,16 +95,14 @@ test("drops the scale past the top of the ladder", () => {
   const card = cardSvg(makeCard({ goals: { nextMilestone: null, toMilestone: null } }));
 
   assertWellFormed(card);
-  // Nothing left to count towards, so the track carries no numbers…
   assert.doesNotMatch(card, /class="scale"/);
-  // …and the bar stays, filled: past the ladder is not a target half met.
+  // The bar stays, filled: past the ladder is not a target half met.
   assert.match(card, /fill="url\(#ramp\)"/);
 });
 
 test("lays out one cell a day and one initial a month", () => {
   const card = cardSvg(makeCard());
 
-  // Every day the grid covers, minus the years either side of it.
   const days = makeCard().grid.flat().filter((cell) => cell.state !== "outside").length;
   assert.equal(card.match(/rx="1.5"/g)?.length, days);
 
@@ -120,7 +116,6 @@ test("lays out without an avatar rather than reaching for one", () => {
 
   const withAvatar = cardSvg(makeCard({ user: { login: "alice", name: null, avatar: "data:image/png;base64,AAAA" } }));
   assert.match(withAvatar, /<image[^>]+href="data:image\/png;base64,AAAA"/);
-  // No display name: the handle stands in for it.
   assert.match(withAvatar, /@alice/);
 });
 
@@ -152,7 +147,6 @@ test("states an absent account rather than drawing it a zero", () => {
   assertWellFormed(card);
   assert.match(card, /No GitHub data for this account\./);
   assert.match(card, /leaderboard\.ynga\.tech\/u\/alice/);
-  // No total, and no grid that could be read as a quiet year.
   assert.ok(!card.includes("CONTRIBUTIONS"));
   assert.ok(!card.includes('rx="1.5"'));
 });

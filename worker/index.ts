@@ -22,7 +22,6 @@ import {
   userPageHtml,
   yearPageHtml,
 } from "./views/pages";
-// Encoded at build time: a card is an isolated document and cannot fetch a font.
 import displayFont from "./fonts/display.woff2?inline";
 import monoFont from "./fonts/mono.woff2?inline";
 import enhanceUrl from "./enhance.js?url";
@@ -112,11 +111,8 @@ const BROWSER_ARCHIVE_TTL_SECONDS = 24 * 60 * 60;
 const SITE = "https://leaderboard.ynga.tech";
 /** Drawn at 44px, fetched at 96 so it holds up on a retina screen. */
 const AVATAR_PIXELS = 96;
-/** A profile picture that large is not a profile picture. */
 const AVATAR_MAX_BYTES = 256 * 1024;
 const AVATAR_TTL_SECONDS = 7 * 24 * 60 * 60;
-/** Cards move on the live schedule: the all-time figure changes every day. */
-const CARD_TTL_SECONDS = LIVE_TTL_SECONDS;
 const CARD_FONTS = { display: displayFont, mono: monoFont };
 const API_CATALOG_PATH = "/.well-known/api-catalog";
 const API_CATALOG_PROFILE = "https://www.rfc-editor.org/info/rfc9727";
@@ -845,10 +841,7 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-/**
- * One account's avatar as a data URI. Every failure returns null and the card
- * lays out without a face, which is worse but not broken.
- */
+/** Every failure returns null: a card without a face is worse, not broken. */
 async function avatarDataUri(login: string, ctx: ExecutionContext): Promise<string | null> {
   const cache = caches.default;
   const cacheKey = new Request(`${AVATAR_CACHE_PREFIX}${login}`, { method: "GET" });
@@ -924,7 +917,7 @@ async function handleUserCard(login: string, env: Env, ctx: ExecutionContext): P
   const career = data.users.find((other) => other.login === login);
   const user = board.find((other) => other.login === login);
 
-  // On the roster but absent upstream. Expires quickly enough to heal.
+  // Short TTL: absence upstream is usually temporary.
   if (!user || !career) {
     return svg(
       absentCardSvg({
@@ -959,7 +952,7 @@ async function handleUserCard(login: string, env: Env, ctx: ExecutionContext): P
 
   const fresh = svg(body, {
     headers: {
-      "Cache-Control": `public, max-age=${CARD_TTL_SECONDS}`,
+      "Cache-Control": `public, max-age=${LIVE_TTL_SECONDS}`,
       Link: pageLinks(`/api/users/${login}`),
       "X-Board-Generated": generatedAt,
       "X-Board-Year": String(year),
@@ -970,7 +963,6 @@ async function handleUserCard(login: string, env: Env, ctx: ExecutionContext): P
   return withBrowserHeaders(fresh, "MISS");
 }
 
-/** Carries an upstream failure's status without drawing anything. */
 async function cardFromFailure(response: Response): Promise<Response> {
   const body = (await response.json().catch(() => null)) as { error?: string } | null;
   return text(`${body?.error ?? "The board could not be assembled."}\n`, {

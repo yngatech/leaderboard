@@ -289,45 +289,36 @@ export function featuredYear(today: string): number {
   const year = date.getUTCFullYear();
   if (date.getUTCMonth() > 0) return year;
 
-  // Intl's Monday=1…Sunday=7, so this is how far 1 January sits from a Monday.
-  const opensOn = parseDay(`${year}-01-01`).getUTCDay() || 7;
-  const firstMonday = 1 + ((8 - opensOn) % 7);
+  const daysPastMonday = weekdayIndex(`${year}-01-01`);
+  const firstMonday = 1 + ((7 - daysPastMonday) % 7);
   return date.getUTCDate() < firstMonday + 7 * (ROLLOVER_WEEK - 1) ? year - 1 : year;
 }
 
 export interface YearShape {
   activeDays: number;
   bestDay: PeakDay | null;
-  /** Active days running back from the most recent elapsed day. */
   currentStreak: number;
   longestStreak: number;
 }
 
-/** One account's year from the inside, with no other account involved. */
 export function yearShape(grid: Grid): YearShape {
   // Weeks and the days inside them are both chronological.
   const days = grid.flat().filter((cell) => cell.state === "day");
 
   let activeDays = 0;
   let longestStreak = 0;
-  let running = 0;
+  let streak = 0;
   for (const day of days) {
     if (day.count > 0) {
       activeDays += 1;
-      running += 1;
-      if (running > longestStreak) longestStreak = running;
+      streak += 1;
+      if (streak > longestStreak) longestStreak = streak;
     } else {
-      running = 0;
+      streak = 0;
     }
   }
 
-  // `running` is the trailing run: the loop ends on the most recent day.
-  return {
-    activeDays,
-    bestDay: peakDay(grid),
-    currentStreak: running,
-    longestStreak,
-  };
+  return { activeDays, bestDay: peakDay(grid), currentStreak: streak, longestStreak };
 }
 
 export interface RankGap {
