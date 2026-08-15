@@ -3,13 +3,13 @@
   "scripts": [
     {
       "name": "Setup Worktree",
-      "command": "npm install && cp $T3CODE_PROJECT_ROOT/.dev.vars .dev.vars",
+      "command": "npm install && (cp $T3CODE_PROJECT_ROOT/.dev.vars .dev.vars || true)",
       "icon": "configure",
       "runOnWorktreeCreate": true
     },
     {
       "name": "Dev Server",
-      "command": "npm run dev",
+      "command": "npm run dev -- --port \"$T3CODE_WORKSPACE_PORT\" --open",
       "icon": "debug"
     }
   ]
