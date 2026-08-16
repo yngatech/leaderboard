@@ -391,13 +391,21 @@ interface AllTimeData {
   generatedAt: string;
 }
 
+/** An in-flight `boardJson` call, so one page can serve it to both feeds. */
+type BoardFetch = ReturnType<typeof boardJson>;
+
 /**
  * The archive aggregate plus the year in progress, merged by login. Shared by
  * `/all.md` and `/api/all` so both read exactly the same numbers.
+ *
+ * A caller that is already fetching the current year passes it in: the edge
+ * cache cannot deduplicate two concurrent misses, so without this an account
+ * page fetched the year in progress twice over.
  */
 async function allTimeData(
   env: Env,
   ctx: ExecutionContext,
+  sharedBoard?: BoardFetch,
 ): Promise<{ ok: true; data: AllTimeData } | { ok: false; status: number; message: string }> {
   // A partial table would quietly understate someone's all-time total, so any
   // failure fails the whole page.
@@ -405,9 +413,9 @@ async function allTimeData(
   if (!archiveResult.ok) return archiveResult;
 
   // The year in progress still comes through the shared per-year JSON cache.
-  const live = await boardJson(currentYear(), env, ctx);
+  const live = await (sharedBoard ?? boardJson(currentYear(), env, ctx));
   if (!live.response.ok) {
-    const body = (await live.response.json().catch(() => null)) as { error?: string } | null;
+    const body = (await live.response.clone().json().catch(() => null)) as { error?: string } | null;
     return {
       ok: false,
       status: live.response.status,
@@ -416,7 +424,8 @@ async function allTimeData(
   }
 
   const { archive } = archiveResult;
-  const liveBoard = (await live.response.json()) as Board;
+  // Cloned, because a shared response is still the caller's to read.
+  const liveBoard = (await live.response.clone().json()) as Board;
   const liveStamp = live.response.headers.get("X-Board-Generated");
 
   const missing = new Set(archive.missing);
@@ -522,6 +531,7 @@ async function handleAllMarkdown(env: Env, ctx: ExecutionContext): Promise<Respo
 async function allTimeJson(
   env: Env,
   ctx: ExecutionContext,
+  sharedBoard?: BoardFetch,
 ): Promise<{ response: Response; cache: "HIT" | "MISS" }> {
   const cache = caches.default;
   const cacheKey = new Request(ALL_JSON_CACHE_KEY, { method: "GET" });
@@ -529,7 +539,7 @@ async function allTimeJson(
   const hit = await cache.match(cacheKey);
   if (hit) return { response: hit, cache: "HIT" };
 
-  const result = await allTimeData(env, ctx);
+  const result = await allTimeData(env, ctx, sharedBoard);
   if (!result.ok) {
     return {
       response: json(
@@ -579,9 +589,12 @@ async function handleAllApi(env: Env, ctx: ExecutionContext): Promise<Response> 
 
 /** JSON counterpart of `/u/{login}`, assembled from the same cached feeds. */
 async function handleUserApi(login: string, env: Env, ctx: ExecutionContext): Promise<Response> {
+  // One fetch of the year in progress, awaited by both feeds. Starting it
+  // before the all-time feed keeps the two running side by side.
+  const boardFetch = boardJson(currentYear(), env, ctx);
   const [boardResult, allResult] = await Promise.all([
-    boardJson(currentYear(), env, ctx),
-    allTimeJson(env, ctx),
+    boardFetch,
+    allTimeJson(env, ctx, boardFetch),
   ]);
   if (!boardResult.response.ok) return boardResult.response;
   if (!allResult.response.ok) return allResult.response;
@@ -749,9 +762,12 @@ async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): P
   const hit = await renderedPageHit(cacheKey);
   if (hit) return withBrowserHeaders(hit, "HIT");
 
+  // One fetch of the year in progress, awaited by both feeds. Starting it
+  // before the all-time feed keeps the two running side by side.
+  const boardFetch = boardJson(currentYear(), env, ctx);
   const [boardResult, allResult] = await Promise.all([
-    boardJson(currentYear(), env, ctx),
-    allTimeJson(env, ctx),
+    boardFetch,
+    allTimeJson(env, ctx, boardFetch),
   ]);
   if (!boardResult.response.ok) return pageFromFailure(boardResult.response);
   if (!allResult.response.ok) return pageFromFailure(allResult.response);
