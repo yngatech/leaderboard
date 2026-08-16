@@ -48,9 +48,9 @@ export interface Env {
 const JSON_CACHE_PREFIX = "https://ynga-git-board.internal/board/v3/";
 const MARKDOWN_CACHE_PREFIX = "https://ynga-git-board.internal/board-md/v2/";
 /** Bumped for all-time totals sourced from public contribution fragments. */
-const ALL_MARKDOWN_CACHE_KEY = "https://ynga-git-board.internal/board-md/v4/all";
+const ALL_MARKDOWN_CACHE_KEY = "https://ynga-git-board.internal/board-md/v5/all";
 /** Rendered all-time JSON for the SPA. */
-const ALL_JSON_CACHE_KEY = "https://ynga-git-board.internal/board-all/v3";
+const ALL_JSON_CACHE_KEY = "https://ynga-git-board.internal/board-all/v4";
 /** Per-person totals for every finished year, in one entry. */
 const ARCHIVE_CACHE_PREFIX = "https://ynga-git-board.internal/board-md-src/archive/v3/";
 /**
@@ -444,9 +444,9 @@ async function allTimeData(
   const spanYears =
     activeYears.length > 0 ? years.filter((year) => year >= activeYears[0]) : [];
 
-  // The oldest stamp, so the line never overstates freshness.
-  const generatedAt =
-    liveStamp && liveStamp < archive.generatedAt ? liveStamp : archive.generatedAt;
+  // The aggregate changes with the live year. Archive totals are intentionally
+  // cached for longer and should not make that regularly refreshed feed look stale.
+  const generatedAt = liveStamp ?? archive.generatedAt;
 
   return { ok: true, data: { rows: ranked, activeYears, spanYears, missing: [...missing], generatedAt } };
 }
