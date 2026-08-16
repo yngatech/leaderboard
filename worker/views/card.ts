@@ -1,6 +1,6 @@
 import type { Grid, YearShape } from "../../shared/board.ts";
-import { formatDayShort, formatMonth, formatNumber, weekdayIndex } from "../../shared/format.ts";
-import { html, raw, type Html } from "../html.ts";
+import { formatDayShort, formatMonth, formatNumber } from "../../shared/format.ts";
+import { html, type Html } from "../html.ts";
 
 /* ---------------------------------------------------------------------------
    The README card: one account's year as a standalone SVG document.
@@ -34,13 +34,12 @@ export interface CardFonts {
 /** The milestone half of `UserGoals`, which satisfies this structurally. */
 export interface CardGoal {
   nextMilestone: number | null;
-  toMilestone: number | null;
 }
 
 export interface CardInput {
   user: CardUser;
-  year: number;
   /** The year the grid covers. */
+  year: number;
   total: number;
   allTime: number;
   /** First year with any contributions, so the all-time figure has a span. */
@@ -71,24 +70,62 @@ const BAR_HEIGHT = 5;
 /** Matches .scale below, so the track can be measured against it. */
 const SCALE_SIZE = 10;
 
+/**
+ * The subset woff2s ride inside every card, so each card is a copy of the font
+ * software and OFL-1.1 clause 2 asks it to carry the notice.
+ */
+const LICENCE = html`<!--
+    Bricolage Grotesque © 2022 The Bricolage Grotesque Project Authors.
+    DM Mono © 2020 The DM Mono Project Authors.
+    Both subset and embedded under the SIL Open Font License 1.1:
+    https://scripts.sil.org/OFL
+  -->`;
+
 const MONO_STACK = "'DM Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 const DISPLAY_STACK = "'Bricolage Grotesque', 'Trebuchet MS', system-ui, sans-serif";
 
 /** DM Mono and every fallback in the stack sit at a 0.6em advance. */
 const ADVANCE = 0.6;
 
-function fontFaces(fonts: CardFonts | undefined): string {
-  if (!fonts) return "";
+function fontFaces(fonts: CardFonts | undefined): Html[] {
+  if (!fonts) return [];
+  // Escaped like everything else. A bare ampersand in a src would be a fatal
+  // entity error, and a card that fails to parse is a broken image.
   const face = (family: string, weight: number, source: string) =>
-    `@font-face{font-family:'${family}';font-style:normal;font-weight:${weight};src:url(${source}) format('woff2');}`;
-  return `${face("DM Mono", 400, fonts.mono)}${face("Bricolage Grotesque", 800, fonts.display)}`;
+    html`@font-face{font-family:'${family}';font-style:normal;font-weight:${weight};src:url(${source}) format('woff2');}`;
+  return [face("DM Mono", 400, fonts.mono), face("Bricolage Grotesque", 800, fonts.display)];
 }
 function monoWidth(text: string, size: number): number {
-  return text.length * size * ADVANCE;
+  return cells(text) * size * ADVANCE;
+}
+
+/**
+ * A display name is whatever GitHub holds. Quotes and angle brackets are
+ * escaped for us, but C0 controls are illegal in XML and would take the whole
+ * card down with them.
+ */
+function plain(text: string): string {
+  return [...text].filter((character) => character >= " " && character !== "\u007f").join("");
+}
+
+const WIDE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/;
+
+/** Cells, not characters: CJK is full-width, and a surrogate pair is one glyph. */
+function cells(text: string): number {
+  return [...text].reduce((width, character) => width + (WIDE.test(character) ? 2 : 1), 0);
 }
 
 function clamp(text: string, max: number): string {
-  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+  if (max <= 1) return "…";
+  if (cells(text) <= max) return text;
+  let width = 0;
+  const kept: string[] = [];
+  for (const character of text) {
+    width += WIDE.test(character) ? 2 : 1;
+    if (width > max - 1) break;
+    kept.push(character);
+  }
+  return `${kept.join("")}…`;
 }
 
 function facts(input: CardInput): string {
@@ -131,6 +168,12 @@ function monthTicks(grid: Grid): { x: number; label: string }[] {
 function milestoneProgress(total: number, next: number | null): number {
   if (next === null || next <= 0) return 1;
   return Math.min(1, Math.max(0, total / next));
+}
+
+/** Empty rather than throwing: a bad stamp should cost the line, not the card. */
+function asOf(generatedAt: string): string {
+  const day = generatedAt.slice(0, 10);
+  return Number.isNaN(Date.parse(day)) ? "" : `as of ${formatDayShort(day)}`;
 }
 
 export function cardSvg(input: CardInput): string {
@@ -177,7 +220,7 @@ export function cardSvg(input: CardInput): string {
 
   parts.push(
     html`<text class="name" x="${textX}" y="${headerY + 19}"
-      >${clamp(user.name ?? user.login, nameRoom)}</text
+      >${clamp(plain(user.name ?? user.login), nameRoom)}</text
     >`,
     html`<text class="sub" x="${textX}" y="${headerY + 36}">@${user.login}</text>`,
   );
@@ -251,22 +294,24 @@ export function cardSvg(input: CardInput): string {
   }
 
   grid.forEach((week, weekIndex) => {
-    for (const day of week) {
-      if (day.state === "outside") continue;
+    // The row is the day's place in the week, not something to re-derive from
+    // the date — `userGrid` can be built from any first weekday.
+    week.forEach((day, dayIndex) => {
+      if (day.state === "outside") return;
       const future = day.state === "future";
       // An attribute fragment, not a string: interpolated markup would be escaped.
       const stroke = future ? html` stroke="rgba(236,234,247,0.09)"` : null;
       parts.push(
         html`<rect
           x="${PAD + weekIndex * PITCH}"
-          y="${cellsTop + weekdayIndex(day.date) * PITCH}"
+          y="${cellsTop + dayIndex * PITCH}"
           width="${CELL}"
           height="${CELL}"
           rx="1.5"
           fill="${future ? "none" : HEAT[day.level]}"${stroke}
         ></rect>`,
       );
-    }
+    });
   });
 
   /* --- footer ------------------------------------------------------------ */
@@ -276,11 +321,11 @@ export function cardSvg(input: CardInput): string {
       >${input.site.replace(/^https?:\/\//, "")}/u/${user.login}</text
     >`,
     html`<text class="foot" x="${width - PAD}" y="${footerBaseline}" text-anchor="end"
-      >as of ${formatDayShort(input.generatedAt.slice(0, 10))}</text
+      >${asOf(input.generatedAt)}</text
     >`,
   );
 
-  const alt = `${user.name ?? user.login}: ${formatNumber(input.total)} GitHub contributions in ${year}, ${career} since ${input.firstYear}.`;
+  const alt = `${plain(user.name ?? user.login)}: ${formatNumber(input.total)} GitHub contributions in ${year}, ${career} since ${input.firstYear}.`;
 
   return document({ width, height, alt, fonts: input.fonts, body: parts });
 }
@@ -317,7 +362,7 @@ export function absentCardSvg(input: AbsentCardInput): string {
   // The board's own wording, so site and card do not differ. No display name
   // either, usually, so the heading takes the handle and the sub line goes.
   const message = "No GitHub data for this account.";
-  const heading = user.name ?? `@${user.login}`;
+  const heading = plain(user.name ?? `@${user.login}`);
 
   parts.push(
     html`<text class="name" x="${textX}" y="${headerY + 19}">${clamp(heading, 24)}</text>`,
@@ -370,6 +415,7 @@ function document({ width, height, alt, fonts, body }: Document): string {
     font-family="${MONO_STACK}"
   >
     <title>${alt}</title>
+    ${fonts ? LICENCE : null}
     <defs>
       <clipPath id="avatar">
         <rect x="${PAD}" y="${PAD}" width="${AVATAR}" height="${AVATAR}" rx="${AVATAR / 2}"></rect>
@@ -395,7 +441,7 @@ function document({ width, height, alt, fonts, body }: Document): string {
       </radialGradient>
     </defs>
     <style>
-      ${raw(fontFaces(fonts))}
+      ${fontFaces(fonts)}
       .name { fill: ${INK}; font-size: 15px; font-weight: 500; }
       .sub { fill: ${DIM}; font-size: 11px; }
       .label { fill: ${FAINT}; font-size: 9px; letter-spacing: 0.08em; }

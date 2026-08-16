@@ -245,39 +245,58 @@ test("reads a year's shape from the days that have already happened", () => {
     "2026-01-05",
   );
 
-  assert.deepEqual(yearShape(grid), {
+  assert.deepEqual(yearShape(grid, "2026-01-05"), {
     activeDays: 4,
     bestDay: { date: "2026-01-03", count: 9 },
     currentStreak: 3,
-    longestStreak: 3,
   });
 });
 
-test("ends the current streak on a silent most recent day", () => {
+test("counts a silent today as a day in progress, not a broken streak", () => {
+  const days = [
+    { date: "2026-01-01", count: 5, level: 2 as const },
+    { date: "2026-01-02", count: 5, level: 2 as const },
+    { date: "2026-01-03", count: 0, level: 0 as const },
+  ];
+
+  // Nobody has committed yet today, which is not the same as stopping.
+  assert.equal(yearShape(userGrid([{ days }], 2026, "2026-01-03"), "2026-01-03").currentStreak, 2);
+  // A day later the silence is settled and the streak really has ended.
+  assert.equal(yearShape(userGrid([{ days }], 2026, "2026-01-04"), "2026-01-04").currentStreak, 0);
+});
+
+test("runs a streak across a week boundary and the December straddle", () => {
+  // 2026 opens on a Thursday, so the first column carries three days of 2025.
   const grid = userGrid(
     [
       {
         days: [
-          { date: "2026-01-01", count: 5, level: 2 },
-          { date: "2026-01-02", count: 5, level: 2 },
-          { date: "2026-01-03", count: 0, level: 0 },
+          { date: "2025-12-31", count: 9, level: 4 },
+          { date: "2026-01-01", count: 2, level: 1 },
+          { date: "2026-01-02", count: 2, level: 1 },
+          { date: "2026-01-03", count: 2, level: 1 },
+          { date: "2026-01-04", count: 2, level: 1 },
+          { date: "2026-01-05", count: 2, level: 1 },
         ],
       },
     ],
     2026,
-    "2026-01-03",
+    "2026-01-05",
   );
 
-  const shape = yearShape(grid);
-  assert.equal(shape.currentStreak, 0);
-  assert.equal(shape.longestStreak, 2);
+  const shape = yearShape(grid, "2026-01-05");
+  // The five days of 2026 only, in order, across two week columns.
+  assert.equal(shape.currentStreak, 5);
+  assert.equal(shape.activeDays, 5);
+  assert.deepEqual(shape.bestDay, { date: "2026-01-01", count: 2 });
 });
 
-test("reports an empty year without a best day", () => {
-  const shape = yearShape(userGrid([], 2026, "2026-01-10"));
-  assert.equal(shape.activeDays, 0);
-  assert.equal(shape.bestDay, null);
-  assert.equal(shape.longestStreak, 0);
+test("reports a year with no contributions", () => {
+  assert.deepEqual(yearShape(userGrid([], 2026, "2026-01-10"), "2026-01-10"), {
+    activeDays: 0,
+    bestDay: null,
+    currentStreak: 0,
+  });
 });
 
 test("holds the finished year until the second Monday of January", () => {
@@ -295,4 +314,8 @@ test("holds the finished year until the second Monday of January", () => {
   // 2023 opens on a Sunday: the Mondays are the 2nd and the 9th.
   assert.equal(featuredYear("2023-01-08"), 2022);
   assert.equal(featuredYear("2023-01-09"), 2023);
+
+  // 2025 opens on a Wednesday, the longest grace the rule can give.
+  assert.equal(featuredYear("2025-01-12"), 2024);
+  assert.equal(featuredYear("2025-01-13"), 2025);
 });

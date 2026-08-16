@@ -29,8 +29,8 @@ function makeCard(overrides: Partial<CardInput> = {}): CardInput {
     allTime: 4820,
     firstYear: 2019,
     grid,
-    shape: yearShape(grid),
-    goals: { nextMilestone: 250, toMilestone: 142 },
+    shape: yearShape(grid, TODAY),
+    goals: { nextMilestone: 250 },
     generatedAt: "2026-03-05T09:30:00.000Z",
     site: "https://leaderboard.ynga.tech",
     ...overrides,
@@ -39,15 +39,28 @@ function makeCard(overrides: Partial<CardInput> = {}): CardInput {
 
 /**
  * A card is consumed as an image: malformed, it silently fails to render at
- * all. The shape that bites is an interpolated attribute fragment coming back
- * escaped, with the quotes it needed turned into &quot; inside the tag.
+ * all. Nesting is checked with a stack rather than by counting tags, which
+ * certifies `<a></b>` as fine, and the browser test parses a real card for
+ * the errors no regex catches.
  */
-function assertWellFormed(document: string): void {
-  assert.ok(document.startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
-  assert.ok(!document.includes("&quot;"), "an attribute was escaped into the markup");
-  const opened = document.match(/<(?!\/|\?|!)[a-z]/g)?.length ?? 0;
-  const closed = (document.match(/<\//g)?.length ?? 0) + (document.match(/\/>/g)?.length ?? 0);
-  assert.equal(opened, closed, "every element is closed");
+function assertWellFormed(markup: string): void {
+  assert.ok(markup.startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
+  assert.doesNotMatch(markup, /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/, "illegal in XML");
+
+  const open: string[] = [];
+  for (const [tag, closing, name, selfClosing] of markup.matchAll(
+    /<(\/?)([a-zA-Z][\w-]*)(?:"[^"]*"|[^">])*?(\/?)>/g,
+  )) {
+    // Every attribute value must still be quoted. An escaped fragment shows up
+    // as `stroke=&quot;…&quot;`, an unquoted value — while an entity *inside* a
+    // quoted value is legitimate, which is where an escaped display name lands.
+    for (const [, value] of tag.slice(1, -1).matchAll(/[\w:.-]+\s*=\s*("[^"]*"|[^\s>]+)/g)) {
+      assert.ok(value.startsWith('"'), `unquoted attribute in <${name}>: ${value.slice(0, 24)}`);
+    }
+    if (closing) assert.equal(open.pop(), name, `closed <${name}> that was not open`);
+    else if (!selfClosing) open.push(name);
+  }
+  assert.deepEqual(open, [], "every element is closed");
 }
 
 test("draws the year, the career total and the milestone as a scale", () => {
@@ -84,7 +97,7 @@ test("reads the year's own shape into the facts column", () => {
   const quiet = cardSvg(
     makeCard({
       grid: userGrid([{ days: [{ date: "2026-01-02", count: 90, level: 4 }] }], 2026, TODAY),
-      shape: yearShape(userGrid([{ days: [{ date: "2026-01-02", count: 90, level: 4 }] }], 2026, TODAY)),
+      shape: yearShape(userGrid([{ days: [{ date: "2026-01-02", count: 90, level: 4 }] }], 2026, TODAY), TODAY),
     }),
   );
   assert.match(quiet, /1 active day\b/);
@@ -92,7 +105,7 @@ test("reads the year's own shape into the facts column", () => {
 });
 
 test("drops the scale past the top of the ladder", () => {
-  const card = cardSvg(makeCard({ goals: { nextMilestone: null, toMilestone: null } }));
+  const card = cardSvg(makeCard({ goals: { nextMilestone: null } }));
 
   assertWellFormed(card);
   assert.doesNotMatch(card, /class="scale"/);
@@ -156,6 +169,42 @@ test("escapes a display name that arrives as markup", () => {
     makeCard({ user: { login: "bob", name: '<img src=x onerror="alert(1)">', avatar: null } }),
   );
 
+  assertWellFormed(card);
   assert.ok(!card.includes("<img src=x"));
   assert.match(card, /&lt;img src=x/);
+});
+
+test("survives a display name that would be illegal in XML", () => {
+  const hostile = `Alice${String.fromCharCode(1)}${String.fromCharCode(31)}Example`;
+  assertWellFormed(cardSvg(makeCard({ user: { login: "alice", name: hostile, avatar: null } })));
+});
+
+test("measures full-width names by the room they take, not their length", () => {
+  const wide = "日本語のとても長い表示名前前前前前前前前前前前前前前前前前";
+  const card = cardSvg(makeCard({ user: { login: "alice", name: wide, avatar: null } }));
+
+  assertWellFormed(card);
+  // Two cells a glyph, so it clamps where a length count would have let it run
+  // roughly twice the width of the card.
+  assert.match(card, /class="name"[^>]*>[^<]*…</);
+});
+
+test("keeps the card when the generated stamp is unusable", () => {
+  const card = cardSvg(makeCard({ generatedAt: "not a date" }));
+
+  assertWellFormed(card);
+  assert.ok(!card.includes("as of"));
+});
+
+test("the well-formedness check rejects what it is there to catch", () => {
+  const valid = cardSvg(makeCard());
+  assertWellFormed(valid);
+
+  assert.throws(() => assertWellFormed(valid.replace("</text>", "</tspan>")), /not open/);
+  // The failure that shipped once already: an attribute fragment escaped.
+  assert.throws(() => assertWellFormed(valid.replace('fill="none"', "fill=&quot;none&quot;")), /attribute/);
+  assert.throws(() => assertWellFormed(valid.replace("</svg>", "")), /every element is closed/);
+
+  // And a quote in a display name is not that, so it must still pass.
+  assertWellFormed(cardSvg(makeCard({ user: { login: "alice", name: 'Al "Ace" Doe', avatar: null } })));
 });

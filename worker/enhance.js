@@ -164,6 +164,8 @@ if (navigator.clipboard) {
   for (const button of copyButtons) {
     const source = document.getElementById(button.getAttribute("data-copy"));
     if (!source) continue;
+    const label = button.textContent;
+    let restore;
     button.hidden = false;
     button.addEventListener("click", async () => {
       try {
@@ -171,10 +173,12 @@ if (navigator.clipboard) {
       } catch {
         return;
       }
-      const previous = button.textContent;
+      // Clicked twice inside the window, the second timer would otherwise
+      // restore "copied" and leave it there.
+      clearTimeout(restore);
       button.textContent = "copied";
-      setTimeout(() => {
-        button.textContent = previous;
+      restore = setTimeout(() => {
+        button.textContent = label;
       }, 1600);
     });
   }

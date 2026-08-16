@@ -34,7 +34,10 @@ const FACES = [
     file: "mono.woff2",
     family: "DM+Mono:wght@400",
     characters:
-      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ,.-–—·…@#/:'’()+",
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ,.-–—·…@#/:'’()+" +
+      // Display names are free text: without latin-1 an accent falls back to a
+      // system face mid-word, at a different advance to everything beside it.
+      "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÑÒÓÔÕÖØÙÚÛÜÝßàáâãäåæçèéêëìíîïñòóôõöøùúûüýÿ",
   },
 ] as const;
 

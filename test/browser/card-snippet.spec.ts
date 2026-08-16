@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { AllTime, Board } from "../../shared/types.ts";
+import { userGrid, yearShape } from "../../shared/board.ts";
+import { cardSvg } from "../../worker/views/card.ts";
 import { userPageHtml } from "../../worker/views/pages.ts";
 import { chrome, ORIGIN, serveFixture } from "./fixture.ts";
 
@@ -48,10 +50,24 @@ const pageHtml = userPageHtml({
   generatedAt: new Date().toISOString(),
 });
 
+// A real card, not a stand-in: this is the only place a card meets an actual
+// XML parser, and a malformed one fails as a broken image rather than an error.
+const grid = userGrid(board[0].weeks, 2026, "2026-08-10");
 const CARD_STUB = {
   path: "/u/alice.svg",
   contentType: "image/svg+xml",
-  body: '<svg xmlns="http://www.w3.org/2000/svg" width="409" height="252"></svg>',
+  body: cardSvg({
+    user: { login: "alice", name: 'Al "Ace" & <b>', avatar: null },
+    year: 2026,
+    total: 320,
+    allTime: 1220,
+    firstYear: 2025,
+    grid,
+    shape: yearShape(grid, "2026-08-10"),
+    goals: { nextMilestone: 500 },
+    generatedAt: "2026-08-10T09:00:00.000Z",
+    site: "https://leaderboard.ynga.tech",
+  }),
 };
 
 test.describe("without JavaScript", () => {
@@ -63,7 +79,12 @@ test.describe("without JavaScript", () => {
     await page.goto(ORIGIN);
 
     await expect(page.locator("#card-snippet")).toHaveText(SNIPPET);
-    await expect(page.getByRole("img", { name: "The alice contribution card" })).toBeVisible();
+
+    // naturalWidth is 0 when the browser could not parse the SVG, which is how
+    // a card fails: silently, as a broken image on somebody's profile.
+    const card = page.getByRole("img", { name: /contribution card/ });
+    await expect(card).toBeVisible();
+    expect(await card.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
     await expect(page.getByRole("button", { name: "copy" })).toBeHidden();
   });
 });

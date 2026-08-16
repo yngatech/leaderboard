@@ -16,7 +16,7 @@ import { joinDay, yearsOnGitHub } from "../../shared/cakeday.ts";
 import { formatDayShort, formatDayYear, formatNumber, formatOrdinal } from "../../shared/format.ts";
 import { html, type Html } from "../html.ts";
 import { cumulativeChartHtml } from "./chart.ts";
-import { MIN_PAGE_YEAR, hrefForYear, pageHtml, type SiteChrome } from "./layout.ts";
+import { MIN_PAGE_YEAR, SITE, hrefForYear, pageHtml, type SiteChrome } from "./layout.ts";
 import { allTimeRowHtml, boardGoalLineHtml, goalRailHtml, userRowHtml } from "./rows.ts";
 import { heatmapSvg, yearStripSvg } from "./svg.ts";
 
@@ -377,12 +377,6 @@ export interface UserPageOptions {
 }
 
 /**
- * Absolute, because the snippet below is pasted into a README that has no idea
- * where it came from. The rest of the site links relatively.
- */
-const SITE = "https://leaderboard.ynga.tech";
-
-/**
  * The card, and the line to paste to get it. The snippet wraps the image in a
  * link back here, because a card in a README is the only part of this board a
  * stranger ever sees.
@@ -403,11 +397,11 @@ function cardSectionHtml(login: string): Html {
     <div class="px-[1.3rem] pt-[1.25rem] max-phone:px-4">
       <h2 class="${LEDGER_TERM}" id="card-heading">card for your readme</h2>
       <img
-        class="mt-[0.9rem] block h-auto w-full max-w-[409px] rounded-[12px]"
+        class="mt-[0.9rem] block h-auto w-full max-w-[416px] rounded-[12px]"
         src="${path}"
         alt="The ${login} contribution card"
-        width="409"
-        loading="lazy"
+        width="416"
+        height="252"
       />
     </div>
     <div class="${CARD_LEDGER} mt-[1.1rem] flex items-start gap-3 max-phone:flex-wrap">

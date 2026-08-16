@@ -283,7 +283,6 @@ export function peakDay(grid: Grid): PeakDay | null {
  */
 const ROLLOVER_WEEK = 2;
 
-
 export function featuredYear(today: string): number {
   const date = parseDay(today);
   const year = date.getUTCFullYear();
@@ -298,27 +297,29 @@ export interface YearShape {
   activeDays: number;
   bestDay: PeakDay | null;
   currentStreak: number;
-  longestStreak: number;
 }
 
-export function yearShape(grid: Grid): YearShape {
+export function yearShape(grid: Grid, today: string): YearShape {
   // Weeks and the days inside them are both chronological.
   const days = grid.flat().filter((cell) => cell.state === "day");
 
+  // A silent today is a day in progress, not a broken streak: without this
+  // every streak on the board reads zero from midnight until its first commit.
+  const last = days.at(-1);
+  const settled = last?.date === today && last.count === 0 ? days.slice(0, -1) : days;
+
   let activeDays = 0;
-  let longestStreak = 0;
   let streak = 0;
-  for (const day of days) {
+  for (const day of settled) {
     if (day.count > 0) {
       activeDays += 1;
       streak += 1;
-      if (streak > longestStreak) longestStreak = streak;
     } else {
       streak = 0;
     }
   }
 
-  return { activeDays, bestDay: peakDay(grid), currentStreak: streak, longestStreak };
+  return { activeDays, bestDay: peakDay(grid), currentStreak: streak };
 }
 
 export interface RankGap {

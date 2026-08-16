@@ -18,13 +18,6 @@ export function html(strings: TemplateStringsArray, ...values: HtmlValue[]): Htm
 }
 
 /**
- * Markup the caller has already made safe. Only for content this codebase
- * generates in full — a stylesheet, say — never for anything a visitor or an
- * upstream API can shape.
- */
-export { raw };
-
-/**
  * JSON destined for an inline `<script type="application/json">` block. The
  * only sequence that can break out of that element is `</script>`, and `<`
  * never needs to appear unescaped inside JSON.
