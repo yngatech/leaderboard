@@ -882,7 +882,7 @@ function standingOvertakeEmbed(
 ): DiscordEmbed {
   const { position, mover, displaced } = notification.event;
   return {
-    title: "Git board position change",
+    title: "Position change",
     url: `${SITE}/${year}`,
     description: `[${mover.login}](${mover.url}) has overtaken [${displaced.login}](${displaced.url}) for **${ordinal(position)} place** in ${year} with **${count(mover.totalContributions)} contributions**.`,
     color: 0x58a6ff,
