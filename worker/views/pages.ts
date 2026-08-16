@@ -16,7 +16,7 @@ import { joinDay, yearsOnGitHub } from "../../shared/cakeday.ts";
 import { formatDayShort, formatDayYear, formatNumber, formatOrdinal } from "../../shared/format.ts";
 import { html, type Html } from "../html.ts";
 import { cumulativeChartHtml } from "./chart.ts";
-import { MIN_PAGE_YEAR, hrefForYear, pageHtml, type SiteChrome } from "./layout.ts";
+import { MIN_PAGE_YEAR, SITE, hrefForYear, pageHtml, type SiteChrome } from "./layout.ts";
 import { allTimeRowHtml, boardGoalLineHtml, goalRailHtml, userRowHtml } from "./rows.ts";
 import { heatmapSvg, yearStripSvg } from "./svg.ts";
 
@@ -376,6 +376,54 @@ export interface UserPageOptions {
   generatedAt: string | null;
 }
 
+/**
+ * The card, and the line to paste to get it. The snippet wraps the image in a
+ * link back here, because a card in a README is the only part of this board a
+ * stranger ever sees.
+ *
+ * The preview is the live SVG rather than a mock-up of one: if the route is
+ * broken, this section is where it shows, not in somebody's profile.
+ */
+function cardSectionHtml(login: string): Html {
+  const path = `/u/${login}.svg`;
+  // The preview is same-origin so a preview deployment shows its own card
+  // rather than production's; the snippet has to be absolute, since it is read
+  // somewhere that has never heard of this site.
+  const snippet = `[![${login} on the ynga git board](${SITE}${path})](${SITE}/u/${login})`;
+
+  return html`<section class="mt-[clamp(2rem,5vw,3rem)] ${CARD} border-line-soft [animation-delay:180ms]"
+    aria-labelledby="card-heading"
+  >
+    <div class="px-[1.3rem] pt-[1.25rem] max-phone:px-4">
+      <h2 class="${LEDGER_TERM}" id="card-heading">card for your readme</h2>
+      <img
+        class="mt-[0.9rem] block h-auto w-full max-w-[416px] rounded-[12px]"
+        src="${path}"
+        alt="The ${login} contribution card"
+        width="416"
+        height="252"
+      />
+    </div>
+    <div class="${CARD_LEDGER} mt-[1.1rem] flex items-start gap-3 max-phone:flex-wrap">
+      <code
+        class="min-w-0 flex-1 overflow-x-auto font-mono text-[0.68rem] leading-[1.7] break-all whitespace-pre-wrap text-dim"
+        id="card-snippet"
+        >${snippet}</code
+      >
+      <button
+        class="shrink-0 cursor-pointer rounded-[9px] border border-line px-[0.8rem] py-[0.4rem] font-mono text-[0.66rem] tracking-[0.08em] text-dim transition-colors duration-200 hover:border-accent/50 hover:text-accent"
+        data-copy="card-snippet"
+        hidden
+      >
+        copy
+      </button>
+    </div>
+    <p class="px-[1.3rem] pb-[1.15rem] text-[0.68rem] leading-[1.6] text-dimmer max-phone:px-4">
+      GitHub proxies and caches README images, so a card there can lag this page by a few hours.
+    </p>
+  </section>`;
+}
+
 export function userPageHtml(options: UserPageOptions): string {
   const { chrome, user, board, allUsers, years, year, today } = options;
 
@@ -596,7 +644,9 @@ export function userPageHtml(options: UserPageOptions): string {
     </section>`;
   }
 
-  const main = html`${identityCard}${sectionRuleHtml(year)}${liveSection}`;
+  const main = html`${identityCard}${sectionRuleHtml(year)}${liveSection}${cardSectionHtml(
+    user.login,
+  )}`;
 
   return pageHtml({
     chrome,

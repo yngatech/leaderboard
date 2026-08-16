@@ -1,7 +1,9 @@
 import type { AllTime, AllTimeUser, Board } from "../shared/types";
 import { DurableObject } from "cloudflare:workers";
-import { todayIso, userProfile } from "../shared/board";
+import { featuredYear, todayIso, userGrid, userProfile, yearShape } from "../shared/board";
 import { formatDayYear } from "../shared/format";
+import { nextMilestone, PERSONAL_MILESTONES } from "../shared/milestones";
+import { absentCardSvg, cardSvg } from "./views/card";
 import { apiCatalog } from "./api-catalog";
 import {
   archiveCachePrefix,
@@ -11,7 +13,7 @@ import {
 } from "./cache-policy";
 import type { ArchiveTotals } from "./github";
 import { PEOPLE, currentYear, fetchArchiveTotals, fetchBoard, GitHubError, MIN_YEAR } from "./github";
-import type { SiteChrome } from "./views/layout";
+import { SITE, type SiteChrome } from "./views/layout";
 import {
   allPageHtml,
   errorPageHtml,
@@ -20,6 +22,8 @@ import {
   userPageHtml,
   yearPageHtml,
 } from "./views/pages";
+import displayFont from "./fonts/display.woff2?inline";
+import monoFont from "./fonts/mono.woff2?inline";
 import enhanceUrl from "./enhance.js?url";
 import stylesUrl from "./styles.css?url";
 import {
@@ -82,13 +86,20 @@ const ARCHIVE_CACHE_PREFIX = archiveCachePrefix(
   PEOPLE,
 );
 /**
- * Rendered pages. The current year sits inside every key because an archived
- * page's nav and footer are computed against it: on 1 January the keys roll
- * over and no stale navigation can outlive the year that drew it. The build
- * SHA gives each deployed commit a fresh rendered-page namespace.
+ * Rendered pages. The current year sits inside every page key because an
+ * archived page's nav and footer are computed against it: on 1 January the
+ * keys roll over and no stale navigation can outlive the year that drew it.
+ * Cards key on the featured year instead, which is the point of them. The
+ * build SHA gives each deployed commit a fresh rendered-page namespace.
  */
 const HTML_CACHE_PREFIX =
   `https://ynga-git-board.internal/board-html/v1/${encodeURIComponent(__BUILD_COMMIT_SHA__)}/`;
+/**
+ * Encoded avatars, outside the build-SHA namespace on purpose: a deploy
+ * re-renders every card, and there is no reason for that to re-fetch nine
+ * profile pictures that change perhaps once a year.
+ */
+const AVATAR_CACHE_PREFIX = "https://ynga-git-board.internal/avatar/v1/";
 
 const TOKEN_MISSING = "The board is missing its GitHub token. Set the GITHUB_TOKEN secret.";
 /** The year in progress keeps moving. */
@@ -98,12 +109,22 @@ const ARCHIVE_TTL_SECONDS = 30 * 24 * 60 * 60;
 const BROWSER_TTL_SECONDS = 5 * 60;
 const BROWSER_ARCHIVE_TTL_SECONDS = 24 * 60 * 60;
 
-const SITE = "https://leaderboard.ynga.tech";
+/** Drawn at 44px, fetched at 96 so it holds up on a retina screen. */
+const AVATAR_PIXELS = 96;
+const AVATAR_MAX_BYTES = 256 * 1024;
+const AVATAR_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+const AVATAR_TTL_SECONDS = 7 * 24 * 60 * 60;
+const CARD_FONTS = { display: displayFont, mono: monoFont };
 const API_CATALOG_PATH = "/.well-known/api-catalog";
 const API_CATALOG_PROFILE = "https://www.rfc-editor.org/info/rfc9727";
 
+/**
+ * The featured year, not the calendar one: through the January grace window a
+ * card still reads the finished year, and pinning it for 30 days would freeze
+ * whatever GitHub had settled on at 00:30 on 1 January.
+ */
 function edgeTtl(year: number): number {
-  return year === currentYear() ? LIVE_TTL_SECONDS : ARCHIVE_TTL_SECONDS;
+  return year >= featuredYear(todayIso()) ? LIVE_TTL_SECONDS : ARCHIVE_TTL_SECONDS;
 }
 
 function json(body: unknown, init: ResponseInit = {}): Response {
@@ -810,6 +831,164 @@ async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): P
   return withBrowserHeaders(fresh, "MISS");
 }
 
+/* ---------------------------------------------------------------------------
+   README cards
+   An SVG loaded through an <img> may not fetch, so the avatar and both
+   typefaces travel inside it. Otherwise the same shape as the rendered pages.
+--------------------------------------------------------------------------- */
+
+/** workerd has no Buffer, and spreading 96 KB into fromCharCode overflows. */
+function toBase64(bytes: Uint8Array): string {
+  const CHUNK = 0x8000;
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + CHUNK));
+  }
+  return btoa(binary);
+}
+
+/** Every failure returns null: a card without a face is worse, not broken. */
+async function avatarDataUri(login: string, ctx: ExecutionContext): Promise<string | null> {
+  const cache = caches.default;
+  const cacheKey = new Request(`${AVATAR_CACHE_PREFIX}${AVATAR_PIXELS}/${login}`, {
+    method: "GET",
+  });
+
+  // Bypassed in development for the same reason rendered pages are: Vite's
+  // local Cache API outlives a restart, and a week is a long time to debug.
+  const hit = __DEV__ ? undefined : await cache.match(cacheKey);
+  if (hit) return hit.text();
+
+  try {
+    const response = await fetch(`https://github.com/${login}.png?size=${AVATAR_PIXELS}`, {
+      headers: { Accept: "image/*" },
+    });
+    if (!response.ok) return null;
+
+    // An allow-list, not an `image/` prefix: image/svg+xml would nest a
+    // document inside the card, and parameters would ride into the data URI.
+    const type = (response.headers.get("Content-Type") ?? "").split(";")[0].trim().toLowerCase();
+    if (!AVATAR_TYPES.includes(type)) return null;
+
+    const declared = Number(response.headers.get("Content-Length"));
+    if (Number.isFinite(declared) && declared > AVATAR_MAX_BYTES) return null;
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength === 0 || bytes.byteLength > AVATAR_MAX_BYTES) return null;
+
+    const dataUri = `data:${type};base64,${toBase64(bytes)}`;
+    if (!__DEV__) ctx.waitUntil(
+      cache.put(
+        cacheKey,
+        text(dataUri, { headers: { "Cache-Control": `public, max-age=${AVATAR_TTL_SECONDS}` } }),
+      ),
+    );
+    return dataUri;
+  } catch (error) {
+    console.error("avatar failed", {
+      login,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+function svg(body: string, init: ResponseInit = {}): Response {
+  return new Response(body, {
+    ...init,
+    headers: {
+      "Content-Type": "image/svg+xml; charset=utf-8",
+      ...(init.headers ?? {}),
+    },
+  });
+}
+
+/**
+ * The card for one account. `login` is a canonical PEOPLE entry, so the key set
+ * stays enumerable; the year comes from `featuredYear`, not the calendar.
+ */
+async function handleUserCard(login: string, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const year = Math.max(MIN_YEAR, featuredYear(todayIso()));
+  const cacheKey = new Request(`${HTML_CACHE_PREFIX}${year}/card/${login}`, { method: "GET" });
+
+  const hit = await renderedPageHit(cacheKey);
+  if (hit) return withBrowserHeaders(hit, "HIT");
+
+  const [boardResult, allResult] = await Promise.all([
+    boardJson(year, env, ctx),
+    allTimeJson(env, ctx),
+  ]);
+  // No card at all on failure: a non-200 leaves whatever GitHub has cached in
+  // place, where an error card would replace someone's README image.
+  if (!boardResult.response.ok) return cardFromFailure(boardResult.response);
+  if (!allResult.response.ok) return cardFromFailure(allResult.response);
+
+  const generatedAt =
+    boardResult.response.headers.get("X-Board-Generated") ?? new Date().toISOString();
+  const board = (await boardResult.response.json()) as Board;
+  const data = (await allResult.response.json()) as AllTime;
+
+  const avatar = await avatarDataUri(login, ctx);
+  const career = data.users.find((other) => other.login === login);
+  const user = board.find((other) => other.login === login);
+
+  // Not cached: absence upstream is usually temporary, and a card claiming it
+  // should not outlive the outage.
+  if (!user || !career) {
+    return withBrowserHeaders(
+      svg(
+        absentCardSvg({
+          user: { login, name: career?.name ?? null, avatar },
+          site: SITE,
+          fonts: CARD_FONTS,
+        }),
+        { headers: { "Cache-Control": `public, max-age=${BROWSER_TTL_SECONDS}` } },
+      ),
+      "MISS",
+    );
+  }
+
+  const activeYears = Object.entries(career.byYear)
+    .filter(([, count]) => count > 0)
+    .map(([activeYear]) => Number(activeYear));
+  const grid = userGrid(user.weeks, year, todayIso());
+  const total = user.totalContributions;
+
+  const body = cardSvg({
+    user: { login: user.login, name: user.name, avatar },
+    year,
+    total,
+    allTime: career.total,
+    firstYear: activeYears.length > 0 ? Math.min(...activeYears) : year,
+    grid,
+    shape: yearShape(grid, todayIso()),
+    goals: { nextMilestone: nextMilestone(total, PERSONAL_MILESTONES) },
+    generatedAt,
+    site: SITE,
+    fonts: CARD_FONTS,
+  });
+
+  const fresh = svg(body, {
+    headers: {
+      "Cache-Control": `public, max-age=${LIVE_TTL_SECONDS}`,
+      Link: pageLinks(`/api/users/${login}`),
+      "X-Board-Generated": generatedAt,
+      "X-Board-Year": String(year),
+    },
+  });
+
+  cacheRenderedPage(ctx, cacheKey, fresh.clone());
+  return withBrowserHeaders(fresh, "MISS");
+}
+
+async function cardFromFailure(response: Response): Promise<Response> {
+  const body = (await response.json().catch(() => null)) as { error?: string } | null;
+  return text(`${body?.error ?? "The board could not be assembled."}\n`, {
+    status: response.status,
+    headers: { "Cache-Control": "no-store" },
+  });
+}
+
 /**
  * Re-issue a cached/fresh response with client-facing cache headers. Finished
  * years can sit in the visitor's browser for a day; anything touching the year
@@ -1078,6 +1257,40 @@ export default {
 
     if (url.pathname.startsWith("/api/")) {
       return json({ error: `No API route at ${url.pathname}.`, status: 404 }, { status: 404 });
+    }
+
+    const cardMatch = /^\/u\/([A-Za-z0-9][A-Za-z0-9-]*)\.svg$/.exec(url.pathname);
+    if (cardMatch) {
+      if (!readOnly) {
+        return text("Use GET for cards.\n", { status: 405 });
+      }
+      const requested = cardMatch[1];
+      const canonical = PEOPLE.map((person) => person.accounts[0]).find(
+        (account) => account.toLowerCase() === requested.toLowerCase(),
+      );
+      // Off the roster is a 404. The set of cards that exist is the roster,
+      // which is the whole abuse story — see the README.
+      if (!canonical) {
+        return text(`No leaderboard account named ${requested}.\n`, {
+          status: 404,
+          headers: { "Cache-Control": "no-store" },
+        });
+      }
+      if (url.pathname !== `/u/${canonical}.svg`) {
+        return Response.redirect(`${url.origin}/u/${canonical}.svg`, 308);
+      }
+      try {
+        return await handleUserCard(canonical, env, ctx);
+      } catch (error) {
+        console.error("card failed", {
+          login: canonical,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return text("The card could not be drawn.\n", {
+          status: 500,
+          headers: { "Cache-Control": "no-store" },
+        });
+      }
     }
 
     if (url.pathname.endsWith(".md")) {

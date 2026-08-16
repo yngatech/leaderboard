@@ -155,3 +155,31 @@ if (chart && dataBlock) {
     });
   }
 }
+
+/* The README snippet's copy button. Ships hidden and stays hidden without a
+   clipboard: the snippet itself is selectable text either way, so nothing is
+   lost, and a button that cannot copy is worse than no button. */
+const copyButtons = document.querySelectorAll("button[data-copy]");
+if (navigator.clipboard) {
+  for (const button of copyButtons) {
+    const source = document.getElementById(button.getAttribute("data-copy"));
+    if (!source) continue;
+    const label = button.textContent;
+    let restore;
+    button.hidden = false;
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(source.textContent.trim());
+      } catch {
+        return;
+      }
+      // Clicked twice inside the window, the second timer would otherwise
+      // restore "copied" and leave it there.
+      clearTimeout(restore);
+      button.textContent = "copied";
+      restore = setTimeout(() => {
+        button.textContent = label;
+      }, 1600);
+    });
+  }
+}

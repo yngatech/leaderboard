@@ -1,7 +1,7 @@
 import type { AllTimeUser, Board, ContributionWeek, UserProfile } from "./types";
 import { levelFor, quartiles, type Thresholds } from "./contributions.ts";
 import { BOARD_MILESTONES, nextMilestone, PERSONAL_MILESTONES } from "./milestones.ts";
-import { weekdayIndex, type FirstDayOfWeek } from "./format.ts";
+import { parseDay, weekdayIndex, type FirstDayOfWeek } from "./format.ts";
 
 export { levelFor, quartiles };
 export type { Thresholds } from "./contributions.ts";
@@ -274,6 +274,52 @@ export function peakDay(grid: Grid): PeakDay | null {
     }
   }
   return best;
+}
+
+/**
+ * A card keeps showing the finished year until the second Monday of January,
+ * rather than an empty grid and a zero. Monday to land on a column boundary;
+ * the second because the first can fall on the 1st and grant no grace at all.
+ */
+const ROLLOVER_WEEK = 2;
+
+export function featuredYear(today: string): number {
+  const date = parseDay(today);
+  const year = date.getUTCFullYear();
+  if (date.getUTCMonth() > 0) return year;
+
+  const daysPastMonday = weekdayIndex(`${year}-01-01`);
+  const firstMonday = 1 + ((7 - daysPastMonday) % 7);
+  return date.getUTCDate() < firstMonday + 7 * (ROLLOVER_WEEK - 1) ? year - 1 : year;
+}
+
+export interface YearShape {
+  activeDays: number;
+  bestDay: PeakDay | null;
+  currentStreak: number;
+}
+
+export function yearShape(grid: Grid, today: string): YearShape {
+  // Flattening is chronological because `buildGrid` emits whole weeks in order.
+  const days = grid.flat().filter((cell) => cell.state === "day");
+
+  // A silent today is a day in progress, not a broken streak: without this
+  // every streak on the board reads zero from midnight until its first commit.
+  const last = days.at(-1);
+  const settled = last?.date === today && last.count === 0 ? days.slice(0, -1) : days;
+
+  let activeDays = 0;
+  let streak = 0;
+  for (const day of settled) {
+    if (day.count > 0) {
+      activeDays += 1;
+      streak += 1;
+    } else {
+      streak = 0;
+    }
+  }
+
+  return { activeDays, bestDay: peakDay(grid), currentStreak: streak };
 }
 
 export interface RankGap {

@@ -13,6 +13,9 @@ export function hrefForYear(year: number, thisYear: number): string {
   return year === thisYear ? "/" : `/${year}`;
 }
 
+/** The canonical origin, absolute because README snippets are read elsewhere. */
+export const SITE = "https://leaderboard.ynga.tech";
+
 /** Fixed inputs the shell needs on every page. */
 export interface SiteChrome {
   /** The year in progress, which decides `/` and the nav's right edge. */
