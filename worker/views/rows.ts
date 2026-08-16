@@ -201,14 +201,25 @@ function userRowBody(options: UserRowOptions, withChevron: boolean): Html {
       ></svg>`
     : null;
 
-  // Deliberately not gold: on this board gold means leader, and a cake day is
-  // not an achievement. It borrows the micro-label idiom instead of a colour.
+  /**
+   * The years are the fact worth reading, so the badge is built the way every
+   * other fact on this board is: a tabular figure against a micro-label.
+   *
+   * Ember is the warm end of the heat ramp that is not gold, which this board
+   * reserves for the leader — near enough a candle to suit the day, far enough
+   * from the award. It carries the one glow on the page, for the one row that
+   * has a birthday. On a phone the unit drops to screen readers and the pill
+   * keeps its place beside the login.
+   */
   const cakeDay = options.cakeDay
     ? html`<span
-        class="shrink-0 rounded-full border border-line bg-heat-0 px-[0.45rem] py-[0.1rem] text-[0.58rem] tracking-[0.14em] text-dim uppercase"
-        >cake day<span class="sr-only">
-          — ${formatNumber(options.cakeDay)} years on GitHub today</span
-        ></span
+        class="inline-block shrink-0 rounded-full border border-heat-3/40 bg-heat-0 px-[0.5rem] py-[0.15rem] text-[0.58rem] tracking-[0.14em] text-dimmer uppercase shadow-[0_0_14px_-4px_rgba(226,96,58,0.55)]"
+        >cake day
+        <span class="font-medium tabular-nums text-heat-3"
+          >${formatNumber(options.cakeDay)}</span
+        >
+        <span class="max-phone:sr-only">years</span
+        ><span class="sr-only"> on GitHub today</span></span
       >`
     : null;
 

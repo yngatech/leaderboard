@@ -314,7 +314,10 @@ test("the cake day badge belongs to the day, and only to the live board", () => 
 
   const onTheDay = yearPageHtml({ ...cakeDay, year: 2026, today: "2026-03-12" });
   assert.match(onTheDay, /alice<\/a\s*>[\s\S]{0,400}?cake day/);
-  assert.ok(onTheDay.includes("10 years on GitHub today"));
+  // Tags are dropped without standing in for a space, because a screen reader
+  // concatenates inline text: the spacing has to be real text, not a flex gap.
+  const spoken = onTheDay.replace(/<[^>]*>/g, "").replace(/\s+/g, " ");
+  assert.ok(spoken.includes("cake day 10 years on GitHub today"));
   // Only the account whose anniversary it is wears one.
   assert.equal(onTheDay.match(/cake day/g)?.length, 1);
 
