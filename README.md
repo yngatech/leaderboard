@@ -100,6 +100,8 @@ preview Worker and removes the notification-only Durable Object, migration,
 cron and production route from the generated deployment config. The production
 build retains all four. The preview Worker has its own read-only GitHub token,
 but no Discord webhook; it cannot run notifications or change their state.
+Wrangler derives a stable preview alias from `WORKERS_CI_BRANCH`, so every new
+commit updates the same branch URL while retaining an immutable version URL.
 
 Preview URLs are public unless Cloudflare Access is enabled, so non-production
 branch builds must remain limited to trusted contributors. A normal
