@@ -132,6 +132,13 @@ function formatUpdatedAt(iso: string): string {
   return `${timeFmt.format(new Date(iso))} UTC`;
 }
 
+const FOOTER_LINK =
+  "text-dim underline decoration-current/40 underline-offset-[3px] transition-colors hover:text-accent";
+
+/** The reference page, not the troubleshooting page: only this one lists what counts. */
+const COUNTING_RULES_URL =
+  "https://docs.github.com/en/account-and-profile/reference/profile-contributions-reference";
+
 function footerHtml(options: PageOptions): Html {
   const { buildSha } = options.chrome;
   const cadence = options.liveCopy
@@ -142,7 +149,7 @@ function footerHtml(options: PageOptions): Html {
     ? (() => {
         const stamp = formatUpdatedAt(options.generatedAt);
         return html` <a
-          class="text-dim underline decoration-current/40 underline-offset-[3px] transition-colors hover:text-accent"
+          class="${FOOTER_LINK}"
           href="https://github.com/yngatech/leaderboard/commit/${buildSha}"
           target="_blank"
           rel="noreferrer noopener"
@@ -156,7 +163,16 @@ function footerHtml(options: PageOptions): Html {
   return html`<footer
     class="mt-[clamp(2.5rem,6vw,4rem)] flex flex-wrap justify-between gap-x-6 gap-y-2 border-t border-line-soft pt-[1.1rem] text-[0.68rem] leading-[1.6] text-dimmer"
   >
-    <p>Pulled from the GitHub GraphQL API. ${cadence}${updated}</p>
+    <p>
+      Pulled from the GitHub GraphQL API. ${cadence}${updated}
+      <a
+        class="${FOOTER_LINK}"
+        href="${COUNTING_RULES_URL}"
+        target="_blank"
+        rel="noreferrer noopener"
+        >What counts as a contribution.</a
+      >
+    </p>
     <p class="tracking-[0.16em] uppercase">leaderboard.ynga.tech</p>
   </footer>`;
 }
