@@ -170,7 +170,7 @@ function footerHtml(options: PageOptions): Html {
         href="${COUNTING_RULES_URL}"
         target="_blank"
         rel="noreferrer noopener"
-        >What counts as a contribution.</a
+        >What counts as a contribution?</a
       >
     </p>
     <p class="tracking-[0.16em] uppercase">leaderboard.ynga.tech</p>
