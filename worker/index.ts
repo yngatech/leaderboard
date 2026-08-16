@@ -40,6 +40,7 @@ export interface Env {
   GITHUB_TOKEN: string;
   /** Optional locally; production cron checks are enabled when this secret exists. */
   DISCORD_WEBHOOK_URL?: string;
+  /** Omitted from preview versions, which cannot receive scheduled events. */
   LEADER_STATE: DurableObjectNamespace<LeaderState>;
   ASSETS: Fetcher;
 }

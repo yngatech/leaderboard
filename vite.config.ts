@@ -5,7 +5,7 @@ import { env } from "node:process";
 import { defineConfig } from "vite";
 
 function buildCommitSha(): string {
-  const deployedSha = env.GITHUB_SHA ?? env.CF_PAGES_COMMIT_SHA;
+  const deployedSha = env.GITHUB_SHA ?? env.WORKERS_CI_COMMIT_SHA ?? env.CF_PAGES_COMMIT_SHA;
   if (deployedSha) return deployedSha;
 
   try {
@@ -15,10 +15,34 @@ function buildCommitSha(): string {
   }
 }
 
+function isWorkersPreviewBuild(): boolean {
+  return (
+    env.WORKERS_CI === "1" &&
+    env.WORKERS_CI_BRANCH !== undefined &&
+    env.WORKERS_CI_BRANCH !== "main"
+  );
+}
+
 export default defineConfig(({ command }) => ({
   // The Worker runs inside the dev server in workerd, so every route — the
   // rendered pages included — is handled for real rather than proxied.
-  plugins: [tailwindcss(), cloudflare()],
+  plugins: [
+    tailwindcss(),
+    cloudflare({
+      config: (workerConfig) => {
+        if (!isWorkersPreviewBuild()) return;
+
+        // Cloudflare cannot create preview URLs for versions with Durable
+        // Object bindings. Notification state is only used by the scheduled
+        // handler, so PR previews can safely leave both out.
+        const previewConfig: Partial<typeof workerConfig> = workerConfig;
+        delete previewConfig.durable_objects;
+        delete previewConfig.migrations;
+        delete previewConfig.triggers;
+        delete previewConfig.routes;
+      },
+    }),
+  ],
   define: {
     __BUILD_COMMIT_SHA__: JSON.stringify(buildCommitSha()),
     __DEV__: JSON.stringify(command === "serve"),

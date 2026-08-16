@@ -87,6 +87,24 @@ npm run deploy       # typecheck, build, wrangler deploy
 `wrangler.json` to `dist/leaderboard`; `wrangler deploy` picks that up on its
 own, so `wrangler.jsonc` at the root stays the file you edit.
 
+## Pull request previews
+
+Cloudflare Workers Builds uploads each non-`main` branch as a preview version
+and adds its `workers.dev` URL to the pull request. The preview runs the branch's
+real Worker and static assets, including the rendered pages and API routes.
+
+Cloudflare cannot generate preview URLs for Worker versions with Durable Object
+bindings. During a Workers Builds preview, `vite.config.ts` therefore removes
+the notification-only Durable Object, migration, cron and production route from
+the generated deployment config. The production build retains all four. A PR
+preview reads live GitHub contribution data using the Worker's existing secret,
+but it cannot run notifications or change their state.
+
+Preview URLs are public unless Cloudflare Access is enabled, and versions on
+trusted repository branches inherit the Worker's runtime secrets. Do not promote
+a preview version to production: it intentionally has no notification state. A
+normal `npm run deploy` always rebuilds from the complete production config.
+
 The Worker needs a GitHub token with `read:user` to reach the contributions API.
 Locally that goes in `.dev.vars` as `GITHUB_TOKEN=...`; in production it is a
 Worker secret (`wrangler secret put GITHUB_TOKEN`). It is never sent to the
