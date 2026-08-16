@@ -103,6 +103,11 @@ Durable Object, migration, cron and production route from the generated
 deployment config. The production Worker build retains all four. The preview
 Worker has its own read-only GitHub token, but no Discord webhook; it cannot run
 notifications or change their state.
+
+The root `wrangler.jsonc` intentionally remains named `leaderboard`. The Vite
+build writes the matching `leaderboard-preview` name into its generated Wrangler
+configuration before the preview connection uploads it.
+
 Wrangler derives a stable preview alias from `WORKERS_CI_BRANCH`, so every new
 commit updates the same branch URL while retaining an immutable version URL.
 
