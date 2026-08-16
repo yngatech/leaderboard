@@ -300,7 +300,6 @@ export interface YearShape {
 }
 
 export function yearShape(grid: Grid, today: string): YearShape {
-  // Weeks and the days inside them are both chronological.
   const days = grid.flat().filter((cell) => cell.state === "day");
 
   // A silent today is a day in progress, not a broken streak: without this

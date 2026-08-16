@@ -923,7 +923,6 @@ async function handleUserCard(login: string, env: Env, ctx: ExecutionContext): P
   if (!boardResult.response.ok) return cardFromFailure(boardResult.response);
   if (!allResult.response.ok) return cardFromFailure(allResult.response);
 
-  // The feed the grid came from, which is what the footer dates.
   const generatedAt =
     boardResult.response.headers.get("X-Board-Generated") ?? new Date().toISOString();
   const board = (await boardResult.response.json()) as Board;

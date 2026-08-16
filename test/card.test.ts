@@ -89,7 +89,6 @@ test("never mentions another account", () => {
 test("reads the year's own shape into the facts column", () => {
   const card = cardSvg(makeCard());
 
-  // The last three run up to today, so the streak takes the best day's line.
   assert.match(card, /4 active days/);
   assert.match(card, /3-day streak/);
   assert.ok(!card.includes("best day"));
@@ -184,8 +183,6 @@ test("measures full-width names by the room they take, not their length", () => 
   const card = cardSvg(makeCard({ user: { login: "alice", name: wide, avatar: null } }));
 
   assertWellFormed(card);
-  // Two cells a glyph, so it clamps where a length count would have let it run
-  // roughly twice the width of the card.
   assert.match(card, /class="name"[^>]*>[^<]*…</);
 });
 

@@ -259,14 +259,11 @@ test("counts a silent today as a day in progress, not a broken streak", () => {
     { date: "2026-01-03", count: 0, level: 0 as const },
   ];
 
-  // Nobody has committed yet today, which is not the same as stopping.
   assert.equal(yearShape(userGrid([{ days }], 2026, "2026-01-03"), "2026-01-03").currentStreak, 2);
-  // A day later the silence is settled and the streak really has ended.
   assert.equal(yearShape(userGrid([{ days }], 2026, "2026-01-04"), "2026-01-04").currentStreak, 0);
 });
 
 test("runs a streak across a week boundary and the December straddle", () => {
-  // 2026 opens on a Thursday, so the first column carries three days of 2025.
   const grid = userGrid(
     [
       {
@@ -285,7 +282,6 @@ test("runs a streak across a week boundary and the December straddle", () => {
   );
 
   const shape = yearShape(grid, "2026-01-05");
-  // The five days of 2026 only, in order, across two week columns.
   assert.equal(shape.currentStreak, 5);
   assert.equal(shape.activeDays, 5);
   assert.deepEqual(shape.bestDay, { date: "2026-01-01", count: 2 });
@@ -300,22 +296,18 @@ test("reports a year with no contributions", () => {
 });
 
 test("holds the finished year until the second Monday of January", () => {
-  // 1 January 2027 is a Friday, so the Mondays are the 4th and the 11th.
   assert.equal(featuredYear("2026-12-31"), 2026);
   assert.equal(featuredYear("2027-01-01"), 2026);
   assert.equal(featuredYear("2027-01-10"), 2026);
   assert.equal(featuredYear("2027-01-11"), 2027);
   assert.equal(featuredYear("2027-02-01"), 2027);
 
-  // 2024 opens on a Monday, where a first-Monday rule would grant no grace.
   assert.equal(featuredYear("2024-01-07"), 2023);
   assert.equal(featuredYear("2024-01-08"), 2024);
 
-  // 2023 opens on a Sunday: the Mondays are the 2nd and the 9th.
   assert.equal(featuredYear("2023-01-08"), 2022);
   assert.equal(featuredYear("2023-01-09"), 2023);
 
-  // 2025 opens on a Wednesday, the longest grace the rule can give.
   assert.equal(featuredYear("2025-01-12"), 2024);
   assert.equal(featuredYear("2025-01-13"), 2025);
 });
