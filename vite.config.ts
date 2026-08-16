@@ -36,6 +36,8 @@ export default defineConfig(({ command }) => ({
         // Object bindings. Notification state is only used by the scheduled
         // handler, so PR previews can safely leave both out.
         const previewConfig: Partial<typeof workerConfig> = workerConfig;
+        previewConfig.name = "leaderboard-preview";
+        previewConfig.workers_dev = false;
         delete previewConfig.durable_objects;
         delete previewConfig.migrations;
         delete previewConfig.triggers;
