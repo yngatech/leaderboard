@@ -311,22 +311,17 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
       }
 
       const endX = rail.ruleX - 2;
-      const drop = wanted.reduce((most, slot, i) => Math.max(most, Math.abs(ys[i] - slot.anchorY)), 0);
-      const run = wanted.reduce(
-        (least, slot) => Math.min(least, endX - (slot.endX + dotRadius + 4)),
-        Infinity,
-      );
-      // One bend length shared by every connector, so displaced labels' lines
-      // stay parallel instead of tangled.
-      const bend = Math.min(Math.max(12, Math.min(drop * 0.9, 44)), Math.max(4, run));
-      const bendX = endX - bend;
-      const control = bend * 0.45;
       const nameRoom = Math.floor(rail.textRoom / NAME_ADVANCE);
       const at = (value: number) => value.toFixed(1);
 
       railLabels = wanted.map((slot, i) => {
         const y = ys[i];
         const startX = slot.endX + dotRadius + 4;
+        const run = Math.max(0, endX - startX);
+        // Leave just enough straight line to clear the endpoint, then fan out
+        // across the available space instead of bunching every bend at the rail.
+        const bendX = startX + Math.min(run, 12, Math.max(4, run * 0.12));
+        const control = Math.max(0, endX - bendX) * 0.28;
         return {
           index: slot.entry.index,
           colour: slot.entry.colour,
