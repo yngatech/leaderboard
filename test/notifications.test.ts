@@ -2,15 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Board, BoardUser } from "../shared/types.ts";
 import {
+  deliverCakeDays,
   deliverDailyRecords,
   deliverMilestones,
   deliverStandings,
   ordinal,
+  planCakeDays,
   planDailyRecords,
   planMilestones,
   planStandings,
   SerialTaskQueue,
   shouldUpdateNotifications,
+  type CakeDayEvent,
+  type CakeDayState,
   type DailyRecordNotification,
   type DailyRecordState,
   type MilestoneNotification,
@@ -1115,4 +1119,119 @@ test("repeats at most one alert when a successful post cannot be checkpointed", 
   await deliverStandings(planStandings(2026, board, stored), notify, save);
   assert.deepEqual(delivered, ["overtake:2:carol", "overtake:2:carol"]);
   assert.deepEqual(stored, standingsState([["alice", 100], ["carol", 95], ["bob", 90]]));
+});
+
+/* ---------- cake days ---------- */
+
+function cakeUser(login: string, createdAt: string | undefined): BoardUser {
+  return { ...totalUser(login, 100), createdAt };
+}
+
+const CAKE_BOARD: Board = [
+  cakeUser("alice", "2016-03-12T09:33:21Z"),
+  cakeUser("bob", "2019-07-04T00:00:00Z"),
+];
+
+test("announces only the accounts whose anniversary is today", () => {
+  const plan = planCakeDays("2026-03-12", CAKE_BOARD);
+  assert.deepEqual(plan.events.map((event) => [event.login, event.years]), [["alice", 10]]);
+  assert.deepEqual(plan.nextState, { announced: { alice: 2026 } });
+
+  assert.deepEqual(planCakeDays("2026-03-13", CAKE_BOARD).events, []);
+});
+
+test("a fresh Durable Object still announces a cake day landing on it", () => {
+  const plan = planCakeDays("2026-03-12", CAKE_BOARD, undefined);
+  assert.equal(plan.events.length, 1);
+});
+
+test("the half-hourly re-check does not repeat the day's announcement", async () => {
+  let stored: CakeDayState | undefined;
+  const delivered: string[] = [];
+  const notify = async (event: CakeDayEvent) => {
+    delivered.push(`${event.login}:${event.years}`);
+  };
+  const save = async (state: CakeDayState) => {
+    stored = structuredClone(state);
+  };
+
+  await deliverCakeDays(planCakeDays("2026-03-12", CAKE_BOARD, stored), notify, save);
+  await deliverCakeDays(planCakeDays("2026-03-12", CAKE_BOARD, stored), notify, save);
+  assert.deepEqual(delivered, ["alice:10"]);
+  assert.deepEqual(stored, { announced: { alice: 2026 } });
+});
+
+test("the stored year lets the next one through without a rollover step", () => {
+  const stored: CakeDayState = { announced: { alice: 2026 } };
+  assert.deepEqual(planCakeDays("2026-03-12", CAKE_BOARD, stored).events, []);
+  assert.deepEqual(
+    planCakeDays("2027-03-12", CAKE_BOARD, stored).events.map((event) => [event.login, event.years]),
+    [["alice", 11]],
+  );
+});
+
+test("an account joining the board after its anniversary is not announced late", () => {
+  const board: Board = [...CAKE_BOARD, cakeUser("carol", "2020-01-09T00:00:00Z")];
+  assert.deepEqual(planCakeDays("2026-03-12", board).events.map((event) => event.login), ["alice"]);
+});
+
+test("an account with no creation date is skipped rather than guessed at", () => {
+  const board: Board = [cakeUser("dave", undefined)];
+  assert.deepEqual(planCakeDays("2026-03-12", board).events, []);
+});
+
+test("a failed post is retried on the next check and never doubled", async () => {
+  let stored: CakeDayState | undefined;
+  const delivered: string[] = [];
+  let failNotify = true;
+  const notify = async (event: CakeDayEvent) => {
+    if (failNotify) {
+      failNotify = false;
+      throw new Error("Discord unavailable");
+    }
+    delivered.push(event.login);
+  };
+  const save = async (state: CakeDayState) => {
+    stored = structuredClone(state);
+  };
+
+  await assert.rejects(
+    deliverCakeDays(planCakeDays("2026-03-12", CAKE_BOARD, stored), notify, save),
+    /Discord unavailable/,
+  );
+  assert.equal(stored, undefined);
+
+  await deliverCakeDays(planCakeDays("2026-03-12", CAKE_BOARD, stored), notify, save);
+  await deliverCakeDays(planCakeDays("2026-03-12", CAKE_BOARD, stored), notify, save);
+  assert.deepEqual(delivered, ["alice"]);
+});
+
+test("two cake days on one day checkpoint independently", async () => {
+  const board: Board = [
+    cakeUser("alice", "2016-03-12T09:33:21Z"),
+    cakeUser("bob", "2018-03-12T00:00:00Z"),
+  ];
+  let stored: CakeDayState | undefined;
+  const delivered: string[] = [];
+  let failSecond = true;
+  const notify = async (event: CakeDayEvent) => {
+    if (event.login === "bob" && failSecond) {
+      failSecond = false;
+      throw new Error("Discord unavailable");
+    }
+    delivered.push(event.login);
+  };
+  const save = async (state: CakeDayState) => {
+    stored = structuredClone(state);
+  };
+
+  await assert.rejects(
+    deliverCakeDays(planCakeDays("2026-03-12", board, stored), notify, save),
+    /Discord unavailable/,
+  );
+  assert.deepEqual(stored, { announced: { alice: 2026 } });
+
+  await deliverCakeDays(planCakeDays("2026-03-12", board, stored), notify, save);
+  assert.deepEqual(delivered, ["alice", "bob"]);
+  assert.deepEqual(stored, { announced: { alice: 2026, bob: 2026 } });
 });

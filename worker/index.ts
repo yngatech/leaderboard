@@ -1,6 +1,7 @@
 import type { AllTime, AllTimeUser, Board } from "../shared/types";
 import { DurableObject } from "cloudflare:workers";
 import { featuredYear, todayIso, userGrid, userProfile, yearShape } from "../shared/board";
+import { joinDay } from "../shared/cakeday";
 import { formatDayYear } from "../shared/format";
 import { nextMilestone, PERSONAL_MILESTONES } from "../shared/milestones";
 import { absentCardSvg, cardSvg } from "./views/card";
@@ -27,15 +28,19 @@ import monoFont from "./fonts/mono.woff2?inline";
 import enhanceUrl from "./enhance.js?url";
 import stylesUrl from "./styles.css?url";
 import {
+  deliverCakeDays,
   deliverDailyRecords,
   deliverMilestones,
   deliverStandings,
   ordinal,
+  planCakeDays,
   planDailyRecords,
   planMilestones,
   planStandings,
   type BoardMilestoneEvent,
   type BoardRecordEvent,
+  type CakeDayEvent,
+  type CakeDayState,
   type DailyRecordState,
   type MilestoneState,
   type PersonalMilestoneEvent,
@@ -1025,7 +1030,7 @@ async function refreshNotifications(env: Env): Promise<void> {
     console.warn("notifications skipped for incomplete board", { year, missing });
     return;
   }
-  await env.LEADER_STATE.getByName("leaderboard").update(year, board);
+  await env.LEADER_STATE.getByName("leaderboard").update(year, todayIso(), board);
 }
 
 interface DiscordEmbed {
@@ -1084,6 +1089,17 @@ function boardMilestoneEmbed(year: number, event: BoardMilestoneEvent): DiscordE
     url: `${SITE}/${year}`,
     description: `The board has passed **${count(event.threshold)} contributions** in ${year}.`,
     color: 0xf0b429,
+  };
+}
+
+function cakeDayEmbed(event: CakeDayEvent): DiscordEmbed {
+  const years = event.years === 1 ? "1 year" : `${event.years} years`;
+  return {
+    title: "Cake day",
+    url: `${SITE}/u/${encodeURIComponent(event.login)}`,
+    description: `[${event.login}](${event.url}) has been on GitHub for **${years}** today, since ${formatDayYear(joinDay(event.createdAt))}.`,
+    color: 0x58a6ff,
+    thumbnail: { url: event.avatarUrl },
   };
 }
 
@@ -1178,11 +1194,22 @@ export class LeaderState extends DurableObject<Env> {
     );
   }
 
-  async update(year: number, board: Board): Promise<void> {
+  private async updateCakeDays(today: string, board: Board): Promise<void> {
+    const previous = await this.ctx.storage.get<CakeDayState>("cake-days");
+    const plan = planCakeDays(today, board, previous);
+    await deliverCakeDays(
+      plan,
+      (event) => this.notify(cakeDayEmbed(event)),
+      (state) => this.ctx.storage.put("cake-days", state),
+    );
+  }
+
+  async update(year: number, today: string, board: Board): Promise<void> {
     return this.updates.run(async () => {
       await this.updateStandings(year, board);
       await this.updateDailyRecords(year, board);
       await this.updateMilestones(year, board);
+      await this.updateCakeDays(today, board);
     });
   }
 }

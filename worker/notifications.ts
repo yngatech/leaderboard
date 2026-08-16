@@ -1,3 +1,4 @@
+import { cakeDayYears } from "../shared/cakeday.ts";
 import { BOARD_MILESTONES, milestoneFor, PERSONAL_MILESTONES } from "../shared/milestones.ts";
 import type { Board, BoardUser } from "../shared/types";
 
@@ -395,6 +396,83 @@ export async function deliverMilestones(
     await notify({ type: "board-milestone", event: plan.boardMilestone });
     progress.boardMilestone = plan.boardMilestone.threshold;
     await save(milestoneStateSnapshot(progress));
+  }
+}
+
+export interface CakeDayEvent {
+  login: string;
+  url: string;
+  avatarUrl: string;
+  createdAt: string;
+  years: number;
+}
+
+/**
+ * Durable cake-day state: the calendar year each account was last announced
+ * in. Accounts that leave the board keep their entry, so one that comes back
+ * the same year cannot have its cake day posted twice.
+ */
+export interface CakeDayState {
+  announced: Record<string, number>;
+}
+
+export interface CakeDayPlan {
+  /** The calendar year to checkpoint against; the anniversaries are all in it. */
+  year: number;
+  stateBeforeEvents: CakeDayState;
+  events: CakeDayEvent[];
+  /** The state reached after every planned alert succeeds. */
+  nextState: CakeDayState;
+}
+
+function cakeDayStateSnapshot(state: CakeDayState): CakeDayState {
+  return { announced: { ...state.announced } };
+}
+
+/**
+ * Finds the accounts whose anniversary is `today`. Unlike the other planners
+ * this has no quiet baseline: state exists only to stop the half-hourly check
+ * repeating itself, so a cake day landing on a fresh Durable Object is still
+ * announced. The stored year is what makes the next one fire.
+ */
+export function planCakeDays(today: string, board: Board, previous?: CakeDayState): CakeDayPlan {
+  const year = Number(today.slice(0, 4));
+  const stateBeforeEvents = cakeDayStateSnapshot(previous ?? { announced: {} });
+
+  const events = board.flatMap<CakeDayEvent>((user) => {
+    if (!user.createdAt || stateBeforeEvents.announced[user.login] === year) return [];
+    const years = cakeDayYears(user.createdAt, today);
+    return years === null
+      ? []
+      : [{
+          login: user.login,
+          url: user.url,
+          avatarUrl: user.avatarUrl,
+          createdAt: user.createdAt,
+          years,
+        }];
+  });
+
+  const nextState = cakeDayStateSnapshot(stateBeforeEvents);
+  for (const event of events) nextState.announced[event.login] = year;
+
+  return { year, stateBeforeEvents, events, nextState };
+}
+
+/**
+ * Sends a cake-day plan and checkpoints each account as it succeeds. A day
+ * with nothing to announce writes nothing at all.
+ */
+export async function deliverCakeDays(
+  plan: CakeDayPlan,
+  notify: (event: CakeDayEvent) => Promise<void>,
+  save: (state: CakeDayState) => Promise<void>,
+): Promise<void> {
+  const progress = cakeDayStateSnapshot(plan.stateBeforeEvents);
+  for (const event of plan.events) {
+    await notify(event);
+    progress.announced[event.login] = plan.year;
+    await save(cakeDayStateSnapshot(progress));
   }
 }
 
