@@ -16,11 +16,16 @@ function buildCommitSha(): string {
 }
 
 function isWorkersPreviewBuild(): boolean {
-  return (
-    env.WORKERS_CI === "1" &&
-    env.WORKERS_CI_BRANCH !== undefined &&
-    env.WORKERS_CI_BRANCH !== "main"
-  );
+  if (env.WORKERS_CI !== "1") return false;
+
+  // A connected Workers Builds project pins uploads to its own Worker. Prefer
+  // that identity when present so the production and preview Git connections
+  // each generate configuration for the Worker they are allowed to update.
+  if (env.WRANGLER_CI_OVERRIDE_NAME !== undefined) {
+    return env.WRANGLER_CI_OVERRIDE_NAME === "leaderboard-preview";
+  }
+
+  return env.WORKERS_CI_BRANCH !== undefined && env.WORKERS_CI_BRANCH !== "main";
 }
 
 export default defineConfig(({ command }) => ({

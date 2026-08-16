@@ -89,17 +89,20 @@ own, so `wrangler.jsonc` at the root stays the file you edit.
 
 ## Pull request previews
 
-Cloudflare Workers Builds uploads each non-`main` branch to the dedicated
-`leaderboard-preview` Worker and adds its `workers.dev` URL to the pull request.
-The preview runs the branch's real Worker and static assets, including the
-rendered pages and API routes.
+The repository has separate Cloudflare Workers Builds connections for
+`leaderboard` and `leaderboard-preview`. Non-production branch builds are
+disabled on `leaderboard` and enabled on `leaderboard-preview`, which uploads
+each branch version and adds its `workers.dev` URL to the pull request. The
+preview runs the branch's real Worker and static assets, including the rendered
+pages and API routes.
 
 Cloudflare cannot generate preview URLs for a Worker that implements a Durable
-Object. During a Workers Builds preview, `vite.config.ts` therefore targets the
-preview Worker and removes the notification-only Durable Object, migration,
-cron and production route from the generated deployment config. The production
-build retains all four. The preview Worker has its own read-only GitHub token,
-but no Discord webhook; it cannot run notifications or change their state.
+Object. When Workers Builds identifies the connected Worker as
+`leaderboard-preview`, `vite.config.ts` therefore removes the notification-only
+Durable Object, migration, cron and production route from the generated
+deployment config. The production Worker build retains all four. The preview
+Worker has its own read-only GitHub token, but no Discord webhook; it cannot run
+notifications or change their state.
 Wrangler derives a stable preview alias from `WORKERS_CI_BRANCH`, so every new
 commit updates the same branch URL while retaining an immutable version URL.
 

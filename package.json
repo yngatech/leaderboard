@@ -12,7 +12,7 @@
     "test:all": "npm test && npm run test:e2e",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p worker/tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit",
     "deploy": "npm run build && wrangler deploy",
-    "deploy:preview": "WRANGLER_CI_OVERRIDE_NAME=leaderboard-preview WRANGLER_CI_GENERATE_PREVIEW_ALIAS=true wrangler versions upload"
+    "deploy:preview": "WRANGLER_CI_GENERATE_PREVIEW_ALIAS=true wrangler versions upload"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.51.1",
