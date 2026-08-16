@@ -67,7 +67,7 @@ const NAME_ADVANCE = 11 * 0.62;
    connector ties each label back to the end of its line.
 --------------------------------------------------------------------------- */
 
-const LABEL_COUNT = 3;
+const LABEL_COUNT = 5;
 const RAIL_MIN_WIDTH = 116;
 const RAIL_MAX_WIDTH = 188;
 /** Clear space between the plot edge and the labels, where connectors bend. */
@@ -184,7 +184,7 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
   const { series, year, today } = options;
 
   /**
-   * The accounts worth naming outright: the current top three by total, with
+   * The accounts worth naming outright: the current top five by total, with
    * the board's own order breaking a tie so the choice never flickers. A line
    * with nothing drawn isn't a candidate — there is no line end to label.
    */
@@ -371,7 +371,7 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
       : `${descriptionBase} ${
           namedCount === 1
             ? "The leading account is named beside the end of its line, with its current total."
-            : `The top ${namedCount === 2 ? "two" : "three"} accounts are named beside the ends of their lines, with their current totals.`
+            : `The top ${namedCount} accounts are named beside the ends of their lines, with their current totals.`
         }${keyItems.length > 0 ? " Every remaining account's total is listed under the chart." : ""}`;
 
   const svg: Html[] = [];
@@ -534,7 +534,7 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
   }
 
   // The key, demoted to whatever the chart didn't already say. With the rail
-  // up it is the remainder — announced as such — and with three accounts or
+  // up it is the remainder — announced as such — and with five accounts or
   // fewer there is no remainder, so it goes away entirely.
   let key: Html | null = null;
   if (keyItems.length > 0) {
@@ -546,7 +546,7 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
         </h3>`
       : null;
     const listLabel = rail
-      ? "Contributions so far, accounts ranked fourth and below"
+      ? `Contributions so far, accounts ranked ${formatRank(LABEL_COUNT + 1)} and below`
       : "Contributions so far, by account";
     const items = keyItems
       .map(
