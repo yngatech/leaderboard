@@ -12,7 +12,7 @@ import {
   userGrid,
   userYearStrip,
 } from "../../shared/board.ts";
-import { joinDay, yearsOnGitHub } from "../../shared/cakeday.ts";
+import { cakeDayYears, joinDay, yearsOnGitHub } from "../../shared/cakeday.ts";
 import { formatDayShort, formatDayYear, formatNumber, formatOrdinal } from "../../shared/format.ts";
 import { html, type Html } from "../html.ts";
 import { cumulativeChartHtml } from "./chart.ts";
@@ -158,6 +158,7 @@ export function yearPageHtml(options: YearPageOptions): string {
         highestTotal: highestUserTotal,
         highestDailyTotal,
         goals: live ? userGoals(board, index) : null,
+        cakeDay: live ? cakeDayYears(user.createdAt, today) : null,
       }),
     );
 
@@ -479,11 +480,16 @@ export function userPageHtml(options: UserPageOptions): string {
     });
   }
   if (user.createdAt) {
-    const age = yearsOnGitHub(user.createdAt, today);
+    // On the day itself the anniversary is the more interesting half, so it
+    // takes the same slot the age normally holds.
+    const cakeDay = cakeDayYears(user.createdAt, today);
+    const age = cakeDay ?? yearsOnGitHub(user.createdAt, today);
     const since =
       age > 0
         ? html` <span class="text-dimmer"
-            >· ${formatNumber(age)} ${age === 1 ? "year" : "years"} ago</span
+            >· ${formatNumber(age)} ${age === 1 ? "year" : "years"}${cakeDay
+              ? " ago today"
+              : " ago"}</span
           >`
         : null;
     careerFields.push({

@@ -31,7 +31,7 @@ the chart hover, and every page works without it.
   `card.ts`, which renders the standalone SVG served at `/u/{login}.svg`.
 - `worker/enhance.js` — the progressive-enhancement script; append `?nojs=1` to any
   page to see it without one.
-- `shared/` — types and the grid/ranking/formatting/date math, shared with the tests.
+- `shared/` — types and the grid/ranking/formatting/cake-day math, shared with the tests.
 
 Every route reads through one per-year JSON cache entry, so the pages, the API
 and the markdown views never disagree about the numbers.
@@ -67,6 +67,14 @@ its own schedule, so a card in a README lags the site by hours whatever
 `Cache-Control` we send. And in the first days of January a card still shows
 the year that just finished — it switches on the second Monday, rather than
 showing an empty grid and a zero for a fortnight.
+
+## Cake day
+
+An account's cake day is the anniversary, in UTC, of the day GitHub created it.
+A person with more than one account celebrates the oldest of them, and a
+29 February account celebrates on 1 March in a common year. The year board
+marks the day with a badge on the row; an archived year never does, because it
+is a record of that year rather than of the day it is read on.
 
 ## Discord notifications
 

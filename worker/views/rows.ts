@@ -158,6 +158,12 @@ export interface UserRowOptions {
    * chevron, no disclosure, no band.
    */
   goals?: UserGoals | null;
+  /**
+   * Years on GitHub, when today is this account's anniversary. Like the goals,
+   * it belongs only to the year in progress — an archived board is a record of
+   * that year, not of the day it happens to be read on.
+   */
+  cakeDay?: number | null;
 }
 
 /** The identity, plot and score cells shared by open and plain rows. */
@@ -195,6 +201,17 @@ function userRowBody(options: UserRowOptions, withChevron: boolean): Html {
       ></svg>`
     : null;
 
+  // Deliberately not gold: on this board gold means leader, and a cake day is
+  // not an achievement. It borrows the micro-label idiom instead of a colour.
+  const cakeDay = options.cakeDay
+    ? html`<span
+        class="shrink-0 rounded-full border border-line bg-heat-0 px-[0.45rem] py-[0.1rem] text-[0.58rem] tracking-[0.14em] text-dim uppercase"
+        >cake day<span class="sr-only">
+          — ${formatNumber(options.cakeDay)} years on GitHub today</span
+        ></span
+      >`
+    : null;
+
   const score = peak
     ? html`<span
         class="mt-[0.4rem] text-[0.68rem] ${leadsPeak ? "text-accent" : "text-dim"}"
@@ -227,7 +244,7 @@ function userRowBody(options: UserRowOptions, withChevron: boolean): Html {
           class="relative font-display text-[1.08rem] font-semibold tracking-[-0.015em] text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[3px]"
           href="${profileHref}"
           >${user.login}</a
-        >
+        >${cakeDay}
       </div>
       <p class="mt-[0.15rem] text-[0.74rem] text-dim">${user.name ?? "—"}</p>
       <p class="mt-[0.4rem] flex flex-wrap gap-[0.3rem] text-[0.68rem] text-dimmer">
