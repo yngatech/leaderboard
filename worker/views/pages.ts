@@ -12,7 +12,8 @@ import {
   userGrid,
   userYearStrip,
 } from "../../shared/board.ts";
-import { formatDayShort, formatNumber, formatOrdinal } from "../../shared/format.ts";
+import { joinDay, yearsOnGitHub } from "../../shared/cakeday.ts";
+import { formatDayShort, formatDayYear, formatNumber, formatOrdinal } from "../../shared/format.ts";
 import { html, type Html } from "../html.ts";
 import { cumulativeChartHtml } from "./chart.ts";
 import { MIN_PAGE_YEAR, hrefForYear, pageHtml, type SiteChrome } from "./layout.ts";
@@ -427,6 +428,21 @@ export function userPageHtml(options: UserPageOptions): string {
     careerFields.push({
       term: "standing",
       body: html`<p>${formatOrdinal(allRank)} on the all-time board</p>`,
+    });
+  }
+  if (user.createdAt) {
+    const age = yearsOnGitHub(user.createdAt, today);
+    const since =
+      age > 0
+        ? html` <span class="text-dimmer"
+            >· ${formatNumber(age)} ${age === 1 ? "year" : "years"} ago</span
+          >`
+        : null;
+    careerFields.push({
+      term: "joined github",
+      body: html`<p>
+        <strong class="${LEDGER_VALUE}">${formatDayYear(joinDay(user.createdAt))}</strong>${since}
+      </p>`,
     });
   }
 

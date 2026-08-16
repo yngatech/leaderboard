@@ -29,7 +29,7 @@ the chart hover, and every page works without it.
 - `worker/views/` — escaped Hono templates that render board data to HTML.
 - `worker/enhance.js` — the progressive-enhancement script; append `?nojs=1` to any
   page to see it without one.
-- `shared/` — types and the grid/ranking/formatting math, shared with the tests.
+- `shared/` — types and the grid/ranking/formatting/date math, shared with the tests.
 
 Every route reads through one per-year JSON cache entry, so the pages, the API
 and the markdown views never disagree about the numbers.

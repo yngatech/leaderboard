@@ -14,6 +14,13 @@ const shortDayFmt = new Intl.DateTimeFormat("en-GB", {
   timeZone: "UTC",
 });
 
+const dayYearFmt = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
 const monthFmt = new Intl.DateTimeFormat("en-GB", { month: "short", timeZone: "UTC" });
 
 export type FirstDayOfWeek = 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -50,6 +57,11 @@ export function formatDayLong(date: string): string {
 
 export function formatDayShort(date: string): string {
   return shortDayFmt.format(parseDay(date));
+}
+
+/** A day that needs its year, like a join date years out of the current one. */
+export function formatDayYear(date: string): string {
+  return dayYearFmt.format(parseDay(date));
 }
 
 export function formatMonth(date: string): string {
