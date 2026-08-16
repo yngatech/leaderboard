@@ -300,6 +300,7 @@ export interface YearShape {
 }
 
 export function yearShape(grid: Grid, today: string): YearShape {
+  // Flattening is chronological because `buildGrid` emits whole weeks in order.
   const days = grid.flat().filter((cell) => cell.state === "day");
 
   // A silent today is a day in progress, not a broken streak: without this
