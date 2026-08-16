@@ -84,6 +84,7 @@ test("falls back to GraphQL and combines accounts belonging to one person", asyn
             name: "Current profile",
             avatarUrl: "https://avatars.example/current",
             url: "https://github.com/current",
+            createdAt: "2020-05-01T10:00:00Z",
             followers: { totalCount: 2 },
             following: { totalCount: 1 },
           },
@@ -92,6 +93,7 @@ test("falls back to GraphQL and combines accounts belonging to one person", asyn
             name: "Old profile",
             avatarUrl: "https://avatars.example/old",
             url: "https://github.com/old",
+            createdAt: "2012-08-14T08:30:00Z",
             followers: { totalCount: 1 },
             following: { totalCount: 0 },
           },
@@ -113,6 +115,8 @@ test("falls back to GraphQL and combines accounts belonging to one person", asyn
     assert.deepEqual(missing, []);
     assert.equal(board[0].login, "current");
     assert.equal(board[0].name, "Current profile");
+    // The person's cake day belongs to their oldest account, not the primary one.
+    assert.equal(board[0].createdAt, "2012-08-14T08:30:00Z");
     assert.equal(board[0].totalContributions, 6);
     assert.deepEqual(board[0].weeks, [
       {

@@ -65,6 +65,7 @@ interface RawUser {
   name: string | null;
   avatarUrl: string;
   url: string;
+  createdAt: string;
   followers: { totalCount: number };
   following: { totalCount: number };
 }
@@ -103,6 +104,7 @@ fragment Card on User {
   name
   avatarUrl(size: 160)
   url
+  createdAt
   followers { totalCount }
   following { totalCount }
 }`;
@@ -339,6 +341,7 @@ export async function fetchBoard(
       name: raw.name,
       avatarUrl: raw.avatarUrl,
       url: raw.url,
+      createdAt: raw.createdAt,
       followers: raw.followers.totalCount,
       following: raw.following.totalCount,
       totalContributions: htmlCalendar?.totalContributions ?? fallbackCalendar!.totalContributions,
@@ -360,6 +363,7 @@ export async function fetchBoard(
       name: primary.name,
       avatarUrl: primary.avatarUrl,
       url: primary.url,
+      createdAt: earliestCreatedAt(found),
       followers: primary.followers,
       following: primary.following,
       totalContributions: found.reduce((sum, account) => sum + account.totalContributions, 0),
@@ -368,6 +372,12 @@ export async function fetchBoard(
   });
   board.sort((a, b) => b.totalContributions - a.totalContributions || a.login.localeCompare(b.login));
   return { board, missing };
+}
+
+/** A person's cake day belongs to their oldest account, not their primary one. */
+function earliestCreatedAt(users: readonly BoardUser[]): string | undefined {
+  const dates = users.flatMap((user) => (user.createdAt ? [user.createdAt] : []));
+  return dates.length > 0 ? dates.reduce((a, b) => (a < b ? a : b)) : undefined;
 }
 
 function mergedWeeks(users: readonly BoardUser[]): ContributionWeek[] {

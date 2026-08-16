@@ -26,6 +26,7 @@ function makeBoard(): Board {
       name: "Alice Example",
       avatarUrl: "https://avatars.example/alice",
       url: "https://github.com/alice",
+      createdAt: "2016-03-12T09:33:21Z",
       followers: 12,
       following: 3,
       totalContributions: 320,
@@ -43,6 +44,7 @@ function makeBoard(): Board {
       name: '<img src=x onerror="alert(1)">',
       avatarUrl: "https://avatars.example/bob",
       url: "https://github.com/bob",
+      createdAt: "2019-07-04T00:00:00Z",
       followers: 5,
       following: 8,
       totalContributions: 40,
@@ -62,6 +64,7 @@ function makeAllTime(): AllTime {
         name: "Alice Example",
         avatarUrl: "https://avatars.example/alice",
         url: "https://github.com/alice",
+        createdAt: "2016-03-12T09:33:21Z",
         followers: 12,
         following: 3,
         byYear: { "2024": 100, "2025": 400, "2026": 320 },
@@ -72,6 +75,7 @@ function makeAllTime(): AllTime {
         name: null,
         avatarUrl: "https://avatars.example/bob",
         url: "https://github.com/bob",
+        createdAt: null,
         followers: null,
         following: null,
         byYear: { "2025": 60, "2026": 40 },
@@ -303,6 +307,38 @@ test("a user missing from the live board falls back honestly", () => {
   assert.ok(!page.includes("on the 2026 board"));
   assert.ok(!page.includes("next milestone"));
   assert.ok(!page.includes("behind alice"));
+});
+
+test("the account page dates the account and ages it", () => {
+  const data = makeAllTime();
+  const page = (today: string) =>
+    userPageHtml({
+      chrome,
+      user: data.users[0],
+      board: makeBoard(),
+      allUsers: data.users,
+      years: data.years,
+      year: 2026,
+      today,
+      generatedAt: GENERATED,
+    });
+
+  assert.match(page("2026-08-10"), />12 Mar 2016<\/strong>[\s\S]{0,120}?· 10 years ago<\/span/);
+  // The day before the anniversary is still the previous year.
+  assert.match(page("2026-03-11"), /· 9 years ago<\/span/);
+
+  // An account the archive alone knows about has no date to show.
+  const archiveOnly = userPageHtml({
+    chrome,
+    user: data.users[1],
+    board: makeBoard(),
+    allUsers: data.users,
+    years: data.years,
+    year: 2026,
+    today: "2026-08-10",
+    generatedAt: GENERATED,
+  });
+  assert.ok(!archiveOnly.includes("joined github"));
 });
 
 test("not-found and error pages stand alone", () => {

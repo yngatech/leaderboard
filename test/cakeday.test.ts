@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { joinDay, yearsOnGitHub } from "../shared/cakeday.ts";
+
+const CREATED = "2016-03-12T09:33:21Z";
+
+test("age counts whole years and turns over on the anniversary", () => {
+  assert.equal(yearsOnGitHub(CREATED, "2026-03-11"), 9);
+  assert.equal(yearsOnGitHub(CREATED, "2026-03-12"), 10);
+  assert.equal(yearsOnGitHub(CREATED, "2026-12-31"), 10);
+  assert.equal(yearsOnGitHub(CREATED, "2027-01-01"), 10);
+});
+
+test("an account is nought years old on the day it is created", () => {
+  assert.equal(yearsOnGitHub(CREATED, "2016-03-12"), 0);
+});
+
+test("a 29 February account ages on 1 March in a common year", () => {
+  const leapling = "2016-02-29T12:00:00Z";
+  assert.equal(yearsOnGitHub(leapling, "2025-02-28"), 8);
+  assert.equal(yearsOnGitHub(leapling, "2025-03-01"), 9);
+});
+
+test("a missing or unparseable creation date never throws", () => {
+  assert.equal(yearsOnGitHub(undefined, "2026-03-12"), 0);
+  assert.equal(yearsOnGitHub("not a date", "2026-03-12"), 0);
+});
+
+test("the join day is the UTC calendar day of the timestamp", () => {
+  assert.equal(joinDay(CREATED), "2016-03-12");
+});

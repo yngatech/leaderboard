@@ -1,6 +1,7 @@
 import type { AllTime, AllTimeUser, Board } from "../shared/types";
 import { DurableObject } from "cloudflare:workers";
 import { todayIso, userProfile } from "../shared/board";
+import { formatDayYear } from "../shared/format";
 import { apiCatalog } from "./api-catalog";
 import {
   archiveCachePrefix,
@@ -53,7 +54,7 @@ export interface Env {
 
 /** Synthetic key prefixes — edge cache entries are not tied to the public URL. */
 const JSON_CACHE_PREFIX = buildCachePrefix(
-  "https://ynga-git-board.internal/board/v3/",
+  "https://ynga-git-board.internal/board/v4/",
   __IS_PREVIEW_BUILD__,
   __BUILD_COMMIT_SHA__,
 );
@@ -294,6 +295,7 @@ interface AllTimeRow {
   avatarUrl: string;
   followers: number | null;
   following: number | null;
+  createdAt: string | null;
   byYear: Map<number, number>;
   total: number;
 }
@@ -438,6 +440,7 @@ async function allTimeData(
         avatarUrl: `https://github.com/${login}.png`,
         followers: null,
         following: null,
+        createdAt: null,
         byYear: new Map(),
         total: 0,
       };
@@ -461,6 +464,7 @@ async function allTimeData(
     row.avatarUrl = user.avatarUrl;
     row.followers = user.followers;
     row.following = user.following;
+    row.createdAt = user.createdAt ?? null;
     row.byYear.set(currentYear(), user.totalContributions);
     row.total += user.totalContributions;
   }
@@ -548,6 +552,7 @@ async function allTimeJson(
       url: row.url,
       followers: row.followers,
       following: row.following,
+      createdAt: row.createdAt,
       byYear: Object.fromEntries([...row.byYear].map(([year, total]) => [String(year), total])),
       total: row.total,
     })),
@@ -840,15 +845,6 @@ function count(value: number): string {
   return value.toLocaleString("en-GB");
 }
 
-function displayDate(date: string): string {
-  return new Date(`${date}T00:00:00Z`).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
-
 function personalBestEmbed(year: number, event: PersonalBestEvent): DiscordEmbed {
   const improvement =
     event.previousCount > 0
@@ -857,7 +853,7 @@ function personalBestEmbed(year: number, event: PersonalBestEvent): DiscordEmbed
   return {
     title: "New daily contributions PB",
     url: `${SITE}/${year}`,
-    description: `[${event.login}](${event.url}) recorded **${count(event.count)} contributions** on **${displayDate(event.date)}**${improvement}.`,
+    description: `[${event.login}](${event.url}) recorded **${count(event.count)} contributions** on **${formatDayYear(event.date)}**${improvement}.`,
     color: 0x58a6ff,
     thumbnail: { url: event.avatarUrl },
   };
@@ -871,7 +867,7 @@ function boardRecordEmbed(year: number, event: BoardRecordEvent): DiscordEmbed {
   return {
     title: "New peak daily contributions record",
     url: `${SITE}/${year}`,
-    description: `[${event.peak.login}](${event.peak.url}) set a new board record with **${count(event.peak.count)} contributions** on **${displayDate(event.peak.date)}**${previous}.`,
+    description: `[${event.peak.login}](${event.peak.url}) set a new board record with **${count(event.peak.count)} contributions** on **${formatDayYear(event.peak.date)}**${previous}.`,
     color: 0xf0b429,
     thumbnail: { url: event.peak.avatarUrl },
   };

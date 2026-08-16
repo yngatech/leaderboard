@@ -17,6 +17,12 @@ export interface BoardUser {
   url: string;
   followers: number;
   following: number;
+  /**
+   * When the account was created — the earliest of them, for a person with
+   * more than one. Optional because year boards cached before this shipped are
+   * still served from `caches.default` without it.
+   */
+  createdAt?: string;
   totalContributions: number;
   weeks: ContributionWeek[];
 }
@@ -31,6 +37,8 @@ export interface AllTimeUser {
   /** Null for accounts that only appear in the archive. */
   followers: number | null;
   following: number | null;
+  /** Null in the archive, and absent from aggregates cached before it shipped. */
+  createdAt?: string | null;
   /** Year (as a string key) to that year's total. */
   byYear: Record<string, number>;
   total: number;
