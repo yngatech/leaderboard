@@ -2,6 +2,12 @@ import type { AllTime, AllTimeUser, Board } from "../shared/types";
 import { DurableObject } from "cloudflare:workers";
 import { todayIso, userProfile } from "../shared/board";
 import { apiCatalog } from "./api-catalog";
+import {
+  archiveCachePrefix,
+  browserCacheControl,
+  buildCacheKey,
+  buildCachePrefix,
+} from "./cache-policy";
 import type { ArchiveTotals } from "./github";
 import { PEOPLE, currentYear, fetchArchiveTotals, fetchBoard, GitHubError, MIN_YEAR } from "./github";
 import type { SiteChrome } from "./views/layout";
@@ -40,19 +46,40 @@ export interface Env {
   GITHUB_TOKEN: string;
   /** Optional locally; production cron checks are enabled when this secret exists. */
   DISCORD_WEBHOOK_URL?: string;
+  /** Omitted from preview versions, which cannot receive scheduled events. */
   LEADER_STATE: DurableObjectNamespace<LeaderState>;
   ASSETS: Fetcher;
 }
 
 /** Synthetic key prefixes — edge cache entries are not tied to the public URL. */
-const JSON_CACHE_PREFIX = "https://ynga-git-board.internal/board/v3/";
-const MARKDOWN_CACHE_PREFIX = "https://ynga-git-board.internal/board-md/v2/";
+const JSON_CACHE_PREFIX = buildCachePrefix(
+  "https://ynga-git-board.internal/board/v3/",
+  __IS_PREVIEW_BUILD__,
+  __BUILD_COMMIT_SHA__,
+);
+const MARKDOWN_CACHE_PREFIX = buildCachePrefix(
+  "https://ynga-git-board.internal/board-md/v2/",
+  __IS_PREVIEW_BUILD__,
+  __BUILD_COMMIT_SHA__,
+);
 /** Bumped for all-time totals sourced from public contribution fragments. */
-const ALL_MARKDOWN_CACHE_KEY = "https://ynga-git-board.internal/board-md/v5/all";
+const ALL_MARKDOWN_CACHE_KEY = buildCacheKey(
+  "https://ynga-git-board.internal/board-md/v5/all",
+  __IS_PREVIEW_BUILD__,
+  __BUILD_COMMIT_SHA__,
+);
 /** Rendered all-time JSON for the SPA. */
-const ALL_JSON_CACHE_KEY = "https://ynga-git-board.internal/board-all/v4";
+const ALL_JSON_CACHE_KEY = buildCacheKey(
+  "https://ynga-git-board.internal/board-all/v4",
+  __IS_PREVIEW_BUILD__,
+  __BUILD_COMMIT_SHA__,
+);
 /** Per-person totals for every finished year, in one entry. */
-const ARCHIVE_CACHE_PREFIX = "https://ynga-git-board.internal/board-md-src/archive/v3/";
+const ARCHIVE_CACHE_PREFIX = archiveCachePrefix(
+  "https://ynga-git-board.internal/board-md-src/archive/v3/",
+  __IS_PREVIEW_BUILD__,
+  PEOPLE,
+);
 /**
  * Rendered pages. The current year sits inside every key because an archived
  * page's nav and footer are computed against it: on 1 January the keys roll
@@ -125,7 +152,10 @@ function handleApiCatalog(request: Request): Response {
   return new Response(request.method === "HEAD" ? null : JSON.stringify(body), {
     headers: {
       "Content-Type": `application/linkset+json; charset=utf-8; profile="${API_CATALOG_PROFILE}"`,
-      "Cache-Control": `public, max-age=${BROWSER_ARCHIVE_TTL_SECONDS}`,
+      "Cache-Control": __IS_PREVIEW_BUILD__
+        ? "no-store"
+        : `public, max-age=${BROWSER_ARCHIVE_TTL_SECONDS}`,
+      "X-Board-Build": __BUILD_COMMIT_SHA__,
       Link: catalogLink(),
     },
   });
@@ -770,6 +800,7 @@ function withBrowserHeaders(
   year: number | null = null,
 ): Response {
   const headers = new Headers(response.headers);
+  headers.set("X-Board-Build", __BUILD_COMMIT_SHA__);
   if (__DEV__) {
     headers.set("Cache-Control", "no-store");
     headers.set("X-Board-Cache", "BYPASS");
@@ -779,7 +810,7 @@ function withBrowserHeaders(
   const archived = year !== null && year !== currentYear();
   const maxAge = archived ? BROWSER_ARCHIVE_TTL_SECONDS : BROWSER_TTL_SECONDS;
   const staleFor = archived ? ARCHIVE_TTL_SECONDS : LIVE_TTL_SECONDS;
-  headers.set("Cache-Control", `public, max-age=${maxAge}, stale-while-revalidate=${staleFor}`);
+  headers.set("Cache-Control", browserCacheControl(__IS_PREVIEW_BUILD__, maxAge, staleFor));
   headers.set("X-Board-Cache", cacheState);
   return new Response(response.body, { status: response.status, headers });
 }

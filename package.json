@@ -11,7 +11,8 @@
     "test:e2e:ui": "node test/browser/run-ui.ts",
     "test:all": "npm test && npm run test:e2e",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p worker/tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy",
+    "deploy:preview": "WRANGLER_CI_GENERATE_PREVIEW_ALIAS=true wrangler versions upload"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.51.1",

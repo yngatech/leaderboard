@@ -87,6 +87,40 @@ npm run deploy       # typecheck, build, wrangler deploy
 `wrangler.json` to `dist/leaderboard`; `wrangler deploy` picks that up on its
 own, so `wrangler.jsonc` at the root stays the file you edit.
 
+## Pull request previews
+
+The repository has separate Cloudflare Workers Builds connections for
+`leaderboard` and `leaderboard-preview`. Non-production branch builds are
+disabled on `leaderboard` and enabled on `leaderboard-preview`, which uploads
+each branch version and adds its `workers.dev` URL to the pull request. The
+preview runs the branch's real Worker and static assets, including the rendered
+pages and API routes.
+
+Cloudflare cannot generate preview URLs for a Worker that implements a Durable
+Object. When Workers Builds identifies the connected Worker as
+`leaderboard-preview`, `vite.config.ts` therefore removes the notification-only
+Durable Object, migration, cron and production route from the generated
+deployment config. The production Worker build retains all four. The preview
+Worker has its own read-only GitHub token, but no Discord webhook; it cannot run
+notifications or change their state.
+
+The root `wrangler.jsonc` intentionally remains named `leaderboard`. The Vite
+build writes the matching `leaderboard-preview` name into its generated Wrangler
+configuration before the preview connection uploads it.
+
+Wrangler derives a stable preview alias from `WORKERS_CI_BRANCH`, so every new
+commit updates the same branch URL while retaining an immutable version URL.
+Preview responses use `Cache-Control: no-store`, and live plus derived edge
+caches are scoped to the commit SHA. The expensive finished-year source cache
+is shared across preview commits until the account roster or its cache schema
+changes. This keeps pushes deterministic without repeatedly rebuilding the
+full GitHub archive.
+
+Preview URLs are public unless Cloudflare Access is enabled, so non-production
+branch builds must remain limited to trusted contributors. A normal
+`npm run deploy` always targets `leaderboard` and rebuilds from the complete
+production config.
+
 The Worker needs a GitHub token with `read:user` to reach the contributions API.
 Locally that goes in `.dev.vars` as `GITHUB_TOKEN=...`; in production it is a
 Worker secret (`wrangler secret put GITHUB_TOKEN`). It is never sent to the
