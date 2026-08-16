@@ -53,6 +53,7 @@ export default defineConfig(({ command }) => ({
   define: {
     __BUILD_COMMIT_SHA__: JSON.stringify(buildCommitSha()),
     __DEV__: JSON.stringify(command === "serve"),
+    __IS_PREVIEW_BUILD__: JSON.stringify(isWorkersPreviewBuild()),
   },
   build: {
     emptyOutDir: true,

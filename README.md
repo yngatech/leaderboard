@@ -110,6 +110,11 @@ configuration before the preview connection uploads it.
 
 Wrangler derives a stable preview alias from `WORKERS_CI_BRANCH`, so every new
 commit updates the same branch URL while retaining an immutable version URL.
+Preview responses use `Cache-Control: no-store`, and live plus derived edge
+caches are scoped to the commit SHA. The expensive finished-year source cache
+is shared across preview commits until the account roster or its cache schema
+changes. This keeps pushes deterministic without repeatedly rebuilding the
+full GitHub archive.
 
 Preview URLs are public unless Cloudflare Access is enabled, so non-production
 branch builds must remain limited to trusted contributors. A normal
