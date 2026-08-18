@@ -158,11 +158,7 @@ export interface UserRowOptions {
    * chevron, no disclosure, no band.
    */
   goals?: UserGoals | null;
-  /**
-   * Years on GitHub, when today is this account's anniversary. Like the goals,
-   * it belongs only to the year in progress — an archived board is a record of
-   * that year, not of the day it happens to be read on.
-   */
+  /** Years on GitHub when today is the anniversary; live years only, like the goals. */
   cakeDay?: number | null;
 }
 
@@ -201,12 +197,8 @@ function userRowBody(options: UserRowOptions, withChevron: boolean): Html {
       ></svg>`
     : null;
 
-  /**
-   * The cake is the one mark everybody already reads as this, so the board
-   * borrows it rather than inventing a glyph of its own. The visible halves are
-   * hidden from assistive tech and replaced by one plain sentence, which also
-   * keeps the spacing out of a flex gap that no screen reader can hear.
-   */
+  /** Both halves are hidden and respoken as one sentence: a flex gap is not
+   *  spacing a screen reader can hear. */
   const cakeDay = options.cakeDay
     ? html`<span class="flex shrink-0 items-center gap-[0.3rem] text-[0.7rem] text-dim"
         ><span class="text-[0.9rem] leading-none" aria-hidden="true">🎂</span
