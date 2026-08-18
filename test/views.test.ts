@@ -245,7 +245,7 @@ test("user page reads from both feeds and links its year strip", () => {
     allUsers: data.users,
     years: data.years,
     year: 2026,
-    today: "2026-08-10",
+    today: "2026-03-03",
     generatedAt: GENERATED,
   });
 
@@ -260,6 +260,10 @@ test("user page reads from both feeds and links its year strip", () => {
   assert.match(page, /leads by\s+<strong/);
   assert.match(page, />\s*280<\/strong>/);
   assert.match(page, /<a\s+href="\/2024"/);
+  // The run alive on the board's last reported day, after the follows line.
+  // The run alive on the board's last reported day, after the follows line.
+  const followingAt = page.indexOf("3 following");
+  assert.ok(page.indexOf("2-day streak") > followingAt);
   // User pages have no arrow-key routing.
   assert.ok(!page.includes("data-prev-href"));
   assert.ok(!page.includes("data-next-href"));

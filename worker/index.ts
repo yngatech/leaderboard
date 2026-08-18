@@ -1,6 +1,6 @@
-import type { AllTime, AllTimeUser, Board } from "../shared/types";
+import type { AllTime, AllTimeUser, Board, ContributionWeek } from "../shared/types";
 import { DurableObject } from "cloudflare:workers";
-import { featuredYear, todayIso, userGrid, userProfile, yearShape } from "../shared/board";
+import { featuredYear, streakRun, todayIso, userGrid, userProfile, yearShape } from "../shared/board";
 import { joinDay } from "../shared/cakeday";
 import { formatDayYear } from "../shared/format";
 import { nextMilestone, PERSONAL_MILESTONES } from "../shared/milestones";
@@ -812,6 +812,24 @@ async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): P
     });
   }
 
+  // The year before exists only for a streak that needs it: the walk reports
+  // when it has reached 1 January unbroken, and the finished year's board is
+  // fetched only then. Anything wrong with that feed just costs the run past
+  // the boundary, not the page.
+  const boardUser = board.find((other) => other.login === login);
+  const run = boardUser
+    ? streakRun([{ year: currentYear(), weeks: boardUser.weeks }], todayIso())
+    : null;
+
+  let priorWeeks: ContributionWeek[] | null = null;
+  if (run?.capped && currentYear() - 1 >= MIN_YEAR) {
+    const priorResult = await boardJson(currentYear() - 1, env, ctx);
+    if (priorResult.response.ok) {
+      const priorBoard = (await priorResult.response.json()) as Board;
+      priorWeeks = priorBoard.find((other) => other.login === login)?.weeks ?? null;
+    }
+  }
+
   const page = userPageHtml({
     chrome: siteChrome(),
     user,
@@ -821,6 +839,7 @@ async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): P
     year: currentYear(),
     today: todayIso(),
     generatedAt,
+    priorWeeks,
   });
 
   const fresh = html(page, {
@@ -967,6 +986,7 @@ async function handleUserCard(login: string, env: Env, ctx: ExecutionContext): P
     firstYear: activeYears.length > 0 ? Math.min(...activeYears) : year,
     grid,
     shape: yearShape(grid, todayIso()),
+    currentStreak: streakRun([{ year, weeks: user.weeks }], todayIso()).days,
     goals: { nextMilestone: nextMilestone(total, PERSONAL_MILESTONES) },
     generatedAt,
     site: SITE,
