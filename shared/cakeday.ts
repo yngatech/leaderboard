@@ -37,12 +37,11 @@ export function yearsOnGitHub(createdAt: string | null | undefined, on: string):
 
 /**
  * The years to celebrate when `on` is the account's anniversary, and null on
- * every other day. An account created on `on` has no cake day.
+ * every other day.
  */
 export function cakeDayYears(createdAt: string | null | undefined, on: string): number | null {
   const created = createdOn(createdAt);
   const year = Number(on.slice(0, 4));
   if (!created || anniversary(created, year) !== on) return null;
-  const years = year - created.getUTCFullYear();
-  return years > 0 ? years : null;
+  return year - created.getUTCFullYear();
 }

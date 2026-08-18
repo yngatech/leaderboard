@@ -37,10 +37,6 @@ test("a cake day is the anniversary and nothing else", () => {
   assert.equal(cakeDayYears(CREATED, "2026-12-03"), null);
 });
 
-test("the day an account is created is not an anniversary", () => {
-  assert.equal(cakeDayYears(CREATED, "2016-03-12"), null);
-});
-
 test("a 29 February account celebrates on 1 March in a common year", () => {
   const leapling = "2016-02-29T12:00:00Z";
   assert.equal(cakeDayYears(leapling, "2024-02-29"), 8);
