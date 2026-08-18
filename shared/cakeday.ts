@@ -34,3 +34,14 @@ export function yearsOnGitHub(createdAt: string | null | undefined, on: string):
   const elapsed = year - created.getUTCFullYear();
   return anniversary(created, year) <= on ? elapsed : elapsed - 1;
 }
+
+/**
+ * The years to celebrate when `on` is the account's anniversary, and null on
+ * every other day.
+ */
+export function cakeDayYears(createdAt: string | null | undefined, on: string): number | null {
+  const created = createdOn(createdAt);
+  const year = Number(on.slice(0, 4));
+  if (!created || anniversary(created, year) !== on) return null;
+  return year - created.getUTCFullYear();
+}

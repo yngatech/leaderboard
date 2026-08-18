@@ -158,6 +158,8 @@ export interface UserRowOptions {
    * chevron, no disclosure, no band.
    */
   goals?: UserGoals | null;
+  /** Years on GitHub when today is the anniversary; live years only, like the goals. */
+  cakeDay?: number | null;
 }
 
 /** The identity, plot and score cells shared by open and plain rows. */
@@ -195,6 +197,19 @@ function userRowBody(options: UserRowOptions, withChevron: boolean): Html {
       ></svg>`
     : null;
 
+  /** Both halves are hidden and respoken as one sentence: a flex gap is not
+   *  spacing a screen reader can hear. */
+  const cakeDay = options.cakeDay
+    ? html`<span class="flex shrink-0 items-center gap-[0.3rem] text-[0.7rem] text-dim"
+        ><span class="text-[0.9rem] leading-none" aria-hidden="true">🎂</span
+        ><span class="tabular-nums" aria-hidden="true"
+          >${formatNumber(options.cakeDay)} years</span
+        ><span class="sr-only"
+          >cake day — ${formatNumber(options.cakeDay)} years on GitHub today</span
+        ></span
+      >`
+    : null;
+
   const score = peak
     ? html`<span
         class="mt-[0.4rem] text-[0.68rem] ${leadsPeak ? "text-accent" : "text-dim"}"
@@ -222,12 +237,12 @@ function userRowBody(options: UserRowOptions, withChevron: boolean): Html {
         loading="lazy"
     /></a>
     <div class="min-w-0 [grid-area:id]">
-      <div class="flex min-w-0 items-center gap-[0.35rem]">
+      <div class="flex min-w-0 items-center gap-[0.7rem]">
         <a
           class="relative font-display text-[1.08rem] font-semibold tracking-[-0.015em] text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[3px]"
           href="${profileHref}"
           >${user.login}</a
-        >
+        >${cakeDay}
       </div>
       <p class="mt-[0.15rem] text-[0.74rem] text-dim">${user.name ?? "—"}</p>
       <p class="mt-[0.4rem] flex flex-wrap gap-[0.3rem] text-[0.68rem] text-dimmer">

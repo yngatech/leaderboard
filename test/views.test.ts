@@ -309,6 +309,22 @@ test("a user missing from the live board falls back honestly", () => {
   assert.ok(!page.includes("behind alice"));
 });
 
+test("the cake day badge belongs to the day, and only to the live board", () => {
+  const cakeDay = { chrome, board: makeBoard(), generatedAt: GENERATED, missing: [] };
+
+  const onTheDay = yearPageHtml({ ...cakeDay, year: 2026, today: "2026-03-12" });
+  assert.match(onTheDay, /alice<\/a\s*>[\s\S]{0,400}?\u{1F382}/u);
+  // The cake and the figure are hidden from assistive tech, so one plain
+  // sentence has to carry the whole thing.
+  assert.ok(onTheDay.includes("cake day — 10 years on GitHub today"));
+  // Only the account whose anniversary it is wears one.
+  assert.equal(onTheDay.match(/\u{1F382}/gu)?.length, 1);
+
+  assert.ok(!yearPageHtml({ ...cakeDay, year: 2026, today: "2026-03-13" }).includes("\u{1F382}"));
+  // An archived board is a record of its year, not of the day it is read on.
+  assert.ok(!yearPageHtml({ ...cakeDay, year: 2020, today: "2026-03-12" }).includes("\u{1F382}"));
+});
+
 test("the account page dates the account and ages it", () => {
   const data = makeAllTime();
   const page = (today: string) =>
@@ -323,7 +339,10 @@ test("the account page dates the account and ages it", () => {
       generatedAt: GENERATED,
     });
 
-  assert.match(page("2026-08-10"), />12 Mar 2016<\/strong>[\s\S]{0,120}?· 10 years ago<\/span/);
+  const ordinaryDay = page("2026-08-10");
+  assert.match(ordinaryDay, />12 Mar 2016<\/strong>[\s\S]{0,120}?· 10 years ago<\/span/);
+  assert.ok(!ordinaryDay.includes("ago today"));
+  assert.match(page("2026-03-12"), /· 10 years ago today<\/span/);
   // The day before the anniversary is still the previous year.
   assert.match(page("2026-03-11"), /· 9 years ago<\/span/);
 
