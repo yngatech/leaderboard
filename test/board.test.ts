@@ -331,6 +331,49 @@ test("keeps a streak alive across the year boundary", () => {
   });
 });
 
+test("keeps counting an unbroken run across several years", () => {
+  // Every day from one date through another, as one week of day entries.
+  const days = (from: string, to: string) => {
+    const out: Array<{ date: string; count: number; level: 0 | 1 | 2 | 3 | 4 }> = [];
+    const cursor = new Date(`${from}T00:00:00Z`);
+    const end = Date.parse(`${to}T00:00:00Z`);
+    for (; cursor.getTime() <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+      out.push({ date: cursor.toISOString().slice(0, 10), count: 1, level: 1 });
+    }
+    return [{ days: out }];
+  };
+
+  // Every day of 2024 and 2025, and of 2026 through today: the run reaches
+  // the start of every year given and stays capped.
+  assert.deepEqual(
+    streakRun(
+      [
+        { year: 2024, weeks: days("2024-01-01", "2024-12-31") },
+        { year: 2025, weeks: days("2025-01-01", "2025-12-31") },
+        { year: 2026, weeks: days("2026-01-01", "2026-08-10") },
+      ],
+      "2026-08-10",
+    ),
+    // 2024 is a leap year.
+    { days: 366 + 365 + 222, capped: true },
+  );
+
+  // A silent new year's eve in 2025 breaks the run at that day.
+  const broken = days("2025-01-01", "2025-12-31");
+  broken[0].days[364] = { date: "2025-12-31", count: 0, level: 0 };
+  assert.deepEqual(
+    streakRun(
+      [
+        { year: 2024, weeks: days("2024-01-01", "2024-12-31") },
+        { year: 2025, weeks: broken },
+        { year: 2026, weeks: days("2026-01-01", "2026-08-10") },
+      ],
+      "2026-08-10",
+    ),
+    { days: 222, capped: false },
+  );
+});
+
 test("anchors a finished year's run at its close", () => {
   const days = [
     { date: "2025-12-30", count: 1, level: 1 as const },

@@ -812,21 +812,24 @@ async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): P
     });
   }
 
-  // The year before exists only for a streak that needs it: the walk reports
-  // when it has reached 1 January unbroken, and the finished year's board is
-  // fetched only then. Anything wrong with that feed just costs the run past
-  // the boundary, not the page.
+  // Finished years exist only for a streak that needs them: the walk reports
+  // when it has reached the start of its data unbroken, and the years before
+  // are fetched one at a time until the run breaks, the board's first year is
+  // reached, or a feed fails — any of those just costs the run past that
+  // point, not the page.
   const boardUser = board.find((other) => other.login === login);
-  const run = boardUser
-    ? streakRun([{ year: currentYear(), weeks: boardUser.weeks }], todayIso())
-    : null;
-
-  let priorWeeks: ContributionWeek[] | null = null;
-  if (run?.capped && currentYear() - 1 >= MIN_YEAR) {
-    const priorResult = await boardJson(currentYear() - 1, env, ctx);
-    if (priorResult.response.ok) {
+  const priorYears: Array<{ year: number; weeks: ContributionWeek[] }> = [];
+  if (boardUser) {
+    const year = currentYear();
+    let run = streakRun([{ year, weeks: boardUser.weeks }], todayIso());
+    for (let lookback = year - 1; run.capped && lookback >= MIN_YEAR; lookback -= 1) {
+      const priorResult = await boardJson(lookback, env, ctx);
+      if (!priorResult.response.ok) break;
       const priorBoard = (await priorResult.response.json()) as Board;
-      priorWeeks = priorBoard.find((other) => other.login === login)?.weeks ?? null;
+      const priorUser = priorBoard.find((other) => other.login === login);
+      if (!priorUser) break;
+      priorYears.push({ year: lookback, weeks: priorUser.weeks });
+      run = streakRun([{ year, weeks: boardUser.weeks }, ...priorYears], todayIso());
     }
   }
 
@@ -839,7 +842,7 @@ async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): P
     year: currentYear(),
     today: todayIso(),
     generatedAt,
-    priorWeeks,
+    priorYears,
   });
 
   const fresh = html(page, {

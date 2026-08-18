@@ -376,10 +376,10 @@ export interface UserPageOptions {
   year: number;
   today: string;
   generatedAt: string | null;
-  /** The account's daily data from the year before, so a streak that crossed
-   *  31 December keeps counting. Omitted or null when the year or feed is
-   *  missing. */
-  priorWeeks?: ContributionWeek[] | null;
+  /** The account's daily data from finished years, so a streak that crossed
+   *  31 December keeps counting as far back as the run demands. Omitted or
+   *  empty when no finished year was needed. */
+  priorYears?: Array<{ year: number; weeks: ContributionWeek[] }>;
 }
 
 /**
@@ -431,7 +431,7 @@ function cardSectionHtml(login: string): Html {
 }
 
 export function userPageHtml(options: UserPageOptions): string {
-  const { chrome, user, board, allUsers, years, year, today, priorWeeks } = options;
+  const { chrome, user, board, allUsers, years, year, today, priorYears = [] } = options;
 
   const boardIndex = board.findIndex((other) => other.login === user.login);
   const boardUser = boardIndex >= 0 ? board[boardIndex] : null;
@@ -454,7 +454,7 @@ export function userPageHtml(options: UserPageOptions): string {
   /** The run still alive today, crossing the year boundary when it has to. */
   const streak = streakRun(
     [
-      ...(priorWeeks ? [{ year: year - 1, weeks: priorWeeks }] : []),
+      ...priorYears,
       ...(boardUser ? [{ year, weeks: boardUser.weeks }] : []),
     ],
     today,
