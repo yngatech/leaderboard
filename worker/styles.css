@@ -91,6 +91,43 @@
 }
 
 /* ---------------------------------------------------------------------------
+   Wrap separator
+   A wrapping flex line whose "·" between siblings is clipped when a wrap
+   puts it at the start of a row.
+--------------------------------------------------------------------------- */
+
+@utility wrap-sep {
+  display: flex;
+  flex-wrap: wrap;
+  overflow: hidden;
+  column-gap: 1.05rem;
+  row-gap: 0.3rem;
+
+  /* Items shrink and words break before they can overflow the clip, so the
+     clip only ever trims the separator, never the text. */
+  & > span {
+    min-width: 0;
+    overflow-wrap: break-word;
+  }
+
+  & > span:last-child {
+    position: relative;
+
+    &::before {
+      content: "·";
+      position: absolute;
+      top: 50%;
+      right: 100%;
+      translate: 0 -50%;
+      width: 0.45rem;
+      margin-right: 0.3rem;
+      text-align: center;
+      opacity: 0.6;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
    Motion
 --------------------------------------------------------------------------- */
 

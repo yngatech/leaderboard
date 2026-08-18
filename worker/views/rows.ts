@@ -245,8 +245,8 @@ function userRowBody(options: UserRowOptions, withChevron: boolean): Html {
         >${cakeDay}
       </div>
       <p class="mt-[0.15rem] text-[0.74rem] text-dim">${user.name ?? "—"}</p>
-      <p class="mt-[0.4rem] flex flex-wrap gap-[0.3rem] text-[0.68rem] text-dimmer">
-        <span>${formatNumber(user.followers)} followers</span><span class="opacity-60">·</span
+      <p class="mt-[0.4rem] wrap-sep text-[0.68rem] text-dimmer">
+        <span>${formatNumber(user.followers)} followers</span
         ><span>${formatNumber(user.following)} following</span>
       </p>
     </div>
@@ -333,11 +333,8 @@ export function allTimeRowHtml(options: AllTimeRowOptions): Html {
 
   const follows =
     user.followers !== null
-      ? html`<p
-          class="mt-[0.4rem] flex flex-wrap gap-[0.3rem] text-[0.68rem] text-dimmer"
-        >
+      ? html`<p class="mt-[0.4rem] wrap-sep text-[0.68rem] text-dimmer">
           <span>${formatNumber(user.followers ?? 0)} followers</span
-          ><span class="opacity-60">·</span
           ><span>${formatNumber(user.following ?? 0)} following</span>
         </p>`
       : null;
