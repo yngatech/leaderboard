@@ -46,8 +46,6 @@ export interface CardInput {
   firstYear: number;
   grid: Grid;
   shape: YearShape;
-  /** Consecutive contributing days still alive, from `currentStreak`. */
-  currentStreak: number;
   goals: CardGoal;
   fonts?: CardFonts;
   /** ISO timestamp the underlying board was generated. */
@@ -132,10 +130,10 @@ function clamp(text: string, max: number): string {
 
 function facts(input: CardInput): string {
   const lines: string[] = [];
-  const { activeDays, bestDay } = input.shape;
+  const { activeDays, bestDay, currentStreak } = input.shape;
 
   if (activeDays > 0) lines.push(`${activeDays} active ${activeDays === 1 ? "day" : "days"}`);
-  if (input.currentStreak > 1) lines.push(`${input.currentStreak}-day streak`);
+  if (currentStreak > 1) lines.push(`${currentStreak}-day streak`);
   else if (bestDay) {
     lines.push(`best day ${formatNumber(bestDay.count)} on ${formatDayShort(bestDay.date)}`);
   }

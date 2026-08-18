@@ -1,6 +1,6 @@
-import type { AllTime, AllTimeUser, Board, ContributionWeek } from "../shared/types";
+import type { AllTime, AllTimeUser, Board } from "../shared/types";
 import { DurableObject } from "cloudflare:workers";
-import { featuredYear, streakRun, todayIso, userGrid, userProfile, yearShape } from "../shared/board";
+import { featuredYear, todayIso, userGrid, userProfile, yearShape } from "../shared/board";
 import { joinDay } from "../shared/cakeday";
 import { formatDayYear } from "../shared/format";
 import { nextMilestone, PERSONAL_MILESTONES } from "../shared/milestones";
@@ -812,27 +812,6 @@ async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): P
     });
   }
 
-  // Finished years exist only for a streak that needs them: the walk reports
-  // when it has reached the start of its data unbroken, and the years before
-  // are fetched one at a time until the run breaks, the board's first year is
-  // reached, or a feed fails — any of those just costs the run past that
-  // point, not the page.
-  const boardUser = board.find((other) => other.login === login);
-  const priorYears: Array<{ year: number; weeks: ContributionWeek[] }> = [];
-  if (boardUser) {
-    const year = currentYear();
-    let run = streakRun([{ year, weeks: boardUser.weeks }], todayIso());
-    for (let lookback = year - 1; run.capped && lookback >= MIN_YEAR; lookback -= 1) {
-      const priorResult = await boardJson(lookback, env, ctx);
-      if (!priorResult.response.ok) break;
-      const priorBoard = (await priorResult.response.json()) as Board;
-      const priorUser = priorBoard.find((other) => other.login === login);
-      if (!priorUser) break;
-      priorYears.push({ year: lookback, weeks: priorUser.weeks });
-      run = streakRun([{ year, weeks: boardUser.weeks }, ...priorYears], todayIso());
-    }
-  }
-
   const page = userPageHtml({
     chrome: siteChrome(),
     user,
@@ -842,7 +821,6 @@ async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): P
     year: currentYear(),
     today: todayIso(),
     generatedAt,
-    priorYears,
   });
 
   const fresh = html(page, {
@@ -989,7 +967,6 @@ async function handleUserCard(login: string, env: Env, ctx: ExecutionContext): P
     firstYear: activeYears.length > 0 ? Math.min(...activeYears) : year,
     grid,
     shape: yearShape(grid, todayIso()),
-    currentStreak: streakRun([{ year, weeks: user.weeks }], todayIso()).days,
     goals: { nextMilestone: nextMilestone(total, PERSONAL_MILESTONES) },
     generatedAt,
     site: SITE,

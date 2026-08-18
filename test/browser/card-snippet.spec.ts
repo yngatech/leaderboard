@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { AllTime, Board } from "../../shared/types.ts";
-import { streakRun, userGrid, yearShape } from "../../shared/board.ts";
+import { userGrid, yearShape } from "../../shared/board.ts";
 import { cardSvg } from "../../worker/views/card.ts";
 import { userPageHtml } from "../../worker/views/pages.ts";
 import { chrome, ORIGIN, serveFixture } from "./fixture.ts";
@@ -64,7 +64,6 @@ const CARD_STUB = {
     firstYear: 2025,
     grid,
     shape: yearShape(grid, "2026-08-10"),
-    currentStreak: streakRun([{ year: 2026, weeks: board[0].weeks }], "2026-08-10").days,
     goals: { nextMilestone: 500 },
     generatedAt: "2026-08-10T09:00:00.000Z",
     site: "https://leaderboard.ynga.tech",

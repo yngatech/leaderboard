@@ -5,7 +5,6 @@ import {
   boardGoal,
   cumulativeSeries,
   featuredYear,
-  streakRun,
   userGoals,
   userGrid,
   userProfile,
@@ -249,6 +248,7 @@ test("reads a year's shape from the days that have already happened", () => {
   assert.deepEqual(yearShape(grid, "2026-01-05"), {
     activeDays: 4,
     bestDay: { date: "2026-01-03", count: 9 },
+    currentStreak: 3,
   });
 });
 
@@ -258,17 +258,9 @@ test("counts a silent today as a day in progress, not a broken streak", () => {
     { date: "2026-01-02", count: 5, level: 2 as const },
     { date: "2026-01-03", count: 0, level: 0 as const },
   ];
-  const weeks = [{ days }];
 
-  // The run touches 1 January, so it is capped: the year before could extend it.
-  assert.deepEqual(streakRun([{ year: 2026, weeks }], "2026-01-03"), {
-    days: 2,
-    capped: true,
-  });
-  assert.deepEqual(streakRun([{ year: 2026, weeks }], "2026-01-04"), {
-    days: 0,
-    capped: false,
-  });
+  assert.equal(yearShape(userGrid([{ days }], 2026, "2026-01-03"), "2026-01-03").currentStreak, 2);
+  assert.equal(yearShape(userGrid([{ days }], 2026, "2026-01-04"), "2026-01-04").currentStreak, 0);
 });
 
 test("runs a streak across a week boundary and the December straddle", () => {
@@ -290,151 +282,16 @@ test("runs a streak across a week boundary and the December straddle", () => {
   );
 
   const shape = yearShape(grid, "2026-01-05");
+  assert.equal(shape.currentStreak, 5);
   assert.equal(shape.activeDays, 5);
   assert.deepEqual(shape.bestDay, { date: "2026-01-01", count: 2 });
-});
-
-test("keeps a streak alive across the year boundary", () => {
-  const prevYear = {
-    year: 2025,
-    weeks: [
-      {
-        days: [
-          { date: "2025-12-29", count: 0, level: 0 as const },
-          { date: "2025-12-30", count: 9, level: 4 as const },
-          { date: "2025-12-31", count: 2, level: 1 as const },
-        ],
-      },
-    ],
-  };
-  const thisYear = {
-    year: 2026,
-    weeks: [
-      {
-        days: [
-          { date: "2026-01-01", count: 2, level: 1 as const },
-          { date: "2026-01-02", count: 2, level: 1 as const },
-          { date: "2026-01-03", count: 2, level: 1 as const },
-          { date: "2026-01-04", count: 2, level: 1 as const },
-          { date: "2026-01-05", count: 0, level: 0 as const },
-        ],
-      },
-    ],
-  };
-
-  // 30 Dec through 4 Jan: today is silent, so it is a day in progress, not the
-  // day that broke the run. The run stops at the real zero on 29 Dec, so it is
-  // not capped.
-  assert.deepEqual(streakRun([prevYear, thisYear], "2026-01-05"), {
-    days: 6,
-    capped: false,
-  });
-});
-
-test("keeps counting an unbroken run across several years", () => {
-  // Every day from one date through another, as one week of day entries.
-  const days = (from: string, to: string) => {
-    const out: Array<{ date: string; count: number; level: 0 | 1 | 2 | 3 | 4 }> = [];
-    const cursor = new Date(`${from}T00:00:00Z`);
-    const end = Date.parse(`${to}T00:00:00Z`);
-    for (; cursor.getTime() <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
-      out.push({ date: cursor.toISOString().slice(0, 10), count: 1, level: 1 });
-    }
-    return [{ days: out }];
-  };
-
-  // Every day of 2024 and 2025, and of 2026 through today: the run reaches
-  // the start of every year given and stays capped.
-  assert.deepEqual(
-    streakRun(
-      [
-        { year: 2024, weeks: days("2024-01-01", "2024-12-31") },
-        { year: 2025, weeks: days("2025-01-01", "2025-12-31") },
-        { year: 2026, weeks: days("2026-01-01", "2026-08-10") },
-      ],
-      "2026-08-10",
-    ),
-    // 2024 is a leap year.
-    { days: 366 + 365 + 222, capped: true },
-  );
-
-  // A silent new year's eve in 2025 breaks the run at that day.
-  const broken = days("2025-01-01", "2025-12-31");
-  broken[0].days[364] = { date: "2025-12-31", count: 0, level: 0 };
-  assert.deepEqual(
-    streakRun(
-      [
-        { year: 2024, weeks: days("2024-01-01", "2024-12-31") },
-        { year: 2025, weeks: broken },
-        { year: 2026, weeks: days("2026-01-01", "2026-08-10") },
-      ],
-      "2026-08-10",
-    ),
-    { days: 222, capped: false },
-  );
-});
-
-test("anchors a finished year's run at its close", () => {
-  const days = [
-    { date: "2025-12-30", count: 1, level: 1 as const },
-    { date: "2025-12-31", count: 1, level: 1 as const },
-  ];
-
-  // "Today" is the year after; the run is what the finished year ended on. It
-  // ends where the data does, so it is capped.
-  assert.deepEqual(streakRun([{ year: 2025, weeks: [{ days }] }], "2026-01-10"), {
-    days: 2,
-    capped: true,
-  });
-});
-
-test("anchors the live year at today, not at its last reported day", () => {
-  // GitHub reports the live year whole, so future days arrive as zeros.
-  const days = [
-    { date: "2026-01-04", count: 0, level: 0 as const },
-    { date: "2026-01-05", count: 1, level: 1 as const },
-    { date: "2026-12-31", count: 0, level: 0 as const },
-  ];
-
-  assert.deepEqual(streakRun([{ year: 2026, weeks: [{ days }] }], "2026-01-05"), {
-    days: 1,
-    capped: false,
-  });
-});
-
-test("ends the run at the first silent day, or where the data does", () => {
-  const broken = [
-    { date: "2026-01-01", count: 1, level: 1 as const },
-    { date: "2026-01-02", count: 1, level: 1 as const },
-    { date: "2026-01-03", count: 0, level: 0 as const },
-    { date: "2026-01-04", count: 1, level: 1 as const },
-  ];
-  assert.deepEqual(streakRun([{ year: 2026, weeks: [{ days: broken }] }], "2026-01-04"), {
-    days: 1,
-    capped: false,
-  });
-
-  const unbroken = [
-    { date: "2026-01-01", count: 1, level: 1 as const },
-    { date: "2026-01-02", count: 1, level: 1 as const },
-    { date: "2026-01-03", count: 1, level: 1 as const },
-  ];
-  // Unbroken to the first day we hold: the run is as long as the data.
-  assert.deepEqual(streakRun([{ year: 2026, weeks: [{ days: unbroken }] }], "2026-01-03"), {
-    days: 3,
-    capped: true,
-  });
-
-  assert.deepEqual(streakRun([{ year: 2026, weeks: [] }], "2026-01-03"), {
-    days: 0,
-    capped: false,
-  });
 });
 
 test("reports a year with no contributions", () => {
   assert.deepEqual(yearShape(userGrid([], 2026, "2026-01-10"), "2026-01-10"), {
     activeDays: 0,
     bestDay: null,
+    currentStreak: 0,
   });
 });
 

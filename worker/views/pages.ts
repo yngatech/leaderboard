@@ -1,4 +1,4 @@
-import type { AllTime, AllTimeUser, Board, ContributionWeek } from "../../shared/types.ts";
+import type { AllTime, AllTimeUser, Board } from "../../shared/types.ts";
 import {
   boardGoal,
   boardYearRanks,
@@ -8,10 +8,10 @@ import {
   groupYearStrip,
   peakDay,
   peakYear,
-  streakRun,
   userGoals,
   userGrid,
   userYearStrip,
+  yearShape,
 } from "../../shared/board.ts";
 import { cakeDayYears, joinDay, yearsOnGitHub } from "../../shared/cakeday.ts";
 import { formatDayShort, formatDayYear, formatNumber, formatOrdinal } from "../../shared/format.ts";
@@ -160,6 +160,7 @@ export function yearPageHtml(options: YearPageOptions): string {
         highestDailyTotal,
         goals: live ? userGoals(board, index) : null,
         cakeDay: live ? cakeDayYears(user.createdAt, today) : null,
+        currentStreak: live ? yearShape(userGrid(user.weeks, year, today), today).currentStreak : null,
       }),
     );
 
@@ -376,10 +377,6 @@ export interface UserPageOptions {
   year: number;
   today: string;
   generatedAt: string | null;
-  /** The account's daily data from finished years, so a streak that crossed
-   *  31 December keeps counting as far back as the run demands. Omitted or
-   *  empty when no finished year was needed. */
-  priorYears?: Array<{ year: number; weeks: ContributionWeek[] }>;
 }
 
 /**
@@ -431,7 +428,7 @@ function cardSectionHtml(login: string): Html {
 }
 
 export function userPageHtml(options: UserPageOptions): string {
-  const { chrome, user, board, allUsers, years, year, today, priorYears = [] } = options;
+  const { chrome, user, board, allUsers, years, year, today } = options;
 
   const boardIndex = board.findIndex((other) => other.login === user.login);
   const boardUser = boardIndex >= 0 ? board[boardIndex] : null;
@@ -451,25 +448,11 @@ export function userPageHtml(options: UserPageOptions): string {
   const allRank =
     user.total > 0 ? allUsers.filter((other) => other.total > user.total).length + 1 : null;
 
-  /** The run still alive today, crossing the year boundary when it has to. */
-  const streak = streakRun(
-    [
-      ...priorYears,
-      ...(boardUser ? [{ year, weeks: boardUser.weeks }] : []),
-    ],
-    today,
-  ).days;
-
   const follows =
     user.followers !== null
-      ? html`<p class="mt-[0.4rem] text-[0.7rem] text-dimmer">
+      ? html`<p class="mt-[0.4rem] wrap-sep text-[0.7rem] text-dimmer">
           <span>${formatNumber(user.followers ?? 0)} followers</span
-          ><span class="opacity-60">·</span
-          ><span>${formatNumber(user.following ?? 0)} following</span
-          >${streak > 1
-            ? html`<span class="opacity-60">·</span
-                ><span>${formatNumber(streak)}-day streak</span>`
-            : null}
+          ><span>${formatNumber(user.following ?? 0)} following</span>
         </p>`
       : null;
 

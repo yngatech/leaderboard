@@ -1,19 +1,26 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { streakRun, userGrid, yearShape } from "../shared/board.ts";
+import { userGrid, yearShape } from "../shared/board.ts";
 import type { CardInput } from "../worker/views/card.ts";
 import { absentCardSvg, cardSvg } from "../worker/views/card.ts";
 
 const TODAY = "2026-03-05";
 
 function makeCard(overrides: Partial<CardInput> = {}): CardInput {
-  const days = [
-    { date: "2026-01-02", count: 4, level: 1 as const },
-    { date: "2026-03-03", count: 90, level: 4 as const },
-    { date: "2026-03-04", count: 6, level: 2 as const },
-    { date: "2026-03-05", count: 8, level: 2 as const },
-  ];
-  const grid = userGrid([{ days }], 2026, TODAY);
+  const grid = userGrid(
+    [
+      {
+        days: [
+          { date: "2026-01-02", count: 4, level: 1 },
+          { date: "2026-03-03", count: 90, level: 4 },
+          { date: "2026-03-04", count: 6, level: 2 },
+          { date: "2026-03-05", count: 8, level: 2 },
+        ],
+      },
+    ],
+    2026,
+    TODAY,
+  );
 
   return {
     user: { login: "alice", name: "Alice Example", avatar: null },
@@ -23,7 +30,6 @@ function makeCard(overrides: Partial<CardInput> = {}): CardInput {
     firstYear: 2019,
     grid,
     shape: yearShape(grid, TODAY),
-    currentStreak: streakRun([{ year: 2026, weeks: [{ days }] }], TODAY).days,
     goals: { nextMilestone: 250 },
     generatedAt: "2026-03-05T09:30:00.000Z",
     site: "https://leaderboard.ynga.tech",
@@ -89,9 +95,8 @@ test("reads the year's own shape into the facts column", () => {
 
   const quiet = cardSvg(
     makeCard({
-      grid: userGrid([{ days: [{ date: "2026-01-02", count: 90, level: 4 as const }] }], 2026, TODAY),
-      shape: yearShape(userGrid([{ days: [{ date: "2026-01-02", count: 90, level: 4 as const }] }], 2026, TODAY), TODAY),
-      currentStreak: 1,
+      grid: userGrid([{ days: [{ date: "2026-01-02", count: 90, level: 4 }] }], 2026, TODAY),
+      shape: yearShape(userGrid([{ days: [{ date: "2026-01-02", count: 90, level: 4 }] }], 2026, TODAY), TODAY),
     }),
   );
   assert.match(quiet, /1 active day\b/);

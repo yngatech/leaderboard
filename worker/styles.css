@@ -110,7 +110,7 @@
     overflow-wrap: break-word;
   }
 
-  & > span:last-child {
+  & > span:not(:first-child) {
     position: relative;
 
     &::before {

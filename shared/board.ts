@@ -296,6 +296,7 @@ export function featuredYear(today: string): number {
 export interface YearShape {
   activeDays: number;
   bestDay: PeakDay | null;
+  currentStreak: number;
 }
 
 export function yearShape(grid: Grid, today: string): YearShape {
@@ -308,69 +309,17 @@ export function yearShape(grid: Grid, today: string): YearShape {
   const settled = last?.date === today && last.count === 0 ? days.slice(0, -1) : days;
 
   let activeDays = 0;
+  let streak = 0;
   for (const day of settled) {
-    if (day.count > 0) activeDays += 1;
-  }
-
-  return { activeDays, bestDay: peakDay(grid) };
-}
-
-export interface StreakRun {
-  /** Consecutive contributing days still alive. */
-  days: number;
-  /** The run reached the start of the earliest year supplied without a gap,
-   *  so it may extend further back than the data shows. */
-  capped: boolean;
-}
-
-/**
- * The run of consecutive contributing days still alive, counted backward from
- * today. Years travel with their week lists so a run that crosses 31 December
- * keeps counting into the year before; a silent today is a day in progress,
- * not a broken streak. The run ends at the first silent day, or at the start
- * of the earliest year supplied — `capped` says the latter. A feed of
- * finished years alone (a January card still showing the old year) anchors at
- * its last reported day instead.
- */
-export function streakRun(
-  years: ReadonlyArray<{ year: number; weeks: ContributionWeek[] }>,
-  today: string,
-): StreakRun {
-  const counts = new Map<string, number>();
-  let earliest: string | null = null;
-  let latest: string | null = null;
-  for (const { weeks } of years) {
-    for (const week of weeks) {
-      for (const day of week.days) {
-        counts.set(day.date, day.count);
-        if (earliest === null || day.date < earliest) earliest = day.date;
-        if (latest === null || day.date > latest) latest = day.date;
-      }
+    if (day.count > 0) {
+      activeDays += 1;
+      streak += 1;
+    } else {
+      streak = 0;
     }
   }
-  if (earliest === null || latest === null) return { days: 0, capped: false };
 
-  // The run ends at today only when the year in progress is among the years
-  // given; otherwise the feed ended with the last finished year, and its last
-  // reported day is the anchor. GitHub reports the live year whole, so a
-  // silent today is genuinely a day with no contributions, not a lag — the
-  // grace that follows treats it as a day in progress.
-  const liveYear = years.some(({ year }) => year === parseDay(today).getUTCFullYear());
-  let cursor = !liveYear ? latest : counts.get(today) === 0 ? dayBefore(today) : today;
-
-  let days = 0;
-  while (cursor >= earliest) {
-    const count = counts.get(cursor);
-    if (count === undefined || count === 0) break;
-    days += 1;
-    if (cursor === earliest) return { days, capped: true };
-    cursor = dayBefore(cursor);
-  }
-  return { days, capped: false };
-}
-
-function dayBefore(date: string): string {
-  return isoDate(Date.parse(`${date}T00:00:00Z`) - DAY_MS);
+  return { activeDays, bestDay: peakDay(grid), currentStreak: streak };
 }
 
 export interface RankGap {
