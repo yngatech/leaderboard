@@ -160,6 +160,10 @@ export interface UserRowOptions {
   goals?: UserGoals | null;
   /** Years on GitHub when today is the anniversary; live years only, like the goals. */
   cakeDay?: number | null;
+  /** Consecutive contributing days still alive; live years only. A finished
+   *  year passes nothing, because a board that cached for a month has no
+   *  business asserting what today is. */
+  currentStreak?: number | null;
 }
 
 /** The identity, plot and score cells shared by open and plain rows. */
@@ -245,9 +249,12 @@ function userRowBody(options: UserRowOptions, withChevron: boolean): Html {
         >${cakeDay}
       </div>
       <p class="mt-[0.15rem] text-[0.74rem] text-dim">${user.name ?? "—"}</p>
-      <p class="mt-[0.4rem] wrap-sep text-[0.68rem] text-dimmer">
+<p class="mt-[0.4rem] wrap-sep text-[0.68rem] text-dimmer">
         <span>${formatNumber(user.followers)} followers</span
-        ><span>${formatNumber(user.following)} following</span>
+        ><span>${formatNumber(user.following)} following</span
+        >${options.currentStreak && options.currentStreak > 1
+          ? html`<span>${formatNumber(options.currentStreak)}-day streak</span>`
+          : null}
       </p>
     </div>
     <div class="min-w-0 phone:relative [grid-area:plot]">${heatmapSvg(grid, {

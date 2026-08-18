@@ -325,6 +325,22 @@ test("the cake day badge belongs to the day, and only to the live board", () => 
   assert.ok(!yearPageHtml({ ...cakeDay, year: 2020, today: "2026-03-12" }).includes("\u{1F382}"));
 });
 
+test("the streak belongs to the live board, and only when it outlives a day", () => {
+  const streak = { chrome, board: makeBoard(), generatedAt: GENERATED, missing: [] };
+
+  // Alice contributes on 2 and 3 March, so on the 3rd her run is two days
+  // long and earns the badge in her follows line.
+  const onTheRun = yearPageHtml({ ...streak, year: 2026, today: "2026-03-03" });
+  assert.match(onTheRun, />alice<\/a\s*>[\s\S]{0,400}?3 following<\/span[\s\S]{0,80}?2-day streak/);
+  assert.equal(onTheRun.match(/-day streak/g)?.length, 1);
+
+  // A single day is not a streak worth stating.
+  assert.ok(!yearPageHtml({ ...streak, year: 2026, today: "2026-03-02" }).includes("-day streak"));
+
+  // An archived board is a record of its year, not of the day it is read on.
+  assert.ok(!yearPageHtml({ ...streak, year: 2020, today: "2026-03-03" }).includes("-day streak"));
+});
+
 test("the account page dates the account and ages it", () => {
   const data = makeAllTime();
   const page = (today: string) =>

@@ -11,6 +11,7 @@ import {
   userGoals,
   userGrid,
   userYearStrip,
+  yearShape,
 } from "../../shared/board.ts";
 import { cakeDayYears, joinDay, yearsOnGitHub } from "../../shared/cakeday.ts";
 import { formatDayShort, formatDayYear, formatNumber, formatOrdinal } from "../../shared/format.ts";
@@ -159,6 +160,7 @@ export function yearPageHtml(options: YearPageOptions): string {
         highestDailyTotal,
         goals: live ? userGoals(board, index) : null,
         cakeDay: live ? cakeDayYears(user.createdAt, today) : null,
+        currentStreak: live ? yearShape(userGrid(user.weeks, year, today), today).currentStreak : null,
       }),
     );
 
