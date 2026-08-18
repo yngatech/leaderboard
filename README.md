@@ -86,6 +86,13 @@ milestone, it posts an embed to Discord. Daily records and milestones restart
 each calendar year. Durable state prevents duplicate messages; the first run
 records a baseline without sending one.
 
+Cake days are the exception to that baseline. Their durable state only records
+which accounts have already been announced this calendar year, so a cake day
+falling on a fresh Durable Object is still posted, and the stored year is what
+lets the next one through without a rollover step. Accounts that leave the
+board keep their entry, so one that comes back the same year cannot be posted
+twice.
+
 Set the webhook as an encrypted Worker secret before deploying:
 
 ```sh
