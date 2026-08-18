@@ -313,17 +313,16 @@ test("the cake day badge belongs to the day, and only to the live board", () => 
   const cakeDay = { chrome, board: makeBoard(), generatedAt: GENERATED, missing: [] };
 
   const onTheDay = yearPageHtml({ ...cakeDay, year: 2026, today: "2026-03-12" });
-  assert.match(onTheDay, /alice<\/a\s*>[\s\S]{0,400}?cake day/);
-  // Tags are dropped without standing in for a space, because a screen reader
-  // concatenates inline text: the spacing has to be real text, not a flex gap.
-  const spoken = onTheDay.replace(/<[^>]*>/g, "").replace(/\s+/g, " ");
-  assert.ok(spoken.includes("cake day 10 years on GitHub today"));
+  assert.match(onTheDay, /alice<\/a\s*>[\s\S]{0,400}?\u{1F382}/u);
+  // The cake and the figure are hidden from assistive tech, so one plain
+  // sentence has to carry the whole thing.
+  assert.ok(onTheDay.includes("cake day — 10 years on GitHub today"));
   // Only the account whose anniversary it is wears one.
-  assert.equal(onTheDay.match(/cake day/g)?.length, 1);
+  assert.equal(onTheDay.match(/\u{1F382}/gu)?.length, 1);
 
-  assert.ok(!yearPageHtml({ ...cakeDay, year: 2026, today: "2026-03-13" }).includes("cake day"));
+  assert.ok(!yearPageHtml({ ...cakeDay, year: 2026, today: "2026-03-13" }).includes("\u{1F382}"));
   // An archived board is a record of its year, not of the day it is read on.
-  assert.ok(!yearPageHtml({ ...cakeDay, year: 2020, today: "2026-03-12" }).includes("cake day"));
+  assert.ok(!yearPageHtml({ ...cakeDay, year: 2020, today: "2026-03-12" }).includes("\u{1F382}"));
 });
 
 test("the account page dates the account and ages it", () => {

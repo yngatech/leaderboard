@@ -202,24 +202,19 @@ function userRowBody(options: UserRowOptions, withChevron: boolean): Html {
     : null;
 
   /**
-   * The years are the fact worth reading, so the badge is built the way every
-   * other fact on this board is: a tabular figure against a micro-label.
-   *
-   * Ember is the warm end of the heat ramp that is not gold, which this board
-   * reserves for the leader — near enough a candle to suit the day, far enough
-   * from the award. It carries the one glow on the page, for the one row that
-   * has a birthday. On a phone the unit drops to screen readers and the pill
-   * keeps its place beside the login.
+   * The cake is the one mark everybody already reads as this, so the board
+   * borrows it rather than inventing a glyph of its own. The visible halves are
+   * hidden from assistive tech and replaced by one plain sentence, which also
+   * keeps the spacing out of a flex gap that no screen reader can hear.
    */
   const cakeDay = options.cakeDay
-    ? html`<span
-        class="inline-block shrink-0 rounded-full border border-heat-3/40 bg-heat-0 px-[0.5rem] py-[0.15rem] text-[0.58rem] tracking-[0.14em] text-dimmer uppercase shadow-[0_0_14px_-4px_rgba(226,96,58,0.55)]"
-        >cake day
-        <span class="font-medium tabular-nums text-heat-3"
-          >${formatNumber(options.cakeDay)}</span
-        >
-        <span class="max-phone:sr-only">years</span
-        ><span class="sr-only"> on GitHub today</span></span
+    ? html`<span class="flex shrink-0 items-center gap-[0.3rem] text-[0.7rem] text-dim"
+        ><span class="text-[0.9rem] leading-none" aria-hidden="true">🎂</span
+        ><span class="tabular-nums" aria-hidden="true"
+          >${formatNumber(options.cakeDay)} years</span
+        ><span class="sr-only"
+          >cake day — ${formatNumber(options.cakeDay)} years on GitHub today</span
+        ></span
       >`
     : null;
 
@@ -250,7 +245,7 @@ function userRowBody(options: UserRowOptions, withChevron: boolean): Html {
         loading="lazy"
     /></a>
     <div class="min-w-0 [grid-area:id]">
-      <div class="flex min-w-0 items-center gap-[0.35rem]">
+      <div class="flex min-w-0 items-center gap-[0.7rem]">
         <a
           class="relative font-display text-[1.08rem] font-semibold tracking-[-0.015em] text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[3px]"
           href="${profileHref}"
