@@ -1095,7 +1095,7 @@ function boardMilestoneEmbed(year: number, event: BoardMilestoneEvent): DiscordE
 function cakeDayEmbed(event: CakeDayEvent): DiscordEmbed {
   const years = event.years === 1 ? "1 year" : `${event.years} years`;
   return {
-    title: "Cake day",
+    title: "🎂 Cake day",
     url: `${SITE}/u/${encodeURIComponent(event.login)}`,
     description: `[${event.login}](${event.url}) has been on GitHub for **${years}** today, since ${formatDayYear(joinDay(event.createdAt))}.`,
     color: 0x58a6ff,
