@@ -14,6 +14,7 @@ import {
   buildCachePrefix,
   isStaleCopy,
   lastGoodCopy,
+  STALE_HEADER,
   staleCopy,
 } from "./cache-policy";
 import type { ArchiveTotals } from "./github";
@@ -1219,6 +1220,10 @@ function withBrowserHeaders(
 ): Response {
   const headers = new Headers(response.headers);
   headers.set("X-Board-Build", __BUILD_COMMIT_SHA__);
+  // The marker belongs to the answer rather than the cache it arrived through,
+  // so a document rendered from a last good copy carries it too, in
+  // development as well, where every response reads as a bypass.
+  if (cacheState === "STALE") headers.set(STALE_HEADER, "1");
   if (__DEV__) {
     headers.set("Cache-Control", "no-store");
     headers.set("X-Board-Cache", "BYPASS");

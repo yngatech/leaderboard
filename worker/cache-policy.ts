@@ -37,7 +37,7 @@ export function browserCacheControl(
 }
 
 /** Set on a response served from a last good copy instead of a fresh fetch. */
-const STALE_HEADER = "X-Board-Stale";
+export const STALE_HEADER = "X-Board-Stale";
 
 /** The copy kept aside while GitHub is answering, ready for when it is not. */
 export function lastGoodCopy(response: Response, ttlSeconds: number): Response {

@@ -40,7 +40,8 @@ Every route reads through one per-year JSON cache entry, so the pages, the API
 and the markdown views never disagree about the numbers. A contributions page
 that will not load is retried rather than answered from GraphQL, which counts
 only the private contributions the board's own token can see; if it stays down,
-the last numbers GitHub gave stand in for a day, marked `X-Board-Stale`.
+the last numbers GitHub gave stand in for a day. Every response built from
+them says so, with `X-Board-Stale: 1` and `X-Board-Cache: STALE`.
 
 ## README cards and badges
 
