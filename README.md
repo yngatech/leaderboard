@@ -2,8 +2,8 @@
 
 GitHub contribution leaderboard for a fixed set of accounts, live at
 [leaderboard.ynga.tech](https://leaderboard.ynga.tech). A Cloudflare Worker
-fetches from the GitHub GraphQL API and renders every page as static HTML at
-the edge; a small script layers on live timestamps, arrow-key navigation and
+reads each account's public contributions page for its totals, GraphQL for the
+profile around them, and renders every page as static HTML at the edge; a small script layers on live timestamps, arrow-key navigation and
 the chart hover, and every page works without it.
 
 ## Routes
@@ -26,8 +26,8 @@ the chart hover, and every page works without it.
 
 ## Layout
 
-- `worker/github.ts` — the people/account mapping (`PEOPLE`), GraphQL queries, and the
-  batched archive fetch behind `/all`.
+- `worker/github.ts` — the people/account mapping (`PEOPLE`), the contribution
+  fetches and their retries, and the batched archive fetch behind `/all`.
 - `worker/index.ts` — routing, edge caching, markdown rendering.
 - `worker/views/` — escaped Hono templates that render board data to HTML, plus
   `card.ts` and `badge.ts`, which render the standalone SVGs served under `/u/{login}`,
@@ -37,7 +37,10 @@ the chart hover, and every page works without it.
 - `shared/` — types and the grid/ranking/formatting/cake-day math, shared with the tests.
 
 Every route reads through one per-year JSON cache entry, so the pages, the API
-and the markdown views never disagree about the numbers.
+and the markdown views never disagree about the numbers. A contributions page
+that will not load is retried rather than answered from GraphQL, which counts
+only the private contributions the board's own token can see; if it stays down,
+the last numbers GitHub gave stand in for a day, marked `X-Board-Stale`.
 
 ## README cards and badges
 

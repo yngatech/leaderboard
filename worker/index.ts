@@ -12,6 +12,9 @@ import {
   browserCacheControl,
   buildCacheKey,
   buildCachePrefix,
+  isStaleCopy,
+  lastGoodCopy,
+  staleCopy,
 } from "./cache-policy";
 import type { ArchiveTotals } from "./github";
 import { PEOPLE, currentYear, fetchArchiveTotals, fetchBoard, GitHubError, MIN_YEAR } from "./github";
@@ -92,6 +95,20 @@ const ARCHIVE_CACHE_PREFIX = archiveCachePrefix(
   PEOPLE,
 );
 /**
+ * The last answer GitHub gave for each feed, kept behind its live entry. Only
+ * a failed fetch reads these, so they never shadow a fresh one.
+ */
+const LAST_GOOD_JSON_PREFIX = buildCachePrefix(
+  "https://ynga-git-board.internal/board-last-good/v1/",
+  __IS_PREVIEW_BUILD__,
+  __BUILD_COMMIT_SHA__,
+);
+const ARCHIVE_LAST_GOOD_PREFIX = archiveCachePrefix(
+  "https://ynga-git-board.internal/board-md-src/archive-last-good/v1/",
+  __IS_PREVIEW_BUILD__,
+  PEOPLE,
+);
+/**
  * Rendered pages. The current year sits inside every page key because an
  * archived page's nav and footer are computed against it: on 1 January the
  * keys roll over and no stale navigation can outlive the year that drew it.
@@ -108,12 +125,22 @@ const HTML_CACHE_PREFIX =
 const AVATAR_CACHE_PREFIX = "https://ynga-git-board.internal/avatar/v1/";
 
 const TOKEN_MISSING = "The board is missing its GitHub token. Set the GITHUB_TOKEN secret.";
+/** A fresh fetch, an edge cache entry, or the last good copy standing in. */
+type CacheState = "HIT" | "MISS" | "STALE";
 /** The year in progress keeps moving. */
 const LIVE_TTL_SECONDS = 30 * 60;
 /** Finished years only shift if someone retoggles private-contribution visibility. */
 const ARCHIVE_TTL_SECONDS = 30 * 24 * 60 * 60;
 const BROWSER_TTL_SECONDS = 5 * 60;
 const BROWSER_ARCHIVE_TTL_SECONDS = 24 * 60 * 60;
+/**
+ * A public contribution fragment has no second source, so when GitHub stops
+ * answering the last numbers it gave stand in for a day past the entry they
+ * replace, rather than the board going blank over a bad afternoon.
+ */
+const LAST_GOOD_GRACE_SECONDS = 24 * 60 * 60;
+/** How long a stale answer holds the live key before GitHub is asked again. */
+const STALE_RETRY_SECONDS = 5 * 60;
 
 /** Drawn at 44px, fetched at 96 so it holds up on a retina screen. */
 const AVATAR_PIXELS = 96;
@@ -224,13 +251,14 @@ async function boardJson(
   year: number,
   env: Env,
   ctx: ExecutionContext,
-): Promise<{ response: Response; cache: "HIT" | "MISS" }> {
+): Promise<{ response: Response; cache: CacheState }> {
   const cache = caches.default;
   // `year` is a validated integer, so the key set is bounded and enumerable.
   const cacheKey = new Request(`${JSON_CACHE_PREFIX}${year}`, { method: "GET" });
+  const lastGoodKey = new Request(`${LAST_GOOD_JSON_PREFIX}${year}`, { method: "GET" });
 
   const hit = await cache.match(cacheKey);
-  if (hit) return { response: hit, cache: "HIT" };
+  if (hit) return { response: hit, cache: isStaleCopy(hit) ? "STALE" : "HIT" };
 
   if (!env.GITHUB_TOKEN) {
     return {
@@ -255,12 +283,28 @@ async function boardJson(
       },
     });
 
-    ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
+    ctx.waitUntil(
+      Promise.all([
+        cache.put(cacheKey, fresh.clone()),
+        cache.put(
+          lastGoodKey,
+          lastGoodCopy(fresh.clone(), edgeTtl(year) + LAST_GOOD_GRACE_SECONDS),
+        ),
+      ]),
+    );
     return { response: fresh, cache: "MISS" };
   } catch (error) {
     const status = error instanceof GitHubError ? error.status : 500;
     const message = error instanceof Error ? error.message : "The board could not be assembled.";
     console.error("board failed", { message, status, year });
+
+    const lastGood = await cache.match(lastGoodKey);
+    if (lastGood) {
+      const stale = staleCopy(lastGood, STALE_RETRY_SECONDS);
+      ctx.waitUntil(cache.put(cacheKey, stale.clone()));
+      return { response: stale, cache: "STALE" };
+    }
+
     return {
       response: json({ error: message, status }, { status, headers: { "Cache-Control": "no-store" } }),
       cache: "MISS",
@@ -365,7 +409,6 @@ function renderAllTimeMarkdown(
  * HTML fetches stay well inside this Workers Paid plan's 1,000-subrequest limit.
  */
 async function archiveTotals(
-  env: Env,
   ctx: ExecutionContext,
 ): Promise<{ ok: true; archive: ArchiveTotals } | { ok: false; status: number; message: string }> {
   const lastYear = currentYear() - 1;
@@ -386,23 +429,38 @@ async function archiveTotals(
   // The last finished year is in the key, so the aggregate rolls over on Jan 1
   // instead of serving a stale span for up to a week.
   const cacheKey = new Request(`${ARCHIVE_CACHE_PREFIX}${lastYear}`, { method: "GET" });
+  const lastGoodKey = new Request(`${ARCHIVE_LAST_GOOD_PREFIX}${lastYear}`, { method: "GET" });
 
   const hit = await cache.match(cacheKey);
   if (hit) return { ok: true, archive: (await hit.json()) as ArchiveTotals };
 
-  if (!env.GITHUB_TOKEN) return { ok: false, status: 500, message: TOKEN_MISSING };
-
   try {
-    const archive = await fetchArchiveTotals(env.GITHUB_TOKEN, MIN_YEAR, lastYear);
+    const archive = await fetchArchiveTotals(MIN_YEAR, lastYear);
     const fresh = json(archive, {
       headers: { "Cache-Control": `public, max-age=${ARCHIVE_TTL_SECONDS}` },
     });
-    ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
+    ctx.waitUntil(
+      Promise.all([
+        cache.put(cacheKey, fresh.clone()),
+        cache.put(
+          lastGoodKey,
+          lastGoodCopy(fresh.clone(), ARCHIVE_TTL_SECONDS + LAST_GOOD_GRACE_SECONDS),
+        ),
+      ]),
+    );
     return { ok: true, archive };
   } catch (error) {
     const status = error instanceof GitHubError ? error.status : 500;
     const message = error instanceof Error ? error.message : "The archive could not be assembled.";
     console.error("archive failed", { message, status, lastYear });
+
+    const lastGood = await cache.match(lastGoodKey);
+    if (lastGood) {
+      const stale = staleCopy(lastGood, STALE_RETRY_SECONDS);
+      ctx.waitUntil(cache.put(cacheKey, stale.clone()));
+      return { ok: true, archive: (await stale.clone().json()) as ArchiveTotals };
+    }
+
     return { ok: false, status, message };
   }
 }
@@ -436,7 +494,7 @@ async function allTimeData(
 ): Promise<{ ok: true; data: AllTimeData } | { ok: false; status: number; message: string }> {
   // A partial table would quietly understate someone's all-time total, so any
   // failure fails the whole page.
-  const archiveResult = await archiveTotals(env, ctx);
+  const archiveResult = await archiveTotals(ctx);
   if (!archiveResult.ok) return archiveResult;
 
   // The year in progress still comes through the shared per-year JSON cache.
@@ -1109,7 +1167,7 @@ async function imageFromFailure(response: Response): Promise<Response> {
  */
 function withBrowserHeaders(
   response: Response,
-  cacheState: "HIT" | "MISS",
+  cacheState: CacheState,
   year: number | null = null,
 ): Response {
   const headers = new Headers(response.headers);
@@ -1121,7 +1179,10 @@ function withBrowserHeaders(
   }
 
   const archived = year !== null && year !== currentYear();
-  const maxAge = archived ? BROWSER_ARCHIVE_TTL_SECONDS : BROWSER_TTL_SECONDS;
+  // A stale answer never earns the day-long archive window: it is replaced as
+  // soon as GitHub answers again.
+  const maxAge =
+    archived && cacheState !== "STALE" ? BROWSER_ARCHIVE_TTL_SECONDS : BROWSER_TTL_SECONDS;
   const staleFor = archived ? ARCHIVE_TTL_SECONDS : LIVE_TTL_SECONDS;
   headers.set("Cache-Control", browserCacheControl(__IS_PREVIEW_BUILD__, maxAge, staleFor));
   headers.set("X-Board-Cache", cacheState);
