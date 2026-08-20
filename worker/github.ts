@@ -41,25 +41,6 @@ export function yearRange(year: number, now: Date = new Date()): { from: string;
   };
 }
 
-const LEVELS: Record<string, 0 | 1 | 2 | 3 | 4> = {
-  NONE: 0,
-  FIRST_QUARTILE: 1,
-  SECOND_QUARTILE: 2,
-  THIRD_QUARTILE: 3,
-  FOURTH_QUARTILE: 4,
-};
-
-interface RawDay {
-  date: string;
-  contributionCount: number;
-  contributionLevel: string;
-}
-
-interface ContributionCalendar {
-  totalContributions: number;
-  weeks: { contributionDays: RawDay[] }[];
-}
-
 interface RawUser {
   login: string;
   name: string | null;
@@ -68,12 +49,6 @@ interface RawUser {
   createdAt: string;
   followers: { totalCount: number };
   following: { totalCount: number };
-}
-
-interface RawCalendarUser {
-  contributionsCollection: {
-    contributionCalendar: ContributionCalendar;
-  };
 }
 
 interface GraphQLResponse<T> {
@@ -108,16 +83,6 @@ fragment Card on User {
   followers { totalCount }
   following { totalCount }
 }`;
-}
-
-function toWeeks(weeks: { contributionDays: RawDay[] }[]): ContributionWeek[] {
-  return weeks.map((week) => ({
-    days: week.contributionDays.map<ContributionDay>((day) => ({
-      date: day.date,
-      count: day.contributionCount,
-      level: LEVELS[day.contributionLevel] ?? 0,
-    })),
-  }));
 }
 
 interface HtmlCalendar {
@@ -205,49 +170,52 @@ export function parseContributionHtml(html: string): HtmlCalendar | null {
     : null;
 }
 
-function buildCalendarQuery(logins: readonly string[], from: string, to: string): string {
-  const aliases = logins
-    .map(
-      (login, i) => `  u${i}: user(login: ${JSON.stringify(login)}) {
-    contributionsCollection(from: ${JSON.stringify(from)}, to: ${JSON.stringify(to)}) {
-      contributionCalendar {
-        totalContributions
-        weeks {
-          contributionDays {
-            date
-            contributionCount
-            contributionLevel
-          }
-        }
-      }
-    }
-  }`,
-    )
-    .join("\n");
-  return `query ContributionFallback {\n${aliases}\n}`;
+type CalendarResult =
+  | { state: "ok"; calendar: HtmlCalendar }
+  /** GitHub has no contributions page: a renamed, deleted or suspended login. */
+  | { state: "absent" }
+  | { state: "failed" };
+
+/**
+ * The public fragment has no stand-in. GraphQL counts only the private
+ * contributions the board's own token can see, which reads hundreds low for
+ * everyone else, so a rate limit or a half-rendered page is retried instead.
+ */
+const HTML_ATTEMPTS = 3;
+const HTML_RETRY_MS = 250;
+
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchContributionHtml(login: string, from: string, to: string): Promise<HtmlCalendar | null> {
+async function fetchContributionHtml(login: string, from: string, to: string): Promise<CalendarResult> {
   const url = new URL(`https://github.com/users/${encodeURIComponent(login)}/contributions`);
   url.searchParams.set("from", from.slice(0, 10));
   url.searchParams.set("to", to.slice(0, 10));
 
-  try {
-    const res = await fetch(url, { headers: { "User-Agent": "ynga-git-board", Accept: "text/html" } });
-    if (!res.ok) {
-      console.error("github contributions html error", { login, status: res.status });
-      return null;
+  for (let attempt = 1; attempt <= HTML_ATTEMPTS; attempt += 1) {
+    if (attempt > 1) await pause(HTML_RETRY_MS * (attempt - 1));
+    try {
+      const res = await fetch(url, { headers: { "User-Agent": "ynga-git-board", Accept: "text/html" } });
+      if (res.status === 404) return { state: "absent" };
+      if (!res.ok) {
+        console.error("github contributions html error", { login, status: res.status, attempt });
+        continue;
+      }
+      const calendar = parseContributionHtml(await res.text());
+      if (calendar) return { state: "ok", calendar };
+      console.error("github contributions html parse error", { login, attempt });
+    } catch (error) {
+      console.error("github contributions html fetch error", {
+        login,
+        attempt,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
-    const calendar = parseContributionHtml(await res.text());
-    if (!calendar) console.error("github contributions html parse error", { login });
-    return calendar;
-  } catch (error) {
-    console.error("github contributions html fetch error", {
-      login,
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return null;
   }
+
+  console.error("github contributions html unavailable", { login, attempts: HTML_ATTEMPTS });
+  return { state: "failed" };
 }
 
 export interface BoardResult {
@@ -292,7 +260,7 @@ export async function fetchBoard(
   const { from, to } = yearRange(year);
 
   // The profile request and all public calendar fragments can run independently.
-  const [payload, htmlCalendars] = await Promise.all([
+  const [payload, calendars] = await Promise.all([
     graphql<RawUser>(token, { query: buildQuery(logins) }),
     Promise.all(logins.map((login) => fetchContributionHtml(login, from, to))),
   ]);
@@ -308,32 +276,16 @@ export async function fetchBoard(
   const accounts: (BoardUser | null)[] = Array(logins.length).fill(null);
   const missing: string[] = [];
 
-  const fallbackIndexes = logins.flatMap((_, index) => (data[`u${index}`] && !htmlCalendars[index] ? [index] : []));
-  const fallbackCalendars = new Map<number, ContributionCalendar>();
-  if (fallbackIndexes.length > 0) {
-    const fallbackLogins = fallbackIndexes.map((index) => logins[index]);
-    console.error("github contributions html fallback", { logins: fallbackLogins });
-    const fallback = await graphql<RawCalendarUser>(token, {
-      query: buildCalendarQuery(fallbackLogins, from, to),
-    });
-    if (!fallback.data) {
-      throw new GitHubError(fallback.errors?.[0]?.message ?? "GitHub returned no contribution data.", 502);
-    }
-    fallbackIndexes.forEach((index, fallbackIndex) => {
-      const raw = fallback.data?.[`u${fallbackIndex}`];
-      if (raw) fallbackCalendars.set(index, raw.contributionsCollection.contributionCalendar);
-    });
-  }
-
   logins.forEach((login, i) => {
     const raw = data[`u${i}`];
     if (!raw) {
       missing.push(login);
       return;
     }
-    const htmlCalendar = htmlCalendars[i];
-    const fallbackCalendar = fallbackCalendars.get(i);
-    if (!htmlCalendar && !fallbackCalendar) {
+    const result = calendars[i];
+    // Half a board is worse than yesterday's board: the caller serves its last
+    // good copy rather than a total that quietly excludes anyone.
+    if (result.state !== "ok") {
       throw new GitHubError(`GitHub returned no contribution data for ${login}.`, 502);
     }
     const user: BoardUser = {
@@ -344,8 +296,8 @@ export async function fetchBoard(
       createdAt: raw.createdAt,
       followers: raw.followers.totalCount,
       following: raw.following.totalCount,
-      totalContributions: htmlCalendar?.totalContributions ?? fallbackCalendar!.totalContributions,
-      weeks: htmlCalendar?.weeks ?? toWeeks(fallbackCalendar!.weeks),
+      totalContributions: result.calendar.totalContributions,
+      weeks: result.calendar.weeks,
     };
     accounts[i] = user;
   });
@@ -427,46 +379,13 @@ export interface ArchiveTotals {
 }
 
 /**
- * Workers Paid permits 1,000 subrequests per invocation. Keep the public HTML
- * fan-out at 12 concurrent requests so an archive refresh is kinder to GitHub.
+ * Workers Paid permits 1,000 subrequests per invocation, which a full rebuild
+ * fits inside even when every year needs all its attempts. Keep the public
+ * HTML fan-out at 12 concurrent requests so a refresh is kinder to GitHub.
  */
 const ARCHIVE_HTML_CONCURRENCY = 6;
 /** Only two archive users run together, for at most 12 GitHub fetches. */
 const ARCHIVE_USER_CONCURRENCY = 2;
-
-interface RawArchiveUser {
-  login: string;
-  url: string;
-  /** `y2019`, `y2020`, … aliases. */
-  [alias: string]: unknown;
-}
-
-/** GraphQL retains its role as a batched fallback for failed HTML years. */
-function buildArchiveQuery(logins: readonly string[], years: readonly number[]): string {
-  const collections = years
-    .map((year) => {
-      const { from, to } = yearRange(year);
-      // Both bounds are derived from a validated integer, never from input.
-      return `    y${year}: contributionsCollection(from: ${JSON.stringify(from)}, to: ${JSON.stringify(to)}) { contributionCalendar { totalContributions } }`;
-    })
-    .join("\n");
-
-  const users = logins
-    .map(
-      (login, i) =>
-        `  u${i}: user(login: ${JSON.stringify(login)}) {\n    login\n    url\n${collections}\n  }`,
-    )
-    .join("\n");
-
-  return `query Archive {\n${users}\n}`;
-}
-
-function yearTotal(raw: RawArchiveUser, year: number): number {
-  const collection = raw[`y${year}`] as
-    | { contributionCalendar?: { totalContributions?: number } }
-    | undefined;
-  return collection?.contributionCalendar?.totalContributions ?? 0;
-}
 
 async function mapWithConcurrency<T, R>(
   values: readonly T[],
@@ -491,7 +410,6 @@ async function mapWithConcurrency<T, R>(
  * One account's archive, fetched directly from GitHub with bounded concurrency.
  */
 export async function fetchArchiveUserTotals(
-  token: string,
   login: string,
   firstYear: number,
   lastYear: number,
@@ -503,29 +421,22 @@ export async function fetchArchiveUserTotals(
     const { from, to } = yearRange(year);
     return fetchContributionHtml(login, from, to);
   });
-  const fallbackYears = years.filter((_, index) => !calendars[index]);
-  let fallback: RawArchiveUser | null = null;
 
-  if (fallbackYears.length > 0) {
-    console.error("github archive contributions html fallback", { login, years: fallbackYears });
-    const payload = await graphql<RawArchiveUser>(token, {
-      query: buildArchiveQuery([login], fallbackYears),
-    });
-    if (!payload.data) {
-      throw new GitHubError(payload.errors?.[0]?.message ?? "GitHub returned no contribution data.", 502);
-    }
-    fallback = payload.data.u0;
-    if (!fallback) return null;
-  }
+  // No page in any year is a login that has gone; a page that would not load
+  // is an outage, and counting it as a blank year would erase real history.
+  if (calendars.every((result) => result.state === "absent")) return null;
 
-  const raw = fallback;
   const entry: ArchiveUser = {
-    login: raw?.login ?? login,
-    url: raw?.url ?? `https://github.com/${encodeURIComponent(login)}`,
+    login,
+    url: `https://github.com/${encodeURIComponent(login)}`,
     byYear: {},
   };
   years.forEach((year, index) => {
-    entry.byYear[String(year)] = calendars[index]?.totalContributions ?? yearTotal(raw!, year);
+    const result = calendars[index];
+    if (result.state !== "ok") {
+      throw new GitHubError(`GitHub returned no ${year} contribution data for ${login}.`, 502);
+    }
+    entry.byYear[String(year)] = result.calendar.totalContributions;
   });
   return entry;
 }
@@ -535,14 +446,13 @@ export async function fetchArchiveUserTotals(
  * accounts are fetched at once, each with six concurrent public HTML requests.
  */
 export async function fetchArchiveTotals(
-  token: string,
   firstYear: number,
   lastYear: number,
   people: readonly PersonDefinition[] = PEOPLE,
 ): Promise<ArchiveTotals> {
   const logins = people.flatMap((person) => person.accounts);
   const users = await mapWithConcurrency(logins, ARCHIVE_USER_CONCURRENCY, (login) =>
-    fetchArchiveUserTotals(token, login, firstYear, lastYear),
+    fetchArchiveUserTotals(login, firstYear, lastYear),
   );
   const knownUsers = accountsByPerson(people, users).flatMap<ArchiveUser>(({ login, accounts }) => {
     if (accounts.length === 0) return [];
