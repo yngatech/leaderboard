@@ -44,7 +44,7 @@ test("the year badge counts the year and the all-time badge counts the span", ()
   assertWellFormed(year);
   assertWellFormed(all);
 
-  assert.match(year, />contributions 2026</);
+  assert.match(year, />contributions in 2026</);
   assert.match(year, />1,204</);
   assert.match(year, /<title>1,204 GitHub contributions in 2026\.<\/title>/);
 

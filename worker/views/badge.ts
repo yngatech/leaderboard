@@ -57,9 +57,12 @@ interface Wording {
   alt: string;
 }
 
-/** "All time" alone says nothing about how long, so the span is the label. */
+/**
+ * "All time" alone says nothing about how long, so the span is the label — and
+ * the year takes a preposition to read as its pair rather than as a version.
+ */
 function wording({ kind, year, firstYear, total, allTime }: BadgeInput): Wording {
-  const label = kind === "year" ? `contributions ${year}` : `contributions since ${firstYear}`;
+  const label = kind === "year" ? `contributions in ${year}` : `contributions since ${firstYear}`;
   const count = kind === "year" ? total : allTime;
 
   if (count === null) {
