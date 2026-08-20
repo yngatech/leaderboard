@@ -410,11 +410,14 @@ function renderAllTimeMarkdown(
  */
 async function archiveTotals(
   ctx: ExecutionContext,
-): Promise<{ ok: true; archive: ArchiveTotals } | { ok: false; status: number; message: string }> {
+): Promise<
+  { ok: true; archive: ArchiveTotals; stale: boolean } | { ok: false; status: number; message: string }
+> {
   const lastYear = currentYear() - 1;
   if (lastYear < MIN_YEAR) {
     return {
       ok: true,
+      stale: false,
       archive: {
         generatedAt: new Date().toISOString(),
         firstYear: MIN_YEAR,
@@ -432,7 +435,9 @@ async function archiveTotals(
   const lastGoodKey = new Request(`${ARCHIVE_LAST_GOOD_PREFIX}${lastYear}`, { method: "GET" });
 
   const hit = await cache.match(cacheKey);
-  if (hit) return { ok: true, archive: (await hit.json()) as ArchiveTotals };
+  if (hit) {
+    return { ok: true, archive: (await hit.json()) as ArchiveTotals, stale: isStaleCopy(hit) };
+  }
 
   try {
     const archive = await fetchArchiveTotals(MIN_YEAR, lastYear);
@@ -448,7 +453,7 @@ async function archiveTotals(
         ),
       ]),
     );
-    return { ok: true, archive };
+    return { ok: true, archive, stale: false };
   } catch (error) {
     const status = error instanceof GitHubError ? error.status : 500;
     const message = error instanceof Error ? error.message : "The archive could not be assembled.";
@@ -458,7 +463,7 @@ async function archiveTotals(
     if (lastGood) {
       const stale = staleCopy(lastGood, STALE_RETRY_SECONDS);
       ctx.waitUntil(cache.put(cacheKey, stale.clone()));
-      return { ok: true, archive: (await stale.clone().json()) as ArchiveTotals };
+      return { ok: true, archive: (await stale.clone().json()) as ArchiveTotals, stale: true };
     }
 
     return { ok: false, status, message };
@@ -476,6 +481,26 @@ interface AllTimeData {
   generatedAt: string;
 }
 
+/**
+ * What a document rendered from these feeds is worth caching as. A document
+ * built on a last good copy is stale in turn, and storing it would outlive the
+ * outage that produced it: the feed retries every five minutes, so anything
+ * derived from one must not be held for its own, longer life.
+ */
+function renderedState(...feeds: CacheState[]): CacheState {
+  return feeds.some((feed) => feed === "STALE") ? "STALE" : "MISS";
+}
+
+function cacheDerived(
+  ctx: ExecutionContext,
+  cacheKey: Request,
+  response: Response,
+  state: CacheState,
+): void {
+  if (state === "STALE") return;
+  ctx.waitUntil(caches.default.put(cacheKey, response));
+}
+
 /** An in-flight `boardJson` call, so one page can serve it to both feeds. */
 type BoardFetch = ReturnType<typeof boardJson>;
 
@@ -491,7 +516,9 @@ async function allTimeData(
   env: Env,
   ctx: ExecutionContext,
   sharedBoard?: BoardFetch,
-): Promise<{ ok: true; data: AllTimeData } | { ok: false; status: number; message: string }> {
+): Promise<
+  { ok: true; data: AllTimeData; stale: boolean } | { ok: false; status: number; message: string }
+> {
   // A partial table would quietly understate someone's all-time total, so any
   // failure fails the whole page.
   const archiveResult = await archiveTotals(ctx);
@@ -576,7 +603,11 @@ async function allTimeData(
   // cached for longer and should not make that regularly refreshed feed look stale.
   const generatedAt = liveStamp ?? archive.generatedAt;
 
-  return { ok: true, data: { rows: ranked, activeYears, spanYears, missing: [...missing], generatedAt } };
+  return {
+    ok: true,
+    stale: archiveResult.stale || live.cache === "STALE",
+    data: { rows: ranked, activeYears, spanYears, missing: [...missing], generatedAt },
+  };
 }
 
 async function handleAllMarkdown(env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -594,6 +625,7 @@ async function handleAllMarkdown(env: Env, ctx: ExecutionContext): Promise<Respo
     });
   }
 
+  const state: CacheState = result.stale ? "STALE" : "MISS";
   const { rows, activeYears, missing, generatedAt } = result.data;
   const fresh = new Response(renderAllTimeMarkdown(rows, activeYears, generatedAt, missing), {
     headers: {
@@ -605,8 +637,8 @@ async function handleAllMarkdown(env: Env, ctx: ExecutionContext): Promise<Respo
     },
   });
 
-  ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
-  return withBrowserHeaders(fresh, "MISS");
+  cacheDerived(ctx, cacheKey, fresh.clone(), state);
+  return withBrowserHeaders(fresh, state);
 }
 
 /**
@@ -617,7 +649,7 @@ async function allTimeJson(
   env: Env,
   ctx: ExecutionContext,
   sharedBoard?: BoardFetch,
-): Promise<{ response: Response; cache: "HIT" | "MISS" }> {
+): Promise<{ response: Response; cache: CacheState }> {
   const cache = caches.default;
   const cacheKey = new Request(ALL_JSON_CACHE_KEY, { method: "GET" });
 
@@ -635,6 +667,7 @@ async function allTimeJson(
     };
   }
 
+  const state: CacheState = result.stale ? "STALE" : "MISS";
   const { rows, spanYears, missing, generatedAt } = result.data;
   const body: AllTime = {
     years: spanYears,
@@ -662,8 +695,8 @@ async function allTimeJson(
     },
   });
 
-  ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
-  return { response: fresh, cache: "MISS" };
+  cacheDerived(ctx, cacheKey, fresh.clone(), state);
+  return { response: fresh, cache: state };
 }
 
 async function handleAllApi(env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -702,7 +735,10 @@ async function handleUserApi(login: string, env: Env, ctx: ExecutionContext): Pr
       "X-Board-Year": String(currentYear()),
     },
   });
-  const cache = boardResult.cache === "HIT" && allResult.cache === "HIT" ? "HIT" : "MISS";
+  const cache =
+    boardResult.cache === "HIT" && allResult.cache === "HIT"
+      ? "HIT"
+      : renderedState(boardResult.cache, allResult.cache);
   return withBrowserHeaders(fresh, cache);
 }
 
@@ -713,7 +749,7 @@ async function handleMarkdown(year: number, env: Env, ctx: ExecutionContext): Pr
   const hit = await cache.match(cacheKey);
   if (hit) return withBrowserHeaders(hit, "HIT", year);
 
-  const { response } = await boardJson(year, env, ctx);
+  const { response, cache: feed } = await boardJson(year, env, ctx);
 
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -736,8 +772,9 @@ async function handleMarkdown(year: number, env: Env, ctx: ExecutionContext): Pr
     },
   });
 
-  ctx.waitUntil(cache.put(cacheKey, fresh.clone()));
-  return withBrowserHeaders(fresh, "MISS", year);
+  const state = renderedState(feed);
+  cacheDerived(ctx, cacheKey, fresh.clone(), state);
+  return withBrowserHeaders(fresh, state, year);
 }
 
 /* ---------------------------------------------------------------------------
@@ -757,8 +794,13 @@ async function renderedPageHit(cacheKey: Request): Promise<Response | undefined>
   return caches.default.match(cacheKey);
 }
 
-function cacheRenderedPage(ctx: ExecutionContext, cacheKey: Request, response: Response): void {
-  if (!__DEV__) ctx.waitUntil(caches.default.put(cacheKey, response));
+function cacheRenderedPage(
+  ctx: ExecutionContext,
+  cacheKey: Request,
+  response: Response,
+  state: CacheState,
+): void {
+  if (!__DEV__) cacheDerived(ctx, cacheKey, response, state);
 }
 
 /** Turns a failed feed response into the error page, carrying its status. */
@@ -778,7 +820,7 @@ async function handleYearPage(year: number, env: Env, ctx: ExecutionContext): Pr
   const hit = await renderedPageHit(cacheKey);
   if (hit) return withBrowserHeaders(hit, "HIT", year);
 
-  const { response } = await boardJson(year, env, ctx);
+  const { response, cache: feed } = await boardJson(year, env, ctx);
   if (!response.ok) return pageFromFailure(response);
 
   const generatedAt = response.headers.get("X-Board-Generated") ?? new Date().toISOString();
@@ -803,8 +845,9 @@ async function handleYearPage(year: number, env: Env, ctx: ExecutionContext): Pr
     },
   });
 
-  cacheRenderedPage(ctx, cacheKey, fresh.clone());
-  return withBrowserHeaders(fresh, "MISS", year);
+  const state = renderedState(feed);
+  cacheRenderedPage(ctx, cacheKey, fresh.clone(), state);
+  return withBrowserHeaders(fresh, state, year);
 }
 
 async function handleAllPage(env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -813,7 +856,7 @@ async function handleAllPage(env: Env, ctx: ExecutionContext): Promise<Response>
   const hit = await renderedPageHit(cacheKey);
   if (hit) return withBrowserHeaders(hit, "HIT");
 
-  const { response } = await allTimeJson(env, ctx);
+  const { response, cache: feed } = await allTimeJson(env, ctx);
   if (!response.ok) return pageFromFailure(response);
 
   const generatedAt = response.headers.get("X-Board-Generated") ?? new Date().toISOString();
@@ -832,8 +875,9 @@ async function handleAllPage(env: Env, ctx: ExecutionContext): Promise<Response>
     },
   });
 
-  cacheRenderedPage(ctx, cacheKey, fresh.clone());
-  return withBrowserHeaders(fresh, "MISS");
+  const state = renderedState(feed);
+  cacheRenderedPage(ctx, cacheKey, fresh.clone(), state);
+  return withBrowserHeaders(fresh, state);
 }
 
 /** A user page draws on both feeds: the live year for the day grid, all time
@@ -891,8 +935,9 @@ async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): P
     },
   });
 
-  cacheRenderedPage(ctx, cacheKey, fresh.clone());
-  return withBrowserHeaders(fresh, "MISS");
+  const state = renderedState(boardResult.cache, allResult.cache);
+  cacheRenderedPage(ctx, cacheKey, fresh.clone(), state);
+  return withBrowserHeaders(fresh, state);
 }
 
 /**
@@ -1052,8 +1097,9 @@ async function handleUserCard(login: string, env: Env, ctx: ExecutionContext): P
     },
   });
 
-  cacheRenderedPage(ctx, cacheKey, fresh.clone());
-  return withBrowserHeaders(fresh, "MISS");
+  const state = renderedState(boardResult.cache, allResult.cache);
+  cacheRenderedPage(ctx, cacheKey, fresh.clone(), state);
+  return withBrowserHeaders(fresh, state);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1148,8 +1194,9 @@ async function handleUserBadge(
     },
   });
 
-  cacheRenderedPage(ctx, cacheKey, fresh.clone());
-  return withBrowserHeaders(fresh, "MISS");
+  const state = renderedState(source.cache);
+  cacheRenderedPage(ctx, cacheKey, fresh.clone(), state);
+  return withBrowserHeaders(fresh, state);
 }
 
 async function imageFromFailure(response: Response): Promise<Response> {
