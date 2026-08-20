@@ -78,7 +78,11 @@ const CARD_STUB = {
 const badge = (kind: "year" | "all") => ({
   path: `/u/alice/${kind}.svg`,
   contentType: "image/svg+xml",
-  body: badgeSvg({ kind, year: 2026, firstYear: 2025, total: 320, allTime: 1220 }),
+  body: badgeSvg(
+    kind === "year"
+      ? { kind, year: 2026, total: 320 }
+      : { kind, firstYear: 2025, allTime: 1220 },
+  ),
 });
 
 const IMAGE_STUBS = [CARD_STUB, badge("year"), badge("all")];

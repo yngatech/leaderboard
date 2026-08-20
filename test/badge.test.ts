@@ -3,15 +3,15 @@ import test from "node:test";
 import type { BadgeInput } from "../worker/views/badge.ts";
 import { badgeSvg } from "../worker/views/badge.ts";
 
-function makeBadge(overrides: Partial<BadgeInput> = {}): BadgeInput {
-  return {
-    kind: "year",
-    year: 2026,
-    firstYear: 2019,
-    total: 1204,
-    allTime: 12480,
-    ...overrides,
-  };
+type YearInput = Extract<BadgeInput, { kind: "year" }>;
+type AllInput = Extract<BadgeInput, { kind: "all" }>;
+
+function yearBadge(overrides: Partial<YearInput> = {}): BadgeInput {
+  return { kind: "year", year: 2026, total: 1204, ...overrides };
+}
+
+function allBadge(overrides: Partial<AllInput> = {}): BadgeInput {
+  return { kind: "all", firstYear: 2019, allTime: 12480, ...overrides };
 }
 
 /** A badge fails the way a card does: silently, as a broken image. */
@@ -38,8 +38,8 @@ function declaredWidth(markup: string): number {
 }
 
 test("the year badge counts the year and the all-time badge counts the span", () => {
-  const year = badgeSvg(makeBadge());
-  const all = badgeSvg(makeBadge({ kind: "all" }));
+  const year = badgeSvg(yearBadge());
+  const all = badgeSvg(allBadge());
 
   assertWellFormed(year);
   assertWellFormed(all);
@@ -58,27 +58,26 @@ test("the year badge counts the year and the all-time badge counts the span", ()
 });
 
 test("says so rather than drawing a zero for an account GitHub has no data for", () => {
-  const badge = badgeSvg(makeBadge({ total: null, allTime: null }));
-
-  assertWellFormed(badge);
-  assert.match(badge, />no data</);
-  assert.ok(!badge.includes(">0<"));
-  // The flat fill, not the accent: a missing number should not read as a score.
-  assert.match(badge, /fill="#262c4c"/);
-  assert.ok(!badge.includes("#ffc24d"));
+  for (const badge of [badgeSvg(yearBadge({ total: null })), badgeSvg(allBadge({ allTime: null }))]) {
+    assertWellFormed(badge);
+    assert.match(badge, />no data</);
+    assert.ok(!badge.includes(">0<"));
+    // The flat fill, not the accent: a missing number should not read as a score.
+    assert.match(badge, /fill="#262c4c"/);
+    assert.ok(!badge.includes("#ffc24d"));
+  }
 });
 
-test("one kind missing does not take the other down with it", () => {
-  const year = badgeSvg(makeBadge({ kind: "year", allTime: null }));
-  const all = badgeSvg(makeBadge({ kind: "all", total: null }));
-
-  assert.match(year, />1,204</);
-  assert.match(all, />12,480</);
+test("each kind carries only its own feed's number", () => {
+  // Structural, not incidental: a year badge has no field to hold an all-time
+  // total in, so the route cannot make one of them wait on the other's feed.
+  assert.deepEqual(Object.keys(yearBadge()).sort(), ["kind", "total", "year"]);
+  assert.deepEqual(Object.keys(allBadge()).sort(), ["allTime", "firstYear", "kind"]);
 });
 
 test("the pill grows with the number it has to hold", () => {
-  const small = declaredWidth(badgeSvg(makeBadge({ total: 7 })));
-  const large = declaredWidth(badgeSvg(makeBadge({ total: 148230 })));
+  const small = declaredWidth(badgeSvg(yearBadge({ total: 7 })));
+  const large = declaredWidth(badgeSvg(yearBadge({ total: 148230 })));
 
   assert.ok(large > small, `${large} is not wider than ${small}`);
   // "148,230" against "7": seven cells at an 11px 0.6em advance.
@@ -86,13 +85,13 @@ test("the pill grows with the number it has to hold", () => {
 });
 
 test("holds the shields line height whatever it is asked to draw", () => {
-  for (const input of [makeBadge(), makeBadge({ kind: "all" }), makeBadge({ total: null })]) {
+  for (const input of [yearBadge(), allBadge(), yearBadge({ total: null })]) {
     assert.match(badgeSvg(input), /\sheight="20"/);
   }
 });
 
 test("carries no typeface, so a badge stays small", () => {
-  const badge = badgeSvg(makeBadge());
+  const badge = badgeSvg(yearBadge());
 
   assert.ok(!badge.includes("@font-face"));
   assert.ok(!badge.includes("data:"));
@@ -101,7 +100,7 @@ test("carries no typeface, so a badge stays small", () => {
 });
 
 test("names nobody: a badge sits in its owner's own readme", () => {
-  const badge = badgeSvg(makeBadge());
+  const badge = badgeSvg(yearBadge());
 
   // Nothing GitHub holds reaches a badge, which is why it needs no escaping.
   assert.doesNotMatch(badge, /@[A-Za-z0-9]/);

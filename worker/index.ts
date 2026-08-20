@@ -4,7 +4,7 @@ import { featuredYear, todayIso, userGrid, userProfile, yearShape } from "../sha
 import { joinDay } from "../shared/cakeday";
 import { formatDayYear } from "../shared/format";
 import { nextMilestone, PERSONAL_MILESTONES } from "../shared/milestones";
-import { badgeSvg, type BadgeKind } from "./views/badge";
+import { badgeSvg, type BadgeInput, type BadgeKind } from "./views/badge";
 import { absentCardSvg, cardSvg } from "./views/card";
 import { apiCatalog } from "./api-catalog";
 import {
@@ -1004,6 +1004,37 @@ async function handleUserCard(login: string, env: Env, ctx: ExecutionContext): P
    inline, one number out.
 --------------------------------------------------------------------------- */
 
+/** What one feed yields a badge, and whether the account was in it at all. */
+interface DrawnBadge {
+  input: BadgeInput;
+  present: boolean;
+}
+
+function yearBadge(board: Board, login: string, year: number): DrawnBadge {
+  const user = board.find((other) => other.login === login);
+  return {
+    input: { kind: "year", year, total: user?.totalContributions ?? null },
+    present: user !== undefined,
+  };
+}
+
+/** The span falls back to `year` only when the account has no active year. */
+function allTimeBadge(data: AllTime, login: string, year: number): DrawnBadge {
+  const career = data.users.find((other) => other.login === login);
+  const activeYears = Object.entries(career?.byYear ?? {})
+    .filter(([, count]) => count > 0)
+    .map(([activeYear]) => Number(activeYear));
+
+  return {
+    input: {
+      kind: "all",
+      firstYear: activeYears.length > 0 ? Math.min(...activeYears) : year,
+      allTime: career?.total ?? null,
+    },
+    present: career !== undefined,
+  };
+}
+
 /**
  * A badge for one account. Two kinds and a canonical `login`, so the roster
  * still bounds the set of images that exist.
@@ -1022,36 +1053,27 @@ async function handleUserBadge(
   const hit = await renderedPageHit(cacheKey);
   if (hit) return withBrowserHeaders(hit, "HIT");
 
-  const [boardResult, allResult] = await Promise.all([
-    boardJson(year, env, ctx),
-    allTimeJson(env, ctx),
-  ]);
-  if (!boardResult.response.ok) return imageFromFailure(boardResult.response);
-  if (!allResult.response.ok) return imageFromFailure(allResult.response);
+  /* One feed each. A year badge has no business failing because the archive is
+     down, and the card's habit of awaiting both cannot be shared here: the two
+     callers that pass a board to `allTimeJson` fetch `currentYear()`, while a
+     badge draws `featuredYear`, and those differ for a fortnight each January. */
+  const source =
+    kind === "year" ? await boardJson(year, env, ctx) : await allTimeJson(env, ctx);
+  if (!source.response.ok) return imageFromFailure(source.response);
 
   const generatedAt =
-    boardResult.response.headers.get("X-Board-Generated") ?? new Date().toISOString();
-  const board = (await boardResult.response.json()) as Board;
-  const data = (await allResult.response.json()) as AllTime;
+    source.response.headers.get("X-Board-Generated") ?? new Date().toISOString();
 
-  const career = data.users.find((other) => other.login === login);
-  const user = board.find((other) => other.login === login);
+  const drawn =
+    kind === "year"
+      ? yearBadge((await source.response.json()) as Board, login, year)
+      : allTimeBadge((await source.response.json()) as AllTime, login, year);
 
-  const activeYears = Object.entries(career?.byYear ?? {})
-    .filter(([, count]) => count > 0)
-    .map(([activeYear]) => Number(activeYear));
-
-  const body = badgeSvg({
-    kind,
-    year,
-    firstYear: activeYears.length > 0 ? Math.min(...activeYears) : year,
-    total: user?.totalContributions ?? null,
-    allTime: career?.total ?? null,
-  });
+  const body = badgeSvg(drawn.input);
 
   // Not cached, for the reason the card gives: absence upstream is usually
   // temporary, and a badge reading "no data" should not outlive the outage.
-  if (!user || !career) {
+  if (!drawn.present) {
     return withBrowserHeaders(
       svg(body, { headers: { "Cache-Control": `public, max-age=${BROWSER_TTL_SECONDS}` } }),
       "MISS",
@@ -1063,7 +1085,8 @@ async function handleUserBadge(
       "Cache-Control": `public, max-age=${LIVE_TTL_SECONDS}`,
       Link: pageLinks(`/api/users/${login}`),
       "X-Board-Generated": generatedAt,
-      "X-Board-Year": String(year),
+      // What the badge actually read, matching the feed it came from.
+      "X-Board-Year": kind === "year" ? String(year) : "all",
     },
   });
 

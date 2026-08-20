@@ -19,16 +19,25 @@ import { MONO_STACK, monoWidth } from "./mono.ts";
 /** The year in progress, or the whole career. Two badges, no third. */
 export type BadgeKind = "year" | "all";
 
-export interface BadgeInput {
-  kind: BadgeKind;
-  /** The year `total` covers. */
-  year: number;
-  /** First year with any contributions, so the all-time badge has a span. */
-  firstYear: number;
-  /** Null for a roster account GitHub currently has no data for. */
-  total: number | null;
-  allTime: number | null;
-}
+/**
+ * A union rather than one shape with both numbers on it: each badge is drawn
+ * from exactly one of the board's two feeds, and the caller should not be able
+ * to hand over data it did not need to fetch.
+ */
+export type BadgeInput =
+  | {
+      kind: "year";
+      /** The year `total` covers. */
+      year: number;
+      /** Null for a roster account GitHub currently has no data for. */
+      total: number | null;
+    }
+  | {
+      kind: "all";
+      /** First year with any contributions, so the badge has a span to name. */
+      firstYear: number;
+      allTime: number | null;
+    };
 
 const HEIGHT = 20;
 const FONT = 11;
@@ -61,9 +70,12 @@ interface Wording {
  * "All time" alone says nothing about how long, so the span is the label — and
  * the year takes a preposition to read as its pair rather than as a version.
  */
-function wording({ kind, year, firstYear, total, allTime }: BadgeInput): Wording {
-  const label = kind === "year" ? `contributions in ${year}` : `contributions since ${firstYear}`;
-  const count = kind === "year" ? total : allTime;
+function wording(input: BadgeInput): Wording {
+  const label =
+    input.kind === "year"
+      ? `contributions in ${input.year}`
+      : `contributions since ${input.firstYear}`;
+  const count = input.kind === "year" ? input.total : input.allTime;
 
   if (count === null) {
     return { label, value: "no data", alt: `No GitHub contribution data for this account.` };
@@ -71,9 +83,9 @@ function wording({ kind, year, firstYear, total, allTime }: BadgeInput): Wording
 
   const value = formatNumber(count);
   const alt =
-    kind === "year"
-      ? `${value} GitHub contributions in ${year}.`
-      : `${value} GitHub contributions since ${firstYear}.`;
+    input.kind === "year"
+      ? `${value} GitHub contributions in ${input.year}.`
+      : `${value} GitHub contributions since ${input.firstYear}.`;
   return { label, value, alt };
 }
 
