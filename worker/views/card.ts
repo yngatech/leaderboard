@@ -1,6 +1,7 @@
 import type { Grid, YearShape } from "../../shared/board.ts";
 import { formatDayShort, formatMonth, formatNumber } from "../../shared/format.ts";
 import { html, type Html } from "../html.ts";
+import { ADVANCE, cells, MONO_STACK, monoWidth } from "./mono.ts";
 
 /* ---------------------------------------------------------------------------
    The README card: one account's year as a standalone SVG document.
@@ -81,11 +82,7 @@ const LICENCE = html`<!--
     https://scripts.sil.org/OFL
   -->`;
 
-const MONO_STACK = "'DM Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
 const DISPLAY_STACK = "'Bricolage Grotesque', 'Trebuchet MS', system-ui, sans-serif";
-
-/** DM Mono and every fallback in the stack sit at a 0.6em advance. */
-const ADVANCE = 0.6;
 
 function fontFaces(fonts: CardFonts | undefined): Html[] {
   if (!fonts) return [];
@@ -94,9 +91,6 @@ function fontFaces(fonts: CardFonts | undefined): Html[] {
   const face = (family: string, weight: number, source: string) =>
     html`@font-face{font-family:'${family}';font-style:normal;font-weight:${weight};src:url(${source}) format('woff2');}`;
   return [face("DM Mono", 400, fonts.mono), face("Bricolage Grotesque", 800, fonts.display)];
-}
-function monoWidth(text: string, size: number): number {
-  return cells(text) * size * ADVANCE;
 }
 
 /**
@@ -108,20 +102,13 @@ function plain(text: string): string {
   return [...text].filter((character) => character >= " " && character !== "\u007f").join("");
 }
 
-const WIDE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/;
-
-/** Cells, not characters: CJK is full-width, and a surrogate pair is one glyph. */
-function cells(text: string): number {
-  return [...text].reduce((width, character) => width + (WIDE.test(character) ? 2 : 1), 0);
-}
-
 function clamp(text: string, max: number): string {
   if (max <= 1) return "…";
   if (cells(text) <= max) return text;
   let width = 0;
   const kept: string[] = [];
   for (const character of text) {
-    width += WIDE.test(character) ? 2 : 1;
+    width += cells(character);
     if (width > max - 1) break;
     kept.push(character);
   }

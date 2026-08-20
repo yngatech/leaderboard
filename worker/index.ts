@@ -4,6 +4,7 @@ import { featuredYear, todayIso, userGrid, userProfile, yearShape } from "../sha
 import { joinDay } from "../shared/cakeday";
 import { formatDayYear } from "../shared/format";
 import { nextMilestone, PERSONAL_MILESTONES } from "../shared/milestones";
+import { badgeSvg, type BadgeInput, type BadgeKind } from "./views/badge";
 import { absentCardSvg, cardSvg } from "./views/card";
 import { apiCatalog } from "./api-catalog";
 import {
@@ -836,6 +837,17 @@ async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): P
   return withBrowserHeaders(fresh, "MISS");
 }
 
+/**
+ * The roster entry a requested login names, whatever its casing. Every image
+ * and page route is keyed on the canonical spelling, so the set of URLs that
+ * exist stays as small as the roster.
+ */
+function rosterLogin(requested: string): string | undefined {
+  return PEOPLE.map((person) => person.accounts[0]).find(
+    (account) => account.toLowerCase() === requested.toLowerCase(),
+  );
+}
+
 /* ---------------------------------------------------------------------------
    README cards
    An SVG loaded through an <img> may not fetch, so the avatar and both
@@ -925,8 +937,8 @@ async function handleUserCard(login: string, env: Env, ctx: ExecutionContext): P
   ]);
   // No card at all on failure: a non-200 leaves whatever GitHub has cached in
   // place, where an error card would replace someone's README image.
-  if (!boardResult.response.ok) return cardFromFailure(boardResult.response);
-  if (!allResult.response.ok) return cardFromFailure(allResult.response);
+  if (!boardResult.response.ok) return imageFromFailure(boardResult.response);
+  if (!allResult.response.ok) return imageFromFailure(allResult.response);
 
   const generatedAt =
     boardResult.response.headers.get("X-Board-Generated") ?? new Date().toISOString();
@@ -986,7 +998,103 @@ async function handleUserCard(login: string, env: Env, ctx: ExecutionContext): P
   return withBrowserHeaders(fresh, "MISS");
 }
 
-async function cardFromFailure(response: Response): Promise<Response> {
+/* ---------------------------------------------------------------------------
+   README badges
+   The card's two feeds and none of its weight: no avatar to fetch, no fonts to
+   inline, one number out.
+--------------------------------------------------------------------------- */
+
+/** What one feed yields a badge, and whether the account was in it at all. */
+interface DrawnBadge {
+  input: BadgeInput;
+  present: boolean;
+}
+
+function yearBadge(board: Board, login: string, year: number): DrawnBadge {
+  const user = board.find((other) => other.login === login);
+  return {
+    input: { kind: "year", year, total: user?.totalContributions ?? null },
+    present: user !== undefined,
+  };
+}
+
+/** The span falls back to `year` only when the account has no active year. */
+function allTimeBadge(data: AllTime, login: string, year: number): DrawnBadge {
+  const career = data.users.find((other) => other.login === login);
+  const activeYears = Object.entries(career?.byYear ?? {})
+    .filter(([, count]) => count > 0)
+    .map(([activeYear]) => Number(activeYear));
+
+  return {
+    input: {
+      kind: "all",
+      firstYear: activeYears.length > 0 ? Math.min(...activeYears) : year,
+      allTime: career?.total ?? null,
+    },
+    present: career !== undefined,
+  };
+}
+
+/**
+ * A badge for one account. Two kinds and a canonical `login`, so the roster
+ * still bounds the set of images that exist.
+ */
+async function handleUserBadge(
+  login: string,
+  kind: BadgeKind,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const year = Math.max(MIN_YEAR, featuredYear(todayIso()));
+  const cacheKey = new Request(`${HTML_CACHE_PREFIX}${year}/badge/${kind}/${login}`, {
+    method: "GET",
+  });
+
+  const hit = await renderedPageHit(cacheKey);
+  if (hit) return withBrowserHeaders(hit, "HIT");
+
+  /* One feed each. A year badge has no business failing because the archive is
+     down, and the card's habit of awaiting both cannot be shared here: the two
+     callers that pass a board to `allTimeJson` fetch `currentYear()`, while a
+     badge draws `featuredYear`, and those differ for a fortnight each January. */
+  const source =
+    kind === "year" ? await boardJson(year, env, ctx) : await allTimeJson(env, ctx);
+  if (!source.response.ok) return imageFromFailure(source.response);
+
+  const generatedAt =
+    source.response.headers.get("X-Board-Generated") ?? new Date().toISOString();
+
+  const drawn =
+    kind === "year"
+      ? yearBadge((await source.response.json()) as Board, login, year)
+      : allTimeBadge((await source.response.json()) as AllTime, login, year);
+
+  const body = badgeSvg(drawn.input);
+
+  // Not cached, for the reason the card gives: absence upstream is usually
+  // temporary, and a badge reading "no data" should not outlive the outage.
+  if (!drawn.present) {
+    return withBrowserHeaders(
+      svg(body, { headers: { "Cache-Control": `public, max-age=${BROWSER_TTL_SECONDS}` } }),
+      "MISS",
+    );
+  }
+
+  const fresh = svg(body, {
+    headers: {
+      "Cache-Control": `public, max-age=${LIVE_TTL_SECONDS}`,
+      Link: pageLinks(`/api/users/${login}`),
+      "X-Board-Generated": generatedAt,
+      // What the badge actually read, matching the feed it came from.
+      "X-Board-Year": kind === "year" ? String(year) : "all",
+    },
+  });
+
+  cacheRenderedPage(ctx, cacheKey, fresh.clone());
+  return withBrowserHeaders(fresh, "MISS");
+}
+
+async function imageFromFailure(response: Response): Promise<Response> {
   const body = (await response.json().catch(() => null)) as { error?: string } | null;
   return text(`${body?.error ?? "The board could not be assembled."}\n`, {
     status: response.status,
@@ -1256,9 +1364,7 @@ export default {
         return json({ error: "Use GET for user APIs.", status: 405 }, { status: 405 });
       }
       const requested = userApiMatch[1];
-      const canonical = PEOPLE.map((person) => person.accounts[0]).find(
-        (account) => account.toLowerCase() === requested.toLowerCase(),
-      );
+      const canonical = rosterLogin(requested);
       if (!canonical) {
         return json(
           { error: `No leaderboard account named ${requested}.`, status: 404 },
@@ -1286,15 +1392,45 @@ export default {
       return json({ error: `No API route at ${url.pathname}.`, status: 404 }, { status: 404 });
     }
 
+    const badgeMatch = /^\/u\/([A-Za-z0-9][A-Za-z0-9-]*)\/(year|all)\.svg$/.exec(url.pathname);
+    if (badgeMatch) {
+      if (!readOnly) {
+        return text("Use GET for badges.\n", { status: 405 });
+      }
+      const [, requested, kind] = badgeMatch;
+      const canonical = rosterLogin(requested);
+      // Off the roster is a 404, exactly as it is for a card.
+      if (!canonical) {
+        return text(`No leaderboard account named ${requested}.\n`, {
+          status: 404,
+          headers: { "Cache-Control": "no-store" },
+        });
+      }
+      if (url.pathname !== `/u/${canonical}/${kind}.svg`) {
+        return Response.redirect(`${url.origin}/u/${canonical}/${kind}.svg`, 308);
+      }
+      try {
+        return await handleUserBadge(canonical, kind as BadgeKind, env, ctx);
+      } catch (error) {
+        console.error("badge failed", {
+          login: canonical,
+          kind,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return text("The badge could not be drawn.\n", {
+          status: 500,
+          headers: { "Cache-Control": "no-store" },
+        });
+      }
+    }
+
     const cardMatch = /^\/u\/([A-Za-z0-9][A-Za-z0-9-]*)\.svg$/.exec(url.pathname);
     if (cardMatch) {
       if (!readOnly) {
         return text("Use GET for cards.\n", { status: 405 });
       }
       const requested = cardMatch[1];
-      const canonical = PEOPLE.map((person) => person.accounts[0]).find(
-        (account) => account.toLowerCase() === requested.toLowerCase(),
-      );
+      const canonical = rosterLogin(requested);
       // Off the roster is a 404. The set of cards that exist is the roster,
       // which is the whole abuse story — see the README.
       if (!canonical) {
@@ -1410,9 +1546,7 @@ export default {
     const userMatch = /^\/u\/([A-Za-z0-9][A-Za-z0-9-]*)\/?$/.exec(url.pathname);
     if (userMatch) {
       const requested = userMatch[1];
-      const canonical = PEOPLE.map((person) => person.accounts[0]).find(
-        (account) => account.toLowerCase() === requested.toLowerCase(),
-      );
+      const canonical = rosterLogin(requested);
       if (!canonical) {
         // The regex has already constrained the echoed login's alphabet, and
         // the renderer escapes it besides.

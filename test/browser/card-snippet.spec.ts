@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { AllTime, Board } from "../../shared/types.ts";
 import { userGrid, yearShape } from "../../shared/board.ts";
+import { badgeSvg } from "../../worker/views/badge.ts";
 import { cardSvg } from "../../worker/views/card.ts";
 import { userPageHtml } from "../../worker/views/pages.ts";
 import { chrome, ORIGIN, serveFixture } from "./fixture.ts";
@@ -12,6 +13,10 @@ import { chrome, ORIGIN, serveFixture } from "./fixture.ts";
 
 const SNIPPET =
   "[![alice on the ynga git board](https://leaderboard.ynga.tech/u/alice.svg)](https://leaderboard.ynga.tech/u/alice)";
+
+const BADGE_SNIPPET =
+  "[![contributions this year](https://leaderboard.ynga.tech/u/alice/year.svg)](https://leaderboard.ynga.tech/u/alice) " +
+  "[![contributions all time](https://leaderboard.ynga.tech/u/alice/all.svg)](https://leaderboard.ynga.tech/u/alice)";
 
 const board: Board = [
   {
@@ -70,38 +75,62 @@ const CARD_STUB = {
   }),
 };
 
+const badge = (kind: "year" | "all") => ({
+  path: `/u/alice/${kind}.svg`,
+  contentType: "image/svg+xml",
+  body: badgeSvg(
+    kind === "year"
+      ? { kind, year: 2026, total: 320 }
+      : { kind, firstYear: 2025, allTime: 1220 },
+  ),
+});
+
+const IMAGE_STUBS = [CARD_STUB, badge("year"), badge("all")];
+
 test.describe("without JavaScript", () => {
   test.use({ javaScriptEnabled: false });
 
   test("the snippet is readable and the button stays out of the way", async ({ page, context }) => {
-    await serveFixture(context, pageHtml, [CARD_STUB]);
+    await serveFixture(context, pageHtml, IMAGE_STUBS);
 
     await page.goto(ORIGIN);
 
     await expect(page.locator("#card-snippet")).toHaveText(SNIPPET);
+    await expect(page.locator("#badge-snippet")).toHaveText(BADGE_SNIPPET);
 
     // naturalWidth is 0 when the browser could not parse the SVG, which is how
     // a card fails: silently, as a broken image on somebody's profile.
     const card = page.getByRole("img", { name: /contribution card/ });
     await expect(card).toBeVisible();
     expect(await card.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
-    await expect(page.getByRole("button", { name: "copy" })).toBeHidden();
+
+    for (const name of [/contributions this year/i, /contributions all time/i]) {
+      const pill = page.getByRole("img", { name });
+      await expect(pill).toBeVisible();
+      expect(await pill.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+    }
+
+    // Both of them: each snippet carries its own button.
+    await expect(page.locator("button[data-copy]")).toHaveCount(2);
+    for (const hidden of await page.locator("button[data-copy]").all()) {
+      await expect(hidden).toBeHidden();
+    }
   });
 });
 
-test("JavaScript adds a button that copies the snippet", async ({ page, context }) => {
-  await serveFixture(context, pageHtml, [CARD_STUB]);
+test("JavaScript adds a button that copies each snippet", async ({ page, context }) => {
+  await serveFixture(context, pageHtml, IMAGE_STUBS);
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: ORIGIN });
 
   await page.goto(ORIGIN);
 
-  const button = page.getByRole("button", { name: "copy" });
+  const button = page.locator('button[data-copy="card-snippet"]');
   await expect(button).toBeVisible();
 
   // The confirmation lasts 1.6s before the resting label returns, which is
   // short enough that polling for it races the timer.
   await page.evaluate(() => {
-    const target = document.querySelector("button[data-copy]");
+    const target = document.querySelector('button[data-copy="card-snippet"]');
     const seen: string[] = [];
     (window as unknown as { labels: string[] }).labels = seen;
     new MutationObserver(() => seen.push(target?.textContent?.trim() ?? "")).observe(target!, {
@@ -118,4 +147,10 @@ test("JavaScript adds a button that copies the snippet", async ({ page, context 
     .toEqual(["copied", "copy"]);
 
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(SNIPPET);
+
+  // The second button copies its own snippet, not the first one's.
+  await page.locator('button[data-copy="badge-snippet"]').click();
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe(BADGE_SNIPPET);
 });
