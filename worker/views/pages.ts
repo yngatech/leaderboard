@@ -379,50 +379,69 @@ export interface UserPageOptions {
   generatedAt: string | null;
 }
 
+/** A snippet to paste, and the button that appears once there is a clipboard. */
+function snippetRowHtml(id: string, snippet: string): Html {
+  return html`<div class="${CARD_LEDGER} mt-[1.1rem] flex items-start gap-3 max-phone:flex-wrap">
+    <code
+      class="min-w-0 flex-1 overflow-x-auto font-mono text-[0.68rem] leading-[1.7] break-all whitespace-pre-wrap text-dim"
+      id="${id}"
+      >${snippet}</code
+    >
+    <button
+      class="shrink-0 cursor-pointer rounded-[9px] border border-line px-[0.8rem] py-[0.4rem] font-mono text-[0.66rem] tracking-[0.08em] text-dim transition-colors duration-200 hover:border-accent/50 hover:text-accent"
+      data-copy="${id}"
+      hidden
+    >
+      copy
+    </button>
+  </div>`;
+}
+
 /**
- * The card, and the line to paste to get it. The snippet wraps the image in a
- * link back here, because a card in a README is the only part of this board a
- * stranger ever sees.
+ * The card, the badges, and the lines to paste to get them. Each snippet wraps
+ * its image in a link back here, because what somebody puts in a README is the
+ * only part of this board a stranger ever sees.
  *
- * The preview is the live SVG rather than a mock-up of one: if the route is
- * broken, this section is where it shows, not in somebody's profile.
+ * Every preview is the live SVG rather than a mock-up of one: if a route is
+ * broken, this section is where it shows, not in somebody's profile. The alt
+ * text is deliberately year-free — a snippet is pasted once and never revisited,
+ * so anything that names a year is wrong by January.
  */
 function cardSectionHtml(login: string): Html {
-  const path = `/u/${login}.svg`;
-  // The preview is same-origin so a preview deployment shows its own card
-  // rather than production's; the snippet has to be absolute, since it is read
+  const cardPath = `/u/${login}.svg`;
+  const yearPath = `/u/${login}/year.svg`;
+  const allPath = `/u/${login}/all.svg`;
+  // A preview is same-origin so a preview deployment shows its own images
+  // rather than production's; a snippet has to be absolute, since it is read
   // somewhere that has never heard of this site.
-  const snippet = `[![${login} on the ynga git board](${SITE}${path})](${SITE}/u/${login})`;
+  const cardSnippet = `[![${login} on the ynga git board](${SITE}${cardPath})](${SITE}/u/${login})`;
+  const badgeSnippet = [
+    `[![contributions this year](${SITE}${yearPath})](${SITE}/u/${login})`,
+    `[![contributions all time](${SITE}${allPath})](${SITE}/u/${login})`,
+  ].join(" ");
 
   return html`<section class="mt-[clamp(2rem,5vw,3rem)] ${CARD} border-line-soft [animation-delay:180ms]"
     aria-labelledby="card-heading"
   >
     <div class="px-[1.3rem] pt-[1.25rem] max-phone:px-4">
-      <h2 class="${LEDGER_TERM}" id="card-heading">card for your readme</h2>
+      <h2 class="${LEDGER_TERM}" id="card-heading">for your readme</h2>
       <img
         class="mt-[0.9rem] block h-auto w-full max-w-[416px] rounded-[12px]"
-        src="${path}"
+        src="${cardPath}"
         alt="The ${login} contribution card"
         width="416"
         height="252"
       />
     </div>
-    <div class="${CARD_LEDGER} mt-[1.1rem] flex items-start gap-3 max-phone:flex-wrap">
-      <code
-        class="min-w-0 flex-1 overflow-x-auto font-mono text-[0.68rem] leading-[1.7] break-all whitespace-pre-wrap text-dim"
-        id="card-snippet"
-        >${snippet}</code
-      >
-      <button
-        class="shrink-0 cursor-pointer rounded-[9px] border border-line px-[0.8rem] py-[0.4rem] font-mono text-[0.66rem] tracking-[0.08em] text-dim transition-colors duration-200 hover:border-accent/50 hover:text-accent"
-        data-copy="card-snippet"
-        hidden
-      >
-        copy
-      </button>
+    ${snippetRowHtml("card-snippet", cardSnippet)}
+    <div class="mt-[1.4rem] flex flex-wrap items-center gap-2 px-[1.3rem] max-phone:px-4">
+      <img class="block h-5 w-auto" src="${yearPath}" alt="Contributions this year" height="20" />
+      <img class="block h-5 w-auto" src="${allPath}" alt="Contributions all time" height="20" />
     </div>
-    <p class="px-[1.3rem] pb-[1.15rem] text-[0.68rem] leading-[1.6] text-dimmer max-phone:px-4">
-      GitHub proxies and caches README images, so a card there can lag this page by a few hours.
+    ${snippetRowHtml("badge-snippet", badgeSnippet)}
+    <p class="px-[1.3rem] pt-[1.1rem] pb-[1.15rem] text-[0.68rem] leading-[1.6] text-dimmer max-phone:px-4">
+      GitHub proxies and caches README images, so a card or badge there can lag this page by a few
+      hours.
     </p>
   </section>`;
 }

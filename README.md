@@ -15,6 +15,8 @@ the chart hover, and every page works without it.
 | `/all` | All-time: one year-strip per account, ranked by career total |
 | `/u/{login}` | One account across every year |
 | `/u/{login}.svg` | That account's year as a card, for a profile README |
+| `/u/{login}/year.svg` | Badge: that account's contributions this year |
+| `/u/{login}/all.svg` | Badge: that account's contributions all time |
 | `/{year}.md` | Markdown rankings for a year |
 | `/all.md` | Markdown table, one row per account, one column per year |
 | `/api/board?year=` | Board JSON for a year (`year` defaults to the current one) |
@@ -28,7 +30,8 @@ the chart hover, and every page works without it.
   batched archive fetch behind `/all`.
 - `worker/index.ts` — routing, edge caching, markdown rendering.
 - `worker/views/` — escaped Hono templates that render board data to HTML, plus
-  `card.ts`, which renders the standalone SVG served at `/u/{login}.svg`.
+  `card.ts` and `badge.ts`, which render the standalone SVGs served under `/u/{login}`,
+  and `mono.ts`, the advance-width measuring both of them lay out against.
 - `worker/enhance.js` — the progressive-enhancement script; append `?nojs=1` to any
   page to see it without one.
 - `shared/` — types and the grid/ranking/formatting/cake-day math, shared with the tests.
@@ -36,7 +39,7 @@ the chart hover, and every page works without it.
 Every route reads through one per-year JSON cache entry, so the pages, the API
 and the markdown views never disagree about the numbers.
 
-## README cards
+## README cards and badges
 
 `/u/{login}.svg` draws one account's year — the calendar grid, the year's
 total, the all-time total, and the distance to the next milestone — as a card
@@ -62,11 +65,27 @@ subsets with `node scripts/subset-fonts.ts` after changing the character set —
 never at build time, so a deploy cannot depend on Google Fonts being up. Both
 faces are OFL-1.1; the licences sit beside them.
 
+`/u/{login}/year.svg` and `/u/{login}/all.svg` are the same two numbers without
+the card around them: a 20px shields-shaped pill, label left and value right, so
+they line up in a README row beside badges from anywhere else. Only the palette
+is ours, which is the reason to draw them here rather than point shields.io at
+`/api/users/{login}`. The account page carries their snippet too:
+
+```markdown
+[![contributions this year](https://leaderboard.ynga.tech/u/login/year.svg)](https://leaderboard.ynga.tech/u/login) [![contributions all time](https://leaderboard.ynga.tech/u/login/all.svg)](https://leaderboard.ynga.tech/u/login)
+```
+
+A badge carries no avatar and no typeface — nothing in one comes from GitHub
+except the number, and the layout measures the rest against the system mono
+advance in `views/mono.ts`. That is the whole difference between a badge under
+two kilobytes and a card over a hundred. Both read the same two cached feeds as
+the card, so a badge costs no GitHub request the board was not already making.
+
 Two caveats worth knowing before filing a bug. GitHub caches proxied images on
-its own schedule, so a card in a README lags the site by hours whatever
-`Cache-Control` we send. And in the first days of January a card still shows
-the year that just finished — it switches on the second Monday, rather than
-showing an empty grid and a zero for a fortnight.
+its own schedule, so a card or badge in a README lags the site by hours whatever
+`Cache-Control` we send. And in the first days of January they still show the
+year that just finished — they switch on the second Monday, rather than showing
+an empty grid and a zero for a fortnight.
 
 ## Cake day
 
