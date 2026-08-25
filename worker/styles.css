@@ -128,6 +128,46 @@
 }
 
 /* ---------------------------------------------------------------------------
+   Heatmap cells
+--------------------------------------------------------------------------- */
+
+@utility heat-cell {
+  fill: var(--color-heat-0);
+  transition-property: fill;
+  transition-timing-function: var(--default-transition-timing-function);
+  transition-duration: 0.15s;
+
+  &[data-level="1"] {
+    fill: var(--color-heat-1);
+  }
+
+  &[data-level="2"] {
+    fill: var(--color-heat-2);
+  }
+
+  &[data-level="3"] {
+    fill: var(--color-heat-3);
+  }
+
+  &[data-level="4"] {
+    fill: var(--color-heat-4);
+  }
+
+  &[data-state="future"] {
+    fill: none;
+    stroke: var(--color-future-line);
+    stroke-width: 1px;
+  }
+
+  @media (hover: hover) {
+    &[data-state="day"]:hover {
+      stroke: rgba(255, 255, 255, 0.7);
+      stroke-width: 1px;
+    }
+  }
+}
+
+/* ---------------------------------------------------------------------------
    Motion
 --------------------------------------------------------------------------- */
 

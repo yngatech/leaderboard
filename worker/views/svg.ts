@@ -114,7 +114,7 @@ export function heatmapSvg(weeks: Grid, options: HeatmapOptions): Html {
         // Level drives the ramp; "future" days are an outline rather than a
         // filled square, and only real days light up on hover.
         html`<rect
-          class="fill-heat-0 transition-[fill] duration-150 data-[level=1]:fill-heat-1 data-[level=2]:fill-heat-2 data-[level=3]:fill-heat-3 data-[level=4]:fill-heat-4 data-[state=future]:fill-none data-[state=future]:stroke-future-line data-[state=future]:stroke-1 data-[state=day]:hover:stroke-1 data-[state=day]:hover:stroke-white/70"
+          class="heat-cell"
           data-state="${day.state}"${level}
           x="${weekIndex * pitch}"
           y="${y}"
