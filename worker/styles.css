@@ -129,9 +129,6 @@
 
 /* ---------------------------------------------------------------------------
    Heatmap cells
-   One class replaces the same long atomic class list on every day in every
-   contributor grid, keeping the rendered SVG compact without changing the
-   state carried by its data attributes.
 --------------------------------------------------------------------------- */
 
 @utility heat-cell {
