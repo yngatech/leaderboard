@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "preview": "npm run build && vite preview",
-    "build": "npm run typecheck && vite build",
+    "build": "npm run lint && npm run typecheck && vite build",
+    "lint": "oxlint .",
     "test": "node --test test/*.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:ui": "node test/browser/run-ui.ts",
@@ -20,6 +21,7 @@
     "@playwright/test": "^1.62.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.13.3",
+    "oxlint": "^1.80.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.2.0",

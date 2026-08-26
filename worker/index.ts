@@ -166,7 +166,7 @@ function json(body: unknown, init: ResponseInit = {}): Response {
     ...init,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      ...(init.headers ?? {}),
+      ...init.headers,
     },
   });
 }
@@ -176,7 +176,7 @@ function text(body: string, init: ResponseInit = {}): Response {
     ...init,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
-      ...(init.headers ?? {}),
+      ...init.headers,
     },
   });
 }
@@ -186,7 +186,7 @@ function html(body: string, init: ResponseInit = {}): Response {
     ...init,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      ...(init.headers ?? {}),
+      ...init.headers,
     },
   });
 }
@@ -1019,7 +1019,7 @@ function svg(body: string, init: ResponseInit = {}): Response {
     ...init,
     headers: {
       "Content-Type": "image/svg+xml; charset=utf-8",
-      ...(init.headers ?? {}),
+      ...init.headers,
     },
   });
 }
@@ -1435,258 +1435,278 @@ export class LeaderState extends DurableObject<Env> {
   }
 }
 
+async function routeApi(
+  request: Request,
+  url: URL,
+  readOnly: boolean,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response | null> {
+  if (url.pathname === API_CATALOG_PATH) {
+    if (!readOnly) {
+      return json({ error: `Use GET for ${API_CATALOG_PATH}.`, status: 405 }, { status: 405 });
+    }
+    return handleApiCatalog(request);
+  }
+  if (url.pathname === "/api/board") {
+    if (!readOnly) {
+      return json({ error: "Use GET for /api/board.", status: 405 }, { status: 405 });
+    }
+    return handleBoard(request, env, ctx);
+  }
+  if (url.pathname === "/api/all") {
+    if (!readOnly) {
+      return json({ error: "Use GET for /api/all.", status: 405 }, { status: 405 });
+    }
+    try {
+      return await handleAllApi(env, ctx);
+    } catch (error) {
+      console.error("all-time api failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return json(
+        { error: "The board could not be assembled.", status: 500 },
+        { status: 500, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+  }
+
+  const userApiMatch = /^\/api\/users\/([A-Za-z0-9][A-Za-z0-9-]*)\/?$/.exec(url.pathname);
+  if (userApiMatch) {
+    if (!readOnly) {
+      return json({ error: "Use GET for user APIs.", status: 405 }, { status: 405 });
+    }
+    const requested = userApiMatch[1];
+    const canonical = rosterLogin(requested);
+    if (!canonical) {
+      return json(
+        { error: `No leaderboard account named ${requested}.`, status: 404 },
+        { status: 404, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    if (url.pathname !== `/api/users/${canonical}`) {
+      return Response.redirect(`${url.origin}/api/users/${canonical}`, 308);
+    }
+    try {
+      return await handleUserApi(canonical, env, ctx);
+    } catch (error) {
+      console.error("user api failed", {
+        login: canonical,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return json(
+        { error: "The board could not be assembled.", status: 500 },
+        { status: 500, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+  }
+  return url.pathname.startsWith("/api/")
+    ? json({ error: `No API route at ${url.pathname}.`, status: 404 }, { status: 404 })
+    : null;
+}
+
+async function routeImage(
+  url: URL,
+  readOnly: boolean,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response | null> {
+  const badgeMatch = /^\/u\/([A-Za-z0-9][A-Za-z0-9-]*)\/(year|all)\.svg$/.exec(url.pathname);
+  if (badgeMatch) {
+    if (!readOnly) return text("Use GET for badges.\n", { status: 405 });
+    const [, requested, kind] = badgeMatch;
+    const canonical = rosterLogin(requested);
+    // Off the roster is a 404, exactly as it is for a card.
+    if (!canonical) {
+      return text(`No leaderboard account named ${requested}.\n`, {
+        status: 404,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+    if (url.pathname !== `/u/${canonical}/${kind}.svg`) {
+      return Response.redirect(`${url.origin}/u/${canonical}/${kind}.svg`, 308);
+    }
+    try {
+      return await handleUserBadge(canonical, kind as BadgeKind, env, ctx);
+    } catch (error) {
+      console.error("badge failed", {
+        login: canonical,
+        kind,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return text("The badge could not be drawn.\n", {
+        status: 500,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+  }
+
+  const cardMatch = /^\/u\/([A-Za-z0-9][A-Za-z0-9-]*)\.svg$/.exec(url.pathname);
+  if (!cardMatch) return null;
+  if (!readOnly) return text("Use GET for cards.\n", { status: 405 });
+  const requested = cardMatch[1];
+  const canonical = rosterLogin(requested);
+  // Off the roster is a 404. The set of cards that exist is the roster,
+  // which is the whole abuse story — see the README.
+  if (!canonical) {
+    return text(`No leaderboard account named ${requested}.\n`, {
+      status: 404,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+  if (url.pathname !== `/u/${canonical}.svg`) {
+    return Response.redirect(`${url.origin}/u/${canonical}.svg`, 308);
+  }
+  try {
+    return await handleUserCard(canonical, env, ctx);
+  } catch (error) {
+    console.error("card failed", {
+      login: canonical,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return text("The card could not be drawn.\n", {
+      status: 500,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+}
+
+async function routeMarkdown(
+  url: URL,
+  readOnly: boolean,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response | null> {
+  if (!url.pathname.endsWith(".md")) return null;
+  if (!readOnly) return text("Use GET for markdown views.\n", { status: 405 });
+
+  // An unexpected throw here would surface as a bare 1101 page.
+  const guard = async (render: () => Promise<Response>) => {
+    try {
+      return await render();
+    } catch (error) {
+      console.error("markdown failed", {
+        path: url.pathname,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return text("The board could not be assembled.\n", {
+        status: 500,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+  };
+  if (url.pathname === "/all.md") return guard(() => handleAllMarkdown(env, ctx));
+
+  const match = /^\/(\d{4})\.md$/.exec(url.pathname);
+  const year = match ? parseYear(match[1]) : null;
+  if (year === null) {
+    return text(`${yearOutOfRange()} Try ${SITE}/${currentYear()}.md\n`, {
+      status: 404,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+  return guard(() => handleMarkdown(year, env, ctx));
+}
+
+async function servePage(url: URL, render: () => Promise<Response>): Promise<Response> {
+  let response: Response;
+  try {
+    response = await render();
+  } catch (error) {
+    console.error("page failed", {
+      path: url.pathname,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    response = html(errorPageHtml(siteChrome(), "The board could not be assembled."), {
+      status: 500,
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+  // `?nojs=1` shows the page exactly as it is without the enhancement
+  // script. Stripped after cache retrieval: the key never sees the query.
+  if (url.searchParams.has("nojs") && response.body !== null) {
+    const body = (await response.text()).replace(/<script type="module"[^>]*><\/script>/, "");
+    return new Response(body, { status: response.status, headers: response.headers });
+  }
+  return response;
+}
+
+async function routePage(
+  request: Request,
+  url: URL,
+  readOnly: boolean,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  /* Every route below resolves to a validated year or a canonical PEOPLE
+     login before any cache access, so visitor input can never shape a key. */
+  if (!readOnly) return text("Use GET for board pages.\n", { status: 405 });
+  if (url.pathname === "/") {
+    return servePage(url, () => handleYearPage(currentYear(), env, ctx));
+  }
+  if (url.pathname === "/all" || url.pathname === "/all/") {
+    return servePage(url, () => handleAllPage(env, ctx));
+  }
+
+  const yearMatch = /^\/(\d{4})\/?$/.exec(url.pathname);
+  if (yearMatch) {
+    const year = parseYear(yearMatch[1]);
+    if (year === null) {
+      return servePage(url, async () =>
+        html(notFoundPageHtml(siteChrome()), {
+          status: 404,
+          headers: { "Cache-Control": "no-store" },
+        }),
+      );
+    }
+    return servePage(url, () => handleYearPage(year, env, ctx));
+  }
+
+  const userMatch = /^\/u\/([A-Za-z0-9][A-Za-z0-9-]*)\/?$/.exec(url.pathname);
+  if (userMatch) {
+    const requested = userMatch[1];
+    const canonical = rosterLogin(requested);
+    if (!canonical) {
+      // The regex has already constrained the echoed login's alphabet, and
+      // the renderer escapes it besides.
+      return servePage(url, async () =>
+        html(unknownUserPageHtml(siteChrome(), requested), {
+          status: 404,
+          headers: { "Cache-Control": "no-store" },
+        }),
+      );
+    }
+    // One casing, no trailing slash: one page, one cache entry.
+    if (url.pathname !== `/u/${canonical}`) {
+      return Response.redirect(`${url.origin}/u/${canonical}`, 308);
+    }
+    return servePage(url, () => handleUserPage(canonical, env, ctx));
+  }
+
+  // Static assets keep their own router; anything it doesn't know is a
+  // real 404 now, not the old SPA shell with a 200 on it.
+  const asset = await env.ASSETS.fetch(request);
+  if (asset.status !== 404) return asset;
+  return servePage(url, async () =>
+    html(notFoundPageHtml(siteChrome()), {
+      status: 404,
+      headers: { "Cache-Control": "no-store" },
+    }),
+  );
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const readOnly = request.method === "GET" || request.method === "HEAD";
 
-    if (url.pathname === API_CATALOG_PATH) {
-      if (!readOnly) {
-        return json({ error: `Use GET for ${API_CATALOG_PATH}.`, status: 405 }, { status: 405 });
-      }
-      return handleApiCatalog(request);
-    }
-
-    if (url.pathname === "/api/board") {
-      if (!readOnly) {
-        return json({ error: "Use GET for /api/board.", status: 405 }, { status: 405 });
-      }
-      return handleBoard(request, env, ctx);
-    }
-
-    if (url.pathname === "/api/all") {
-      if (!readOnly) {
-        return json({ error: "Use GET for /api/all.", status: 405 }, { status: 405 });
-      }
-      try {
-        return await handleAllApi(env, ctx);
-      } catch (error) {
-        console.error("all-time api failed", {
-          message: error instanceof Error ? error.message : String(error),
-        });
-        return json(
-          { error: "The board could not be assembled.", status: 500 },
-          { status: 500, headers: { "Cache-Control": "no-store" } },
-        );
-      }
-    }
-
-    const userApiMatch = /^\/api\/users\/([A-Za-z0-9][A-Za-z0-9-]*)\/?$/.exec(url.pathname);
-    if (userApiMatch) {
-      if (!readOnly) {
-        return json({ error: "Use GET for user APIs.", status: 405 }, { status: 405 });
-      }
-      const requested = userApiMatch[1];
-      const canonical = rosterLogin(requested);
-      if (!canonical) {
-        return json(
-          { error: `No leaderboard account named ${requested}.`, status: 404 },
-          { status: 404, headers: { "Cache-Control": "no-store" } },
-        );
-      }
-      if (url.pathname !== `/api/users/${canonical}`) {
-        return Response.redirect(`${url.origin}/api/users/${canonical}`, 308);
-      }
-      try {
-        return await handleUserApi(canonical, env, ctx);
-      } catch (error) {
-        console.error("user api failed", {
-          login: canonical,
-          message: error instanceof Error ? error.message : String(error),
-        });
-        return json(
-          { error: "The board could not be assembled.", status: 500 },
-          { status: 500, headers: { "Cache-Control": "no-store" } },
-        );
-      }
-    }
-
-    if (url.pathname.startsWith("/api/")) {
-      return json({ error: `No API route at ${url.pathname}.`, status: 404 }, { status: 404 });
-    }
-
-    const badgeMatch = /^\/u\/([A-Za-z0-9][A-Za-z0-9-]*)\/(year|all)\.svg$/.exec(url.pathname);
-    if (badgeMatch) {
-      if (!readOnly) {
-        return text("Use GET for badges.\n", { status: 405 });
-      }
-      const [, requested, kind] = badgeMatch;
-      const canonical = rosterLogin(requested);
-      // Off the roster is a 404, exactly as it is for a card.
-      if (!canonical) {
-        return text(`No leaderboard account named ${requested}.\n`, {
-          status: 404,
-          headers: { "Cache-Control": "no-store" },
-        });
-      }
-      if (url.pathname !== `/u/${canonical}/${kind}.svg`) {
-        return Response.redirect(`${url.origin}/u/${canonical}/${kind}.svg`, 308);
-      }
-      try {
-        return await handleUserBadge(canonical, kind as BadgeKind, env, ctx);
-      } catch (error) {
-        console.error("badge failed", {
-          login: canonical,
-          kind,
-          message: error instanceof Error ? error.message : String(error),
-        });
-        return text("The badge could not be drawn.\n", {
-          status: 500,
-          headers: { "Cache-Control": "no-store" },
-        });
-      }
-    }
-
-    const cardMatch = /^\/u\/([A-Za-z0-9][A-Za-z0-9-]*)\.svg$/.exec(url.pathname);
-    if (cardMatch) {
-      if (!readOnly) {
-        return text("Use GET for cards.\n", { status: 405 });
-      }
-      const requested = cardMatch[1];
-      const canonical = rosterLogin(requested);
-      // Off the roster is a 404. The set of cards that exist is the roster,
-      // which is the whole abuse story — see the README.
-      if (!canonical) {
-        return text(`No leaderboard account named ${requested}.\n`, {
-          status: 404,
-          headers: { "Cache-Control": "no-store" },
-        });
-      }
-      if (url.pathname !== `/u/${canonical}.svg`) {
-        return Response.redirect(`${url.origin}/u/${canonical}.svg`, 308);
-      }
-      try {
-        return await handleUserCard(canonical, env, ctx);
-      } catch (error) {
-        console.error("card failed", {
-          login: canonical,
-          message: error instanceof Error ? error.message : String(error),
-        });
-        return text("The card could not be drawn.\n", {
-          status: 500,
-          headers: { "Cache-Control": "no-store" },
-        });
-      }
-    }
-
-    if (url.pathname.endsWith(".md")) {
-      if (!readOnly) {
-        return text("Use GET for markdown views.\n", { status: 405 });
-      }
-      // An unexpected throw here would surface as a bare 1101 page.
-      const guard = async (render: () => Promise<Response>) => {
-        try {
-          return await render();
-        } catch (error) {
-          console.error("markdown failed", {
-            path: url.pathname,
-            message: error instanceof Error ? error.message : String(error),
-          });
-          return text("The board could not be assembled.\n", {
-            status: 500,
-            headers: { "Cache-Control": "no-store" },
-          });
-        }
-      };
-
-      if (url.pathname === "/all.md") return guard(() => handleAllMarkdown(env, ctx));
-
-      const match = /^\/(\d{4})\.md$/.exec(url.pathname);
-      const year = match ? parseYear(match[1]) : null;
-      if (year === null) {
-        return text(`${yearOutOfRange()} Try ${SITE}/${currentYear()}.md\n`, {
-          status: 404,
-          headers: { "Cache-Control": "no-store" },
-        });
-      }
-      return guard(() => handleMarkdown(year, env, ctx));
-    }
-
-    /* Rendered pages. Every route below resolves to a validated year or a
-       canonical PEOPLE login before any cache access, so visitor input can
-       never shape a key. */
-
-    if (!readOnly) {
-      return text("Use GET for board pages.\n", { status: 405 });
-    }
-
-    // An unexpected throw here would surface as a bare 1101 page.
-    const servePage = async (render: () => Promise<Response>) => {
-      let response: Response;
-      try {
-        response = await render();
-      } catch (error) {
-        console.error("page failed", {
-          path: url.pathname,
-          message: error instanceof Error ? error.message : String(error),
-        });
-        response = html(errorPageHtml(siteChrome(), "The board could not be assembled."), {
-          status: 500,
-          headers: { "Cache-Control": "no-store" },
-        });
-      }
-      // `?nojs=1` shows the page exactly as it is without the enhancement
-      // script. Stripped after cache retrieval: the key never sees the query.
-      if (url.searchParams.has("nojs") && response.body !== null) {
-        const body = (await response.text()).replace(/<script type="module"[^>]*><\/script>/, "");
-        return new Response(body, { status: response.status, headers: response.headers });
-      }
-      return response;
-    };
-
-    if (url.pathname === "/") {
-      return servePage(() => handleYearPage(currentYear(), env, ctx));
-    }
-
-    if (url.pathname === "/all" || url.pathname === "/all/") {
-      return servePage(() => handleAllPage(env, ctx));
-    }
-
-    const yearMatch = /^\/(\d{4})\/?$/.exec(url.pathname);
-    if (yearMatch) {
-      const year = parseYear(yearMatch[1]);
-      if (year === null) {
-        return servePage(async () =>
-          html(notFoundPageHtml(siteChrome()), {
-            status: 404,
-            headers: { "Cache-Control": "no-store" },
-          }),
-        );
-      }
-      return servePage(() => handleYearPage(year, env, ctx));
-    }
-
-    const userMatch = /^\/u\/([A-Za-z0-9][A-Za-z0-9-]*)\/?$/.exec(url.pathname);
-    if (userMatch) {
-      const requested = userMatch[1];
-      const canonical = rosterLogin(requested);
-      if (!canonical) {
-        // The regex has already constrained the echoed login's alphabet, and
-        // the renderer escapes it besides.
-        return servePage(async () =>
-          html(unknownUserPageHtml(siteChrome(), requested), {
-            status: 404,
-            headers: { "Cache-Control": "no-store" },
-          }),
-        );
-      }
-      // One casing, no trailing slash: one page, one cache entry.
-      if (url.pathname !== `/u/${canonical}`) {
-        return Response.redirect(`${url.origin}/u/${canonical}`, 308);
-      }
-      return servePage(() => handleUserPage(canonical, env, ctx));
-    }
-
-    // Static assets keep their own router; anything it doesn't know is a
-    // real 404 now, not the old SPA shell with a 200 on it.
-    const asset = await env.ASSETS.fetch(request);
-    if (asset.status !== 404) return asset;
-    return servePage(async () =>
-      html(notFoundPageHtml(siteChrome()), {
-        status: 404,
-        headers: { "Cache-Control": "no-store" },
-      }),
-    );
+    const api = await routeApi(request, url, readOnly, env, ctx);
+    if (api) return api;
+    const image = await routeImage(url, readOnly, env, ctx);
+    if (image) return image;
+    const markdown = await routeMarkdown(url, readOnly, env, ctx);
+    if (markdown) return markdown;
+    return routePage(request, url, readOnly, env, ctx);
   },
 
   scheduled(_controller: ScheduledController, env: Env): Promise<void> {

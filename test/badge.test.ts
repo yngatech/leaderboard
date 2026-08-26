@@ -5,6 +5,8 @@ import { badgeSvg } from "../worker/views/badge.ts";
 
 type YearInput = Extract<BadgeInput, { kind: "year" }>;
 type AllInput = Extract<BadgeInput, { kind: "all" }>;
+// oxlint-disable-next-line no-control-regex -- XML explicitly excludes these code points.
+const ILLEGAL_XML_CONTROL = new RegExp("[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f]");
 
 function yearBadge(overrides: Partial<YearInput> = {}): BadgeInput {
   return { kind: "year", year: 2026, total: 1204, ...overrides };
@@ -17,7 +19,7 @@ function allBadge(overrides: Partial<AllInput> = {}): BadgeInput {
 /** A badge fails the way a card does: silently, as a broken image. */
 function assertWellFormed(markup: string): void {
   assert.ok(markup.startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
-  assert.doesNotMatch(markup, /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/, "illegal in XML");
+  assert.doesNotMatch(markup, ILLEGAL_XML_CONTROL, "illegal in XML");
 
   const open: string[] = [];
   for (const [tag, closing, name, selfClosing] of markup.matchAll(

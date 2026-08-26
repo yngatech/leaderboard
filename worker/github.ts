@@ -106,6 +106,40 @@ function contributionCount(text: string): number | null {
   return match[1] === undefined ? 0 : Number(match[1].replaceAll(",", ""));
 }
 
+function addContributionDay(
+  byWeek: Map<number, Map<number, ContributionDay>>,
+  tooltipCounts: Map<string, number>,
+  tag: string,
+): boolean {
+  const date = attribute(tag, "data-date");
+  const id = attribute(tag, "id");
+  const level = attribute(tag, "data-level");
+  const coordinates = id && /^contribution-day-component-(\d+)-(\d+)$/.exec(id);
+  if (!date || !coordinates) return true;
+
+  const count = tooltipCounts.get(id);
+  const numericLevel = level === null ? NaN : Number(level);
+  const weekIndex = Number(coordinates[2]);
+  const weekday = Number(coordinates[1]);
+  if (
+    count === undefined ||
+    !Number.isInteger(numericLevel) ||
+    numericLevel < 0 ||
+    numericLevel > 4 ||
+    byWeek.get(weekIndex)?.has(weekday)
+  ) {
+    return false;
+  }
+
+  let week = byWeek.get(weekIndex);
+  if (!week) {
+    week = new Map();
+    byWeek.set(weekIndex, week);
+  }
+  week.set(weekday, { date, count, level: numericLevel as ContributionDay["level"] });
+  return true;
+}
+
 /**
  * Parses GitHub's public, server-rendered yearly contributions fragment.
  * The table is row-major, while the cell id carries its weekday and week
@@ -131,32 +165,7 @@ export function parseContributionHtml(html: string): HtmlCalendar | null {
 
   const byWeek = new Map<number, Map<number, ContributionDay>>();
   for (const match of html.matchAll(/<td\b[^>]*>/gi)) {
-    const tag = match[0];
-    const date = attribute(tag, "data-date");
-    const id = attribute(tag, "id");
-    const level = attribute(tag, "data-level");
-    const coordinates = id && /^contribution-day-component-(\d+)-(\d+)$/.exec(id);
-    const count = id ? tooltipCounts.get(id) : undefined;
-    const numericLevel = level === null ? NaN : Number(level);
-    if (!date || !coordinates) continue;
-    if (
-      count === undefined ||
-      !Number.isInteger(numericLevel) ||
-      numericLevel < 0 ||
-      numericLevel > 4 ||
-      byWeek.get(Number(coordinates[2]))?.has(Number(coordinates[1]))
-    ) {
-      return null;
-    }
-
-    const weekIndex = Number(coordinates[2]);
-    const weekday = Number(coordinates[1]);
-    let week = byWeek.get(weekIndex);
-    if (!week) {
-      week = new Map();
-      byWeek.set(weekIndex, week);
-    }
-    week.set(weekday, { date, count, level: numericLevel as ContributionDay["level"] });
+    if (!addContributionDay(byWeek, tooltipCounts, match[0])) return null;
   }
 
   if (byWeek.size === 0) return null;

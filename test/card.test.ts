@@ -5,6 +5,8 @@ import type { CardInput } from "../worker/views/card.ts";
 import { absentCardSvg, cardSvg } from "../worker/views/card.ts";
 
 const TODAY = "2026-03-05";
+// oxlint-disable-next-line no-control-regex -- XML explicitly excludes these code points.
+const ILLEGAL_XML_CONTROL = new RegExp("[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f]");
 
 function makeCard(overrides: Partial<CardInput> = {}): CardInput {
   const grid = userGrid(
@@ -45,7 +47,7 @@ function makeCard(overrides: Partial<CardInput> = {}): CardInput {
  */
 function assertWellFormed(markup: string): void {
   assert.ok(markup.startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
-  assert.doesNotMatch(markup, /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/, "illegal in XML");
+  assert.doesNotMatch(markup, ILLEGAL_XML_CONTROL, "illegal in XML");
 
   const open: string[] = [];
   for (const [tag, closing, name, selfClosing] of markup.matchAll(
