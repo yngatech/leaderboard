@@ -1,4 +1,4 @@
-import type { AllTime, AllTimeUser, Board } from "../../shared/types.ts";
+import type { AllTime, AllTimeUser, Board, BoardUser } from "../../shared/types.ts";
 import {
   boardGoal,
   boardYearRanks,
@@ -12,6 +12,11 @@ import {
   userGrid,
   userYearStrip,
   yearShape,
+  type Grid,
+  type PeakDay,
+  type PeakYear,
+  type UserGoals,
+  type YearCell,
 } from "../../shared/board.ts";
 import { cakeDayYears, joinDay, yearsOnGitHub } from "../../shared/cakeday.ts";
 import { formatDayShort, formatDayYear, formatNumber, formatOrdinal } from "../../shared/format.ts";
@@ -446,46 +451,23 @@ function cardSectionHtml(login: string): Html {
   </section>`;
 }
 
-export function userPageHtml(options: UserPageOptions): string {
-  const { chrome, user, board, allUsers, years, year, today } = options;
+function followingHtml(user: AllTimeUser): Html | null {
+  if (user.followers === null) return null;
+  return html`<p class="mt-[0.4rem] wrap-sep text-[0.7rem] text-dimmer">
+    <span>${formatNumber(user.followers ?? 0)} followers</span
+    ><span>${formatNumber(user.following ?? 0)} following</span>
+  </p>`;
+}
 
-  const boardIndex = board.findIndex((other) => other.login === user.login);
-  const boardUser = boardIndex >= 0 ? board[boardIndex] : null;
-  const boardRank = boardIndex >= 0 ? boardIndex + 1 : null;
-
-  const thresholds = boardYearThresholds(allUsers);
-  const ranks = boardYearRanks(allUsers, years);
-  const cells = userYearStrip(user, years, thresholds, ranks);
-  const best = peakYear(cells);
-
-  const grid = boardUser ? userGrid(boardUser.weeks, year, today) : null;
-  const peak = grid ? peakDay(grid) : null;
-  const goals = boardIndex >= 0 ? userGoals(board, boardIndex) : null;
-
-  const firstActive = years.find((y) => (user.byYear[String(y)] ?? 0) > 0) ?? null;
-  /** Competition ranking across every account's all-time total. */
-  const allRank =
-    user.total > 0 ? allUsers.filter((other) => other.total > user.total).length + 1 : null;
-
-  const follows =
-    user.followers !== null
-      ? html`<p class="mt-[0.4rem] wrap-sep text-[0.7rem] text-dimmer">
-          <span>${formatNumber(user.followers ?? 0)} followers</span
-          ><span>${formatNumber(user.following ?? 0)} following</span>
-        </p>`
-      : null;
-
-  const sinceCaption = firstActive ? `contributions since ${firstActive}` : "contributions";
-
-  /** Leading the board is worth exactly the marks a rank-1 row wears: a gold
-   *  edge on the card and a gold total. The sentences stay quiet. */
-  const leadsAllTime = allRank === 1;
-  const leadsYear = boardRank === 1;
-
-  /* ---- the career ledger: what the year strip above it adds up to ---- */
-  const careerFields: LedgerField[] = [];
+function careerLedgerFields(
+  user: AllTimeUser,
+  best: PeakYear | null,
+  allRank: number | null,
+  today: string,
+): LedgerField[] {
+  const fields: LedgerField[] = [];
   if (best) {
-    careerFields.push({
+    fields.push({
       term: "best year",
       body: html`<p>
         <strong class="${LEDGER_FIGURE}">${formatNumber(best.count)}</strong> contributions in
@@ -494,33 +476,46 @@ export function userPageHtml(options: UserPageOptions): string {
     });
   }
   if (allRank) {
-    careerFields.push({
+    fields.push({
       term: "standing",
       body: html`<p>${formatOrdinal(allRank)} on the all-time board</p>`,
     });
   }
-  if (user.createdAt) {
-    // On the day itself the anniversary is the more interesting half, so it
-    // takes the same slot the age normally holds.
-    const cakeDay = cakeDayYears(user.createdAt, today);
-    const age = cakeDay ?? yearsOnGitHub(user.createdAt, today);
-    const since =
-      age > 0
-        ? html` <span class="text-dimmer"
-            >· ${formatNumber(age)} ${age === 1 ? "year" : "years"}${cakeDay
-              ? " ago today"
-              : " ago"}</span
-          >`
-        : null;
-    careerFields.push({
-      term: "joined github",
-      body: html`<p>
-        <strong class="${LEDGER_VALUE}">${formatDayYear(joinDay(user.createdAt))}</strong>${since}
-      </p>`,
-    });
-  }
+  if (!user.createdAt) return fields;
 
-  const identityCard = html`<section
+  // On the day itself the anniversary is the more interesting half, so it
+  // takes the same slot the age normally holds.
+  const cakeDay = cakeDayYears(user.createdAt, today);
+  const age = cakeDay ?? yearsOnGitHub(user.createdAt, today);
+  const since =
+    age > 0
+      ? html` <span class="text-dimmer"
+          >· ${formatNumber(age)} ${age === 1 ? "year" : "years"}${cakeDay
+            ? " ago today"
+            : " ago"}</span
+        >`
+      : null;
+  fields.push({
+    term: "joined github",
+    body: html`<p>
+      <strong class="${LEDGER_VALUE}">${formatDayYear(joinDay(user.createdAt))}</strong>${since}
+    </p>`,
+  });
+  return fields;
+}
+
+interface IdentityCardOptions {
+  chrome: SiteChrome;
+  user: AllTimeUser;
+  cells: YearCell[];
+  careerFields: LedgerField[];
+  leadsAllTime: boolean;
+  sinceCaption: string;
+}
+
+function identityCardHtml(options: IdentityCardOptions): Html {
+  const { chrome, user, cells, careerFields, leadsAllTime, sinceCaption } = options;
+  return html`<section
     class="mt-[clamp(2.5rem,6vw,4rem)] ${CARD} ${leadsAllTime
       ? "border-accent/32"
       : "border-line-soft"}"
@@ -554,7 +549,7 @@ export function userPageHtml(options: UserPageOptions): string {
           >
         </h2>
         <p class="mt-[0.35rem] text-[0.78rem] break-words text-dim">${user.name ?? "—"}</p>
-        ${follows}
+        ${followingHtml(user)}
       </div>
       <div
         class="ml-auto flex shrink-0 flex-col items-end text-right max-phone:ml-0 max-phone:w-full max-phone:items-start max-phone:text-left"
@@ -576,91 +571,57 @@ export function userPageHtml(options: UserPageOptions): string {
     labels: true,
     podium: true,
     label: `${user.login}, year by year`,
-    hrefFor: (y) => hrefForYear(y, chrome.thisYear),
+    hrefFor: (year) => hrefForYear(year, chrome.thisYear),
   })}</div>
     ${ledgerHtml(careerFields)}
   </section>`;
+}
 
-  let liveSection: Html;
-  if (boardUser && grid) {
-    /* ---- the year ledger: the running total and what it is chasing ---- */
-    const liveFields: LedgerField[] = [];
+function milestoneHtml(boardUser: BoardUser, goals: UserGoals | null): Html | null {
+  if (!goals?.nextMilestone) return null;
+  // The rail turns "next milestone at 5,000" into a distance you can see,
+  // using the same determinate device as the board's own target line.
+  const toGo =
+    goals.toMilestone === null
+      ? null
+      : html` <span class="opacity-60">·</span>
+          <span class="tabular-nums">${formatNumber(goals.toMilestone)} to go</span>`;
+  return html`<div class="mt-[0.7rem] max-w-[24rem]">
+    ${goalRailHtml(boardUser.totalContributions, goals.nextMilestone)}
+    <p class="mt-[0.5rem] text-dimmer">
+      next milestone at
+      <strong class="${LEDGER_VALUE}">${formatNumber(goals.nextMilestone)}</strong>${toGo}
+    </p>
+  </div>`;
+}
 
-    let milestone: Html | null = null;
-    if (goals?.nextMilestone) {
-      // The rail turns "next milestone at 5,000" into a distance you can see,
-      // using the same determinate device as the board's own target line.
-      const toGo =
-        goals.toMilestone === null
-          ? null
-          : html` <span class="opacity-60">·</span>
-              <span class="tabular-nums">${formatNumber(goals.toMilestone)} to go</span>`;
-      milestone = html`<div class="mt-[0.7rem] max-w-[24rem]">
-        ${goalRailHtml(boardUser.totalContributions, goals.nextMilestone)}
-        <p class="mt-[0.5rem] text-dimmer">
-          next milestone at
-          <strong class="${LEDGER_VALUE}">${formatNumber(goals.nextMilestone)}</strong>${toGo}
-        </p>
-      </div>`;
-    }
-    const running = html`<p>
-        <strong class="${leadsYear ? LEDGER_FIGURE_LEAD : LEDGER_FIGURE}"
-          >${formatNumber(boardUser.totalContributions)}</strong
-        >
-        contributions
-      </p>
-      ${milestone}`;
-    liveFields.push({ term: `${year} so far`, body: running });
+function rankGapHtml(goals: UserGoals | null): Html | null {
+  if (goals?.above) {
+    return goals.above.behind > 0
+      ? html`<strong class="${LEDGER_VALUE}">${formatNumber(goals.above.behind)}</strong>
+          behind <span class="text-ink">${goals.above.login}</span>`
+      : html`level with <span class="text-ink">${goals.above.login}</span>`;
+  }
+  if (goals?.leadMargin === null || goals?.leadMargin === undefined) return null;
+  return html`leads by
+    <strong class="${LEDGER_VALUE}">${formatNumber(goals.leadMargin)}</strong>`;
+}
 
-    let rankGap: Html | null = null;
-    if (goals?.above) {
-      rankGap =
-        goals.above.behind > 0
-          ? html`<strong class="${LEDGER_VALUE}">${formatNumber(goals.above.behind)}</strong>
-              behind <span class="text-ink">${goals.above.login}</span>`
-          : html`level with <span class="text-ink">${goals.above.login}</span>`;
-    } else if (goals?.leadMargin !== null && goals?.leadMargin !== undefined) {
-      rankGap = html`leads by
-        <strong class="${LEDGER_VALUE}">${formatNumber(goals.leadMargin)}</strong>`;
-    }
-    if (boardRank) {
-      liveFields.push({
-        term: "standing",
-        body: html`<p>
-          ${formatOrdinal(boardRank)} on the ${year} board${rankGap
-            ? html` <span class="text-dimmer">—</span> ${rankGap}`
-            : null}
-        </p>`,
-      });
-    }
+interface LiveYearSectionOptions {
+  user: AllTimeUser;
+  boardUser: BoardUser | null;
+  grid: Grid | null;
+  peak: PeakDay | null;
+  goals: UserGoals | null;
+  boardRank: number | null;
+  year: number;
+  leadsYear: boolean;
+}
 
-    liveFields.push({
-      term: "busiest day",
-      body: peak
-        ? html`<p>
-            <strong class="${LEDGER_VALUE}">${formatNumber(peak.count)}</strong> contributions on
-            ${formatDayShort(peak.date)}
-          </p>`
-        : html`<p class="text-dimmer">no activity yet</p>`,
-    });
-
-    liveSection = html`<section
-      class="${CARD} [animation-delay:90ms] ${leadsYear
-        ? "border-accent/32"
-        : "border-line-soft"}"
-      aria-label="${user.login} in ${year}"
-    >
-      <div class="${CARD_WELL}">${heatmapSvg(grid, {
-      cell: 17,
-      gap: 3,
-      months: true,
-      peakDate: peak?.date,
-      label: `${user.login} made ${formatNumber(boardUser.totalContributions)} contributions in ${year}`,
-    })}</div>
-      ${ledgerHtml(liveFields)}
-    </section>`;
-  } else {
-    liveSection = html`<section
+function liveYearSectionHtml(options: LiveYearSectionOptions): Html {
+  const { user, boardUser, grid, peak, goals, boardRank, year, leadsYear } = options;
+  if (!boardUser || !grid) {
+    return html`<section
       class="animate-rise rounded-2xl border border-line-soft bg-panel px-[1.3rem] py-[1.15rem] [animation-delay:90ms] max-phone:px-4"
       aria-label="${user.login} in ${year}"
     >
@@ -669,6 +630,101 @@ export function userPageHtml(options: UserPageOptions): string {
       </p>
     </section>`;
   }
+
+  const fields: LedgerField[] = [];
+  const running = html`<p>
+      <strong class="${leadsYear ? LEDGER_FIGURE_LEAD : LEDGER_FIGURE}"
+        >${formatNumber(boardUser.totalContributions)}</strong
+      >
+      contributions
+    </p>
+    ${milestoneHtml(boardUser, goals)}`;
+  fields.push({ term: `${year} so far`, body: running });
+
+  if (boardRank) {
+    const rankGap = rankGapHtml(goals);
+    fields.push({
+      term: "standing",
+      body: html`<p>
+        ${formatOrdinal(boardRank)} on the ${year} board${rankGap
+          ? html` <span class="text-dimmer">—</span> ${rankGap}`
+          : null}
+      </p>`,
+    });
+  }
+  fields.push({
+    term: "busiest day",
+    body: peak
+      ? html`<p>
+          <strong class="${LEDGER_VALUE}">${formatNumber(peak.count)}</strong> contributions on
+          ${formatDayShort(peak.date)}
+        </p>`
+      : html`<p class="text-dimmer">no activity yet</p>`,
+  });
+
+  return html`<section
+    class="${CARD} [animation-delay:90ms] ${leadsYear ? "border-accent/32" : "border-line-soft"}"
+    aria-label="${user.login} in ${year}"
+  >
+    <div class="${CARD_WELL}">${heatmapSvg(grid, {
+    cell: 17,
+    gap: 3,
+    months: true,
+    peakDate: peak?.date,
+    label: `${user.login} made ${formatNumber(boardUser.totalContributions)} contributions in ${year}`,
+  })}</div>
+    ${ledgerHtml(fields)}
+  </section>`;
+}
+
+export function userPageHtml(options: UserPageOptions): string {
+  const { chrome, user, board, allUsers, years, year, today } = options;
+
+  const boardIndex = board.findIndex((other) => other.login === user.login);
+  const boardUser = boardIndex >= 0 ? board[boardIndex] : null;
+  const boardRank = boardIndex >= 0 ? boardIndex + 1 : null;
+
+  const thresholds = boardYearThresholds(allUsers);
+  const ranks = boardYearRanks(allUsers, years);
+  const cells = userYearStrip(user, years, thresholds, ranks);
+  const best = peakYear(cells);
+
+  const grid = boardUser ? userGrid(boardUser.weeks, year, today) : null;
+  const peak = grid ? peakDay(grid) : null;
+  const goals = boardIndex >= 0 ? userGoals(board, boardIndex) : null;
+
+  const firstActive = years.find((y) => (user.byYear[String(y)] ?? 0) > 0) ?? null;
+  /** Competition ranking across every account's all-time total. */
+  const allRank =
+    user.total > 0 ? allUsers.filter((other) => other.total > user.total).length + 1 : null;
+
+  const sinceCaption = firstActive ? `contributions since ${firstActive}` : "contributions";
+
+  /** Leading the board is worth exactly the marks a rank-1 row wears: a gold
+   *  edge on the card and a gold total. The sentences stay quiet. */
+  const leadsAllTime = allRank === 1;
+  const leadsYear = boardRank === 1;
+
+  /* ---- the career ledger: what the year strip above it adds up to ---- */
+  const identityCard = identityCardHtml({
+    chrome,
+    user,
+    cells,
+    careerFields: careerLedgerFields(user, best, allRank, today),
+    leadsAllTime,
+    sinceCaption,
+  });
+  /* ---- the year ledger: the running total and what it is chasing ---- */
+  const liveSection = liveYearSectionHtml({
+    user,
+    boardUser,
+    grid,
+    peak,
+    goals,
+    boardRank,
+    year,
+    leadsYear,
+  });
 
   const main = html`${identityCard}${sectionRuleHtml(year)}${liveSection}${cardSectionHtml(
     user.login,

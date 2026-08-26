@@ -59,6 +59,6 @@ async function subset(family: string, characters: string): Promise<Buffer> {
 for (const face of FACES) {
   const body = await subset(face.family, face.characters);
   await writeFile(new URL(`../worker/fonts/${face.file}`, import.meta.url), body);
-  const characters = [...new Set(face.characters)].length;
+  const characters = new Set(face.characters).size;
   console.log(`${face.file}: ${(body.byteLength / 1024).toFixed(1)} KB (${characters} characters)`);
 }

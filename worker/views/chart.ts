@@ -102,6 +102,24 @@ interface RailEntry {
   total: string;
 }
 
+interface RailGeometry {
+  width: number;
+  separatorX: number;
+  ruleX: number;
+  textX: number;
+  textRoom: number;
+}
+
+interface RailLabel {
+  index: number;
+  colour: string;
+  name: string;
+  total: string;
+  rank: string | null;
+  y: number;
+  link: string;
+}
+
 /** Clamps, but gives up to the low bound when there is no room at all. */
 function clamp(value: number, low: number, high: number): number {
   return high <= low ? low : Math.min(Math.max(value, low), high);
@@ -151,6 +169,12 @@ function niceMax(value: number): number {
   return step * power;
 }
 
+function scaleMaximum(series: CumulativeSeries[]): number {
+  const peak = series.reduce((most, item) => Math.max(most, item.total), 0);
+  // An all-zero board still needs a valid scale: every line sits on the floor.
+  return peak > 0 ? niceMax(peak) : 0;
+}
+
 /**
  * A running total only bends on days that changed, so the path keeps the day
  * before and after every change and drops the flat middle. Same shape, far
@@ -173,6 +197,108 @@ function linePath(
     parts.push(`${parts.length === 0 ? "M" : "L"}${xAt(i).toFixed(1)} ${yAt(total).toFixed(1)}`);
   }
   return parts.join(" ");
+}
+
+function railGeometry(railWidth: number | null, rightEdge: number): RailGeometry | null {
+  if (railWidth === null) return null;
+  return {
+    width: railWidth,
+    separatorX: rightEdge + RAIL_SEPARATOR_INSET,
+    ruleX: rightEdge + RAIL_GUTTER,
+    textX: rightEdge + RAIL_TEXT_INSET,
+    textRoom: railWidth - RAIL_TEXT_INSET - 2,
+  };
+}
+
+/* Where the permanent labels actually sit. Each one wants to be level with
+   the end of its line; the solver only ever pushes them apart, never past
+   each other, so the order down the rail is always the order of the lines.
+   The floor is the last word: a label pushed off the bottom drags the ones
+   above it back up instead of leaving the plot. */
+function placeRailLabels(
+  leaders: RailEntry[],
+  rail: RailGeometry | null,
+  baseline: number,
+  dotRadius: number,
+  xAt: (index: number) => number,
+  yAt: (value: number) => number,
+): RailLabel[] {
+  if (!rail) return [];
+  const wanted = leaders
+    .map((entry) => ({
+      entry,
+      endX: xAt(entry.item.points.length - 1),
+      anchorY: yAt(entry.item.total),
+    }))
+    .sort((a, b) => a.anchorY - b.anchorY || a.entry.rank - b.entry.rank);
+  if (wanted.length === 0) return [];
+
+  const ceiling = PAD_TOP + LABEL_UP;
+  const floor = Math.max(ceiling, baseline - LABEL_DOWN);
+  // A short chart tightens the gap rather than pushing a label out of bounds.
+  const gap = wanted.length > 1 ? Math.min(LABEL_GAP, (floor - ceiling) / (wanted.length - 1)) : 0;
+  const ys = wanted.map((slot) => clamp(slot.anchorY, ceiling, floor));
+  for (let i = 1; i < ys.length; i += 1) ys[i] = Math.max(ys[i], ys[i - 1] + gap);
+  if (ys[ys.length - 1] > floor) {
+    ys[ys.length - 1] = floor;
+    // Walking back up always fits: the gap above was sized so that it does.
+    for (let i = ys.length - 2; i >= 0; i -= 1) ys[i] = Math.min(ys[i], ys[i + 1] - gap);
+  }
+
+  const endX = rail.ruleX - 2;
+  const drop = wanted.reduce((most, slot, i) => Math.max(most, Math.abs(ys[i] - slot.anchorY)), 0);
+  const run = wanted.reduce(
+    (least, slot) => Math.min(least, endX - (slot.endX + dotRadius + 4)),
+    Infinity,
+  );
+  // One bend length shared by every connector, so displaced labels' lines
+  // stay parallel instead of tangled.
+  const bend = Math.min(Math.max(12, Math.min(drop * 0.9, 44)), Math.max(4, run));
+  const bendX = endX - bend;
+  const control = bend * 0.45;
+  const nameRoom = Math.floor(rail.textRoom / NAME_ADVANCE);
+  const at = (value: number) => value.toFixed(1);
+
+  return wanted.map((slot, i) => {
+    const y = ys[i];
+    const startX = slot.endX + dotRadius + 4;
+    return {
+      index: slot.entry.index,
+      colour: slot.entry.colour,
+      name: truncate(slot.entry.item.login, nameRoom),
+      total: slot.entry.total,
+      // The rank cue is the first thing dropped if the rail is tight.
+      rank:
+        (slot.entry.rankText.length + slot.entry.total.length) * RAIL_META_ADVANCE + RANK_DX <=
+        rail.textRoom
+          ? slot.entry.rankText
+          : null,
+      y,
+      // The connector back to the line end: level for as long as it can be,
+      // then one bend into the label it was pushed to.
+      link:
+        Math.abs(y - slot.anchorY) < 0.5
+          ? `M${at(startX)} ${at(slot.anchorY)} H${at(endX)}`
+          : `M${at(startX)} ${at(slot.anchorY)} H${at(bendX)} C${at(bendX + control)} ${at(
+              slot.anchorY,
+            )}, ${at(endX - control)} ${at(y)}, ${at(endX)} ${at(y)}`,
+    };
+  });
+}
+
+function chartDescription(today: string, namedCount: number, keyItemCount: number): string {
+  const base =
+    `One line per account, adding up day by day from 1 January to ${formatDayLong(today)}. ` +
+    "Each line stops at today; the rest of the year is empty.";
+  if (namedCount === 0) return `${base} Every account's current total is listed under the chart.`;
+
+  const named =
+    namedCount === 1
+      ? "The leading account is named beside the end of its line, with its current total."
+      : `The top ${namedCount === 2 ? "two" : "three"} accounts are named beside the ends of their lines, with their current totals.`;
+  const remaining =
+    keyItemCount > 0 ? " Every remaining account's total is listed under the chart." : "";
+  return `${base} ${named}${remaining}`;
 }
 
 /**
@@ -207,9 +333,7 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
   const dayCount = Math.round((Date.UTC(year, 11, 31) - Date.UTC(year, 0, 1)) / DAY_MS) + 1;
   const drawnDays = series.reduce((most, item) => Math.max(most, item.points.length), 0);
 
-  const peak = series.reduce((most, item) => Math.max(most, item.total), 0);
-  // An all-zero board still needs a valid scale: every line sits on the floor.
-  const scaleMax = peak > 0 ? niceMax(peak) : 0;
+  const scaleMax = scaleMaximum(series);
 
   const padLeft = Math.max(26, (scaleMax > 0 ? formatNumber(scaleMax).length : 1) * 6 + 12);
   // The rail is width the plot gives up, not width it lends: all data marks
@@ -259,98 +383,8 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
     }))
     .reverse();
 
-  /* Where the permanent labels actually sit. Each one wants to be level with
-     the end of its line; the solver only ever pushes them apart, never past
-     each other, so the order down the rail is always the order of the lines.
-     The floor is the last word: a label pushed off the bottom drags the ones
-     above it back up instead of leaving the plot. */
-  interface RailLabel {
-    index: number;
-    colour: string;
-    name: string;
-    total: string;
-    rank: string | null;
-    y: number;
-    link: string;
-  }
-
-  let railLabels: RailLabel[] = [];
-  const rail =
-    railWidth === null
-      ? null
-      : {
-          width: railWidth,
-          separatorX: rightEdge + RAIL_SEPARATOR_INSET,
-          ruleX: rightEdge + RAIL_GUTTER,
-          textX: rightEdge + RAIL_TEXT_INSET,
-          textRoom: railWidth - RAIL_TEXT_INSET - 2,
-        };
-
-  if (rail) {
-    const wanted = leaders
-      .map((entry) => ({
-        entry,
-        endX: xAt(entry.item.points.length - 1),
-        anchorY: yAt(entry.item.total),
-      }))
-      .sort((a, b) => a.anchorY - b.anchorY || a.entry.rank - b.entry.rank);
-
-    if (wanted.length > 0) {
-      const ceiling = PAD_TOP + LABEL_UP;
-      const floor = Math.max(ceiling, baseline - LABEL_DOWN);
-      // A short chart tightens the gap rather than pushing a label out of bounds.
-      const gap =
-        wanted.length > 1 ? Math.min(LABEL_GAP, (floor - ceiling) / (wanted.length - 1)) : 0;
-
-      const ys = wanted.map((slot) => clamp(slot.anchorY, ceiling, floor));
-      for (let i = 1; i < ys.length; i += 1) ys[i] = Math.max(ys[i], ys[i - 1] + gap);
-      if (ys[ys.length - 1] > floor) {
-        ys[ys.length - 1] = floor;
-        // Walking back up always fits: the gap above was sized so that it does.
-        for (let i = ys.length - 2; i >= 0; i -= 1) ys[i] = Math.min(ys[i], ys[i + 1] - gap);
-      }
-
-      const endX = rail.ruleX - 2;
-      const drop = wanted.reduce((most, slot, i) => Math.max(most, Math.abs(ys[i] - slot.anchorY)), 0);
-      const run = wanted.reduce(
-        (least, slot) => Math.min(least, endX - (slot.endX + dotRadius + 4)),
-        Infinity,
-      );
-      // One bend length shared by every connector, so displaced labels' lines
-      // stay parallel instead of tangled.
-      const bend = Math.min(Math.max(12, Math.min(drop * 0.9, 44)), Math.max(4, run));
-      const bendX = endX - bend;
-      const control = bend * 0.45;
-      const nameRoom = Math.floor(rail.textRoom / NAME_ADVANCE);
-      const at = (value: number) => value.toFixed(1);
-
-      railLabels = wanted.map((slot, i) => {
-        const y = ys[i];
-        const startX = slot.endX + dotRadius + 4;
-        return {
-          index: slot.entry.index,
-          colour: slot.entry.colour,
-          name: truncate(slot.entry.item.login, nameRoom),
-          total: slot.entry.total,
-          // The rank cue is the first thing dropped if the rail is tight.
-          rank:
-            (slot.entry.rankText.length + slot.entry.total.length) * RAIL_META_ADVANCE + RANK_DX <=
-            rail.textRoom
-              ? slot.entry.rankText
-              : null,
-          y,
-          // The connector back to the line end: level for as long as it can
-          // be, then one bend into the label it was pushed to.
-          link:
-            Math.abs(y - slot.anchorY) < 0.5
-              ? `M${at(startX)} ${at(slot.anchorY)} H${at(endX)}`
-              : `M${at(startX)} ${at(slot.anchorY)} H${at(bendX)} C${at(bendX + control)} ${at(
-                  slot.anchorY,
-                )}, ${at(endX - control)} ${at(y)}, ${at(endX)} ${at(y)}`,
-        };
-      });
-    }
-  }
+  const rail = railGeometry(railWidth, rightEdge);
+  const railLabels = placeRailLabels(leaders, rail, baseline, dotRadius, xAt, yAt);
 
   /** What the key underneath still has to carry: everyone the rail didn't name. */
   const ranked = series
@@ -361,18 +395,7 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
   const keyItems = rail ? ranked.filter((entry) => !named.has(entry.index)) : ranked;
 
   /** The chart described as it is currently presented, not as it usually is. */
-  const namedCount = railLabels.length;
-  const descriptionBase =
-    `One line per account, adding up day by day from 1 January to ${formatDayLong(today)}. ` +
-    "Each line stops at today; the rest of the year is empty.";
-  const description =
-    namedCount === 0
-      ? `${descriptionBase} Every account's current total is listed under the chart.`
-      : `${descriptionBase} ${
-          namedCount === 1
-            ? "The leading account is named beside the end of its line, with its current total."
-            : `The top ${namedCount === 2 ? "two" : "three"} accounts are named beside the ends of their lines, with their current totals.`
-        }${keyItems.length > 0 ? " Every remaining account's total is listed under the chart." : ""}`;
+  const description = chartDescription(today, railLabels.length, keyItems.length);
 
   const svg: Html[] = [];
 
