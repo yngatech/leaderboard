@@ -139,14 +139,6 @@ const FOOTER_LINK =
 const COUNTING_RULES_URL =
   "https://docs.github.com/en/account-and-profile/reference/profile-contributions-reference";
 
-/**
- * Two rails instead of one run-on sentence: where the numbers came from and
- * how fresh they are on the left, the site and the build serving them on the
- * right. The provenance line is the same dot-separated `wrap-sep` rail the
- * rows use for their metadata, so a narrow screen wraps whole phrases rather
- * than stranding clauses and full stops. Links sit outside that rail because
- * `wrap-sep` clips overflow, which would crop a focus ring.
- */
 function footerHtml(options: PageOptions): Html {
   const { buildSha } = options.chrome;
   const cadence = options.liveCopy
