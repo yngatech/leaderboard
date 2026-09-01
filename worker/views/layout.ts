@@ -23,7 +23,7 @@ export interface SiteChrome {
   /** Fingerprinted asset URLs, resolved by the worker's own `?url` imports. */
   stylesUrl: string;
   enhanceUrl: string;
-  /** The deployed commit, linked from the footer. */
+  /** The deployed commit, identified separately from data freshness in the footer. */
   buildSha: string;
 }
 
@@ -34,7 +34,7 @@ export interface PageOptions {
   description: string;
   /** Which view the header nav describes; null renders no nav at all. */
   nav: { kind: "year"; year: number } | { kind: "all" } | { kind: "user" } | null;
-  /** ISO timestamp the data was generated, for the footer's Updated link. */
+  /** ISO timestamp the data was generated, shown as footer freshness metadata. */
   generatedAt?: string | null;
   /** Live pages refresh on the half hour; archived years sit still. */
   liveCopy?: boolean;
@@ -139,41 +139,63 @@ const FOOTER_LINK =
 const COUNTING_RULES_URL =
   "https://docs.github.com/en/account-and-profile/reference/profile-contributions-reference";
 
+/**
+ * Two rails instead of one run-on sentence: where the numbers came from and
+ * how fresh they are on the left, the site and the build serving them on the
+ * right. The provenance line is the same dot-separated `wrap-sep` rail the
+ * rows use for their metadata, so a narrow screen wraps whole phrases rather
+ * than stranding clauses and full stops. Links sit outside that rail because
+ * `wrap-sep` clips overflow, which would crop a focus ring.
+ */
 function footerHtml(options: PageOptions): Html {
   const { buildSha } = options.chrome;
   const cadence = options.liveCopy
-    ? "Refreshes about every 30 minutes."
-    : `${options.nav?.kind === "year" ? options.nav.year : "This year"} is final and cached for 7 days.`;
+    ? "Refreshes about every 30 minutes"
+    : `${options.nav?.kind === "year" ? options.nav.year : "This year"} is final, cached for 7 days`;
 
+  // Null on pages rendered without data, where the cadence stands alone.
   const updated = options.generatedAt
     ? (() => {
         const stamp = formatUpdatedAt(options.generatedAt);
-        return html` <a
-          class="${FOOTER_LINK}"
-          href="https://github.com/yngatech/leaderboard/commit/${buildSha}"
-          target="_blank"
-          rel="noreferrer noopener"
-          title="View deployed commit ${buildSha.slice(0, 7)} on GitHub"
-          aria-label="Data updated ${stamp}; view deployed source commit on GitHub"
-          >Updated <time datetime="${options.generatedAt}" data-ago>${stamp}</time>.</a
+        return html`<span
+          >Updated <time datetime="${options.generatedAt}" data-ago>${stamp}</time></span
         >`;
       })()
     : null;
 
+  const shortBuildSha = buildSha.slice(0, 7);
+
   return html`<footer
-    class="mt-[clamp(2.5rem,6vw,4rem)] flex flex-wrap justify-between gap-x-6 gap-y-2 border-t border-line-soft pt-[1.1rem] text-[0.68rem] leading-[1.6] text-dimmer"
+    class="mt-[clamp(2.5rem,6vw,4rem)] grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-[clamp(1.5rem,4vw,3rem)] gap-y-[0.9rem] border-t border-line-soft pt-[1.1rem] text-[0.68rem] leading-[1.6] text-dimmer max-phone:grid-cols-[minmax(0,1fr)]"
   >
-    <p>
-      Pulled from the GitHub GraphQL API. ${cadence}${updated}
-      <a
-        class="${FOOTER_LINK}"
-        href="${COUNTING_RULES_URL}"
-        target="_blank"
-        rel="noreferrer noopener"
-        >What counts as a contribution?</a
-      >
-    </p>
-    <p class="tracking-[0.16em] uppercase">leaderboard.ynga.tech</p>
+    <div class="min-w-0">
+      <p class="wrap-sep">
+        <span>GitHub GraphQL API</span><span>${cadence}</span>${updated}
+      </p>
+      <p class="mt-[0.25rem]">
+        <a
+          class="${FOOTER_LINK}"
+          href="${COUNTING_RULES_URL}"
+          target="_blank"
+          rel="noreferrer noopener"
+          >What counts as a contribution?</a
+        >
+      </p>
+    </div>
+    <div class="min-w-0 text-right max-phone:text-left">
+      <p class="tracking-[0.16em] uppercase">leaderboard.ynga.tech</p>
+      <p class="mt-[0.25rem]">
+        <a
+          class="${FOOTER_LINK}"
+          href="https://github.com/yngatech/leaderboard/commit/${buildSha}"
+          target="_blank"
+          rel="noreferrer noopener"
+          title="View deployed commit ${shortBuildSha} on GitHub"
+          aria-label="View deployed source commit ${shortBuildSha} on GitHub"
+          >Deployed ${shortBuildSha}</a
+        >
+      </p>
+    </div>
   </footer>`;
 }
 
