@@ -208,6 +208,7 @@ export function yearPageHtml(options: YearPageOptions): string {
     alternate: `/api/board?year=${year}`,
     generatedAt: options.generatedAt,
     liveCopy: live,
+    provisionalToday: live,
     main,
   });
 }
@@ -288,6 +289,7 @@ export function allPageHtml(options: AllPageOptions): string {
     alternate: "/api/all",
     generatedAt: options.generatedAt,
     liveCopy: true,
+    provisionalToday: true,
     main,
   });
 }
@@ -738,6 +740,7 @@ export function userPageHtml(options: UserPageOptions): string {
     alternate: `/api/users/${user.login}`,
     generatedAt: options.generatedAt,
     liveCopy: true,
+    provisionalToday: true,
     main,
   });
 }

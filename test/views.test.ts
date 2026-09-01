@@ -149,8 +149,10 @@ test("live year page carries goals, future legend, chart and nav targets", () =>
   const page = liveYearPage();
 
   // The live year gets the forward-looking furniture and chart data.
-  assert.ok(page.includes("<details"));
+  assert.ok(page.includes(">next milestone</dt>"));
   assert.ok(page.includes('id="climb"'));
+  assert.ok(page.includes("Data is cached for about 30 minutes."));
+  assert.ok(page.includes("Today's counts may lag GitHub activity."));
   // Nav: previous year is a link, next is the all-time board.
   assert.ok(page.includes('href="/2025"'));
   assert.ok(page.includes('data-prev-href="/2025"'));
@@ -184,8 +186,10 @@ test("archived year page is plain rows with no goals or chart", () => {
     missing: ["carol"],
   });
 
-  assert.ok(!page.includes("<details"));
+  assert.ok(!page.includes(">next milestone</dt>"));
   assert.ok(!page.includes('id="climb"'));
+  assert.ok(page.includes("2020 is final, so data is cached for 7 days."));
+  assert.ok(!page.includes("Today's counts may lag GitHub activity."));
   // Missing accounts are reported rather than silently omitted.
   assert.ok(page.includes("No GitHub data came back for carol."));
   assert.ok(page.includes('data-prev-href="/2019"'));
