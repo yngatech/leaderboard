@@ -323,6 +323,18 @@ test("the cake day badge belongs to the day, and only to the live board", () => 
   assert.ok(!yearPageHtml({ ...cakeDay, year: 2026, today: "2026-03-13" }).includes("\u{1F382}"));
   // An archived board is a record of its year, not of the day it is read on.
   assert.ok(!yearPageHtml({ ...cakeDay, year: 2020, today: "2026-03-12" }).includes("\u{1F382}"));
+
+  // A first anniversary counts one year, not "1 years".
+  const firstYear = makeBoard();
+  firstYear[0]!.createdAt = "2025-03-12T09:33:21Z";
+  const turningOne = yearPageHtml({
+    ...cakeDay,
+    board: firstYear,
+    year: 2026,
+    today: "2026-03-12",
+  });
+  assert.ok(turningOne.includes("cake day — 1 year on GitHub today"));
+  assert.ok(!turningOne.includes("1 years"));
 });
 
 test("the streak belongs to the live board, and only when it outlives a day", () => {

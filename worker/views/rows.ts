@@ -201,15 +201,18 @@ function userRowBody(options: UserRowOptions, withChevron: boolean): Html {
       ></svg>`
     : null;
 
+  const cakeYears = options.cakeDay
+    ? `${formatNumber(options.cakeDay)} ${options.cakeDay === 1 ? "year" : "years"}`
+    : null;
+
   /** Both halves are hidden and respoken as one sentence: a flex gap is not
    *  spacing a screen reader can hear. */
-  const cakeDay = options.cakeDay
-    ? html`<span class="flex shrink-0 items-center gap-[0.3rem] text-[0.7rem] text-dim"
-        ><span class="text-[0.9rem] leading-none" aria-hidden="true">🎂</span
-        ><span class="tabular-nums" aria-hidden="true"
-          >${formatNumber(options.cakeDay)} years</span
-        ><span class="sr-only"
-          >cake day — ${formatNumber(options.cakeDay)} years on GitHub today</span
+  const cakeDay = cakeYears
+    ? html`<span
+        class="flex shrink-0 items-center gap-[0.4rem] rounded-full border border-heat-2/70 bg-heat-2/32 px-[0.6rem] py-[0.25rem] text-[0.7rem] text-ink"
+        ><span class="text-[0.85rem] leading-none" aria-hidden="true">🎂</span
+        ><span class="tabular-nums" aria-hidden="true">${cakeYears}</span
+        ><span class="sr-only">cake day — ${cakeYears} on GitHub today</span
         ></span
       >`
     : null;
