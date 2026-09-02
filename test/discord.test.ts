@@ -134,11 +134,14 @@ test("the Discord user map rejects malformed JSON objects", () => {
 
 test("invalid Discord IDs are reported without discarding valid mappings", () => {
   const { users, invalidLogins, duplicateLogins } = parseDiscordUserIds(
-    '{"valid-user":"123456789012345678","number-user":123456789012345678,"bad-user":"not-a-discord-id"}',
+    '{"valid-user":"123456789012345678","max-user":"18446744073709551615","number-user":123456789012345678,"bad-user":"not-a-discord-id","oversized-user":"18446744073709551616"}',
   );
 
-  assert.deepEqual([...users], [["valid-user", "123456789012345678"]]);
-  assert.deepEqual(invalidLogins, ["number-user", "bad-user"]);
+  assert.deepEqual([...users], [
+    ["valid-user", "123456789012345678"],
+    ["max-user", "18446744073709551615"],
+  ]);
+  assert.deepEqual(invalidLogins, ["number-user", "bad-user", "oversized-user"]);
   assert.deepEqual(duplicateLogins, []);
 });
 

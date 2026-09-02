@@ -4,6 +4,7 @@ import type { CakeDayEvent } from "./notifications.ts";
 import { SITE } from "./views/layout.ts";
 
 const DISCORD_USER_ID = /^[1-9]\d{16,19}$/;
+const MAX_DISCORD_SNOWFLAKE = (1n << 64n) - 1n;
 const COMPONENTS_V2_FLAG = 1 << 15;
 
 export interface DiscordEmbed {
@@ -89,7 +90,11 @@ export function parseDiscordUserIds(value: string | undefined): DiscordUserIds {
       duplicateLogins.push(login);
       continue;
     }
-    if (typeof userId !== "string" || !DISCORD_USER_ID.test(userId)) {
+    if (
+      typeof userId !== "string" ||
+      !DISCORD_USER_ID.test(userId) ||
+      BigInt(userId) > MAX_DISCORD_SNOWFLAKE
+    ) {
       invalidLogins.push(login);
       continue;
     }
