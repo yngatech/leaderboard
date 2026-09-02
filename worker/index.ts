@@ -7,6 +7,7 @@ import { nextMilestone, PERSONAL_MILESTONES } from "../shared/milestones";
 import { badgeSvg, type BadgeInput, type BadgeKind } from "./views/badge";
 import { absentCardSvg, cardSvg } from "./views/card";
 import { apiCatalog } from "./api-catalog";
+import { allowedMentions, discordUserReference, parseDiscordUserIds } from "./discord";
 import {
   archiveCachePrefix,
   browserCacheControl,
@@ -61,6 +62,8 @@ export interface Env {
   GITHUB_TOKEN: string;
   /** Optional locally; production cron checks are enabled when this secret exists. */
   DISCORD_WEBHOOK_URL?: string;
+  /** Optional encrypted JSON map from GitHub logins to Discord user IDs. */
+  DISCORD_USER_IDS?: string;
   /** Omitted from preview versions, which cannot receive scheduled events. */
   LEADER_STATE: DurableObjectNamespace<LeaderState>;
   ASSETS: Fetcher;
@@ -1257,9 +1260,15 @@ async function refreshNotifications(env: Env): Promise<void> {
 interface DiscordEmbed {
   title: string;
   url: string;
-  description: string;
+  description?: string;
   color: number;
   thumbnail?: { url: string };
+}
+
+interface DiscordNotification {
+  embed: DiscordEmbed;
+  content?: string;
+  mentionedUserId?: string;
 }
 
 function count(value: number): string {
@@ -1313,14 +1322,23 @@ function boardMilestoneEmbed(year: number, event: BoardMilestoneEvent): DiscordE
   };
 }
 
-function cakeDayEmbed(event: CakeDayEvent): DiscordEmbed {
+function cakeDayNotification(
+  event: CakeDayEvent,
+  userIds: ReadonlyMap<string, string>,
+): DiscordNotification {
   const years = event.years === 1 ? "1 year" : `${event.years} years`;
-  return {
+  const user = discordUserReference(event.login, event.url, userIds);
+  const description = `${user.text} has been on GitHub for **${years}** today, since ${formatDayYear(joinDay(event.createdAt))}.`;
+  const embed: DiscordEmbed = {
     title: "🎂 Cake day",
     url: `${SITE}/u/${encodeURIComponent(event.login)}`,
-    description: `[${event.login}](${event.url}) has been on GitHub for **${years}** today, since ${formatDayYear(joinDay(event.createdAt))}.`,
     color: 0x58a6ff,
     thumbnail: { url: event.avatarUrl },
+  };
+  return {
+    embed: user.userId ? embed : { ...embed, description },
+    content: user.userId ? description : undefined,
+    mentionedUserId: user.userId,
   };
 }
 
@@ -1354,14 +1372,19 @@ export class LeaderState extends DurableObject<Env> {
   /** External webhook fetches open the DO input gate, so queue whole updates. */
   private readonly updates = new SerialTaskQueue();
 
-  private async notify(embed: DiscordEmbed): Promise<void> {
+  private async notify(
+    embed: DiscordEmbed,
+    mentionedUserId?: string,
+    content?: string,
+  ): Promise<void> {
     if (!this.env.DISCORD_WEBHOOK_URL) return;
     const response = await fetch(this.env.DISCORD_WEBHOOK_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         username: "git board",
-        allowed_mentions: { parse: [] },
+        content,
+        allowed_mentions: allowedMentions(mentionedUserId),
         embeds: [embed],
       }),
     });
@@ -1418,9 +1441,26 @@ export class LeaderState extends DurableObject<Env> {
   private async updateCakeDays(today: string, board: Board): Promise<void> {
     const previous = await this.ctx.storage.get<CakeDayState>("cake-days");
     const plan = planCakeDays(today, board, previous);
+    let userIds: ReadonlyMap<string, string> = new Map();
+    if (plan.events.length > 0) {
+      try {
+        userIds = parseDiscordUserIds(this.env.DISCORD_USER_IDS);
+      } catch (error) {
+        console.warn("cake-day Discord user mapping ignored", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     await deliverCakeDays(
       plan,
-      (event) => this.notify(cakeDayEmbed(event)),
+      (event) => {
+        const notification = cakeDayNotification(event, userIds);
+        return this.notify(
+          notification.embed,
+          notification.mentionedUserId,
+          notification.content,
+        );
+      },
       (state) => this.ctx.storage.put("cake-days", state),
     );
   }

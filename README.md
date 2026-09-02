@@ -123,6 +123,20 @@ npx wrangler secret put DISCORD_WEBHOOK_URL
 npm run deploy
 ```
 
+Cake-day posts can ping the person instead of linking their GitHub login. Store
+the optional GitHub-login-to-Discord-ID map as another encrypted secret; keep
+the IDs quoted so JSON does not round them:
+
+```sh
+npx wrangler secret put DISCORD_USER_IDS
+# Enter, for example: {"example-user":"123456789012345678"}
+```
+
+GitHub logins are matched case-insensitively. A mapped cake-day sentence is sent
+as message content, because Discord does not notify for mentions that only
+appear inside embeds. An account missing from the map keeps its GitHub profile
+link, and no other notification is allowed to ping Discord users.
+
 ## Caching
 
 The year in progress caches for 30 minutes at the edge, 5 minutes in the browser.
