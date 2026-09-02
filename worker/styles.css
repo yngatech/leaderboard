@@ -105,7 +105,7 @@
 
   /* Items shrink and words break before they can overflow the clip, so the
      clip only ever trims the separator, never the text. */
-  & > span {
+  & > :where(span, details) {
     min-width: 0;
     overflow-wrap: break-word;
   }

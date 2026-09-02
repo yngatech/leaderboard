@@ -38,6 +38,8 @@ export interface PageOptions {
   generatedAt?: string | null;
   /** Live pages refresh on the half hour; archived years sit still. */
   liveCopy?: boolean;
+  /** The page includes the current UTC day, which GitHub may still revise. */
+  provisionalToday?: boolean;
   /** Machine-readable representation of this page's data. */
   alternate?: string;
   main: Html;
@@ -139,13 +141,58 @@ const FOOTER_LINK =
 const COUNTING_RULES_URL =
   "https://docs.github.com/en/account-and-profile/reference/profile-contributions-reference";
 
+/** The disclosure trigger: a footer link that happens to unfold instead of navigate. */
+const SOURCE_SUMMARY = `${FOOTER_LINK} inline-flex list-none cursor-pointer items-center gap-[0.35rem] decoration-dotted [&::-webkit-details-marker]:hidden`;
+
+/**
+ * The note itself, lifted above the trigger so opening it never reflows the
+ * footer. Its containing block is the footer column, an ancestor of the
+ * `wrap-sep` line, so the separator clip never reaches it.
+ */
+const SOURCE_PANEL =
+  "absolute bottom-[calc(100%+0.55rem)] left-0 z-20 w-[min(26rem,100%)] rounded-[0.6rem] border border-line-soft bg-panel px-[0.85rem] py-[0.7rem] text-dim shadow-[0_14px_30px_-20px_rgba(0,0,0,0.95)]";
+
+/**
+ * One line of visible copy, everything else folded away: the provenance and
+ * freshness rules only matter to a reader who asks for them, and `details`
+ * answers pointer, touch and keyboard without a line of script.
+ */
+function sourceNoteHtml(options: PageOptions): Html {
+  const cadence = options.liveCopy
+    ? "Data is cached for about 30 minutes."
+    : `${options.nav?.kind === "year" ? options.nav.year : "This year"} is final, so data is cached for 7 days.`;
+  // Only the pages that actually include today can be behind on today.
+  const provisional = options.provisionalToday
+    ? html`<p class="mt-[0.4rem]">Today's counts may lag GitHub activity.</p>`
+    : null;
+
+  return html`<details class="group inline-block">
+    <summary class="${SOURCE_SUMMARY}">
+      Data sourced from GitHub
+      <svg
+        class="size-[0.6rem] shrink-0 transition-transform duration-200 group-open:rotate-180"
+        viewBox="0 0 10 6"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.6"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M1 1.4 5 4.6 9 1.4" />
+      </svg>
+    </summary>
+    <div class="${SOURCE_PANEL}">
+      <p>Contributions are read from public GitHub profile calendars. ${cadence}</p>
+      ${provisional}
+    </div>
+  </details>`;
+}
+
 function footerHtml(options: PageOptions): Html {
   const { buildSha } = options.chrome;
-  const cadence = options.liveCopy
-    ? "Refreshes about every 30 minutes"
-    : `${options.nav?.kind === "year" ? options.nav.year : "This year"} is final, cached for 7 days`;
 
-  // Null on pages rendered without data, where the cadence stands alone.
+  // Null on pages rendered without data, where the source note stands alone.
   const updated = options.generatedAt
     ? (() => {
         const stamp = formatUpdatedAt(options.generatedAt);
@@ -160,10 +207,8 @@ function footerHtml(options: PageOptions): Html {
   return html`<footer
     class="mt-[clamp(2.5rem,6vw,4rem)] grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-[clamp(1.5rem,4vw,3rem)] gap-y-[0.9rem] border-t border-line-soft pt-[1.1rem] text-[0.68rem] leading-[1.6] text-dimmer max-phone:grid-cols-[minmax(0,1fr)]"
   >
-    <div class="min-w-0">
-      <p class="wrap-sep">
-        <span>GitHub GraphQL API</span><span>${cadence}</span>${updated}
-      </p>
+    <div class="relative min-w-0">
+      <div class="wrap-sep">${sourceNoteHtml(options)}${updated}</div>
       <p class="mt-[0.25rem]">
         <a
           class="${FOOTER_LINK}"
