@@ -1,12 +1,19 @@
 import type { AllTime, AllTimeUser, Board } from "../shared/types";
 import { DurableObject } from "cloudflare:workers";
 import { featuredYear, todayIso, userGrid, userProfile, yearShape } from "../shared/board";
-import { joinDay } from "../shared/cakeday";
 import { formatDayYear } from "../shared/format";
 import { nextMilestone, PERSONAL_MILESTONES } from "../shared/milestones";
 import { badgeSvg, type BadgeInput, type BadgeKind } from "./views/badge";
 import { absentCardSvg, cardSvg } from "./views/card";
 import { apiCatalog } from "./api-catalog";
+import {
+  cakeDayNotification,
+  discordWebhookPayload,
+  discordWebhookUrl,
+  parseDiscordUserIds,
+  type DiscordEmbed,
+  type DiscordNotification,
+} from "./discord";
 import {
   archiveCachePrefix,
   browserCacheControl,
@@ -44,7 +51,6 @@ import {
   planStandings,
   type BoardMilestoneEvent,
   type BoardRecordEvent,
-  type CakeDayEvent,
   type CakeDayState,
   type DailyRecordState,
   type MilestoneState,
@@ -61,6 +67,8 @@ export interface Env {
   GITHUB_TOKEN: string;
   /** Optional locally; production cron checks are enabled when this secret exists. */
   DISCORD_WEBHOOK_URL?: string;
+  /** Optional encrypted JSON map from GitHub logins to Discord user IDs. */
+  DISCORD_USER_IDS?: string;
   /** Omitted from preview versions, which cannot receive scheduled events. */
   LEADER_STATE: DurableObjectNamespace<LeaderState>;
   ASSETS: Fetcher;
@@ -1254,14 +1262,6 @@ async function refreshNotifications(env: Env): Promise<void> {
   await env.LEADER_STATE.getByName("leaderboard").update(year, todayIso(), board);
 }
 
-interface DiscordEmbed {
-  title: string;
-  url: string;
-  description: string;
-  color: number;
-  thumbnail?: { url: string };
-}
-
 function count(value: number): string {
   return value.toLocaleString("en-GB");
 }
@@ -1313,17 +1313,6 @@ function boardMilestoneEmbed(year: number, event: BoardMilestoneEvent): DiscordE
   };
 }
 
-function cakeDayEmbed(event: CakeDayEvent): DiscordEmbed {
-  const years = event.years === 1 ? "1 year" : `${event.years} years`;
-  return {
-    title: "🎂 Cake day",
-    url: `${SITE}/u/${encodeURIComponent(event.login)}`,
-    description: `[${event.login}](${event.url}) has been on GitHub for **${years}** today, since ${formatDayYear(joinDay(event.createdAt))}.`,
-    color: 0x58a6ff,
-    thumbnail: { url: event.avatarUrl },
-  };
-}
-
 function leaderEmbed(year: number, notification: Extract<StandingNotification, { type: "leader" }>): DiscordEmbed {
   const { leader } = notification.event;
   return {
@@ -1353,19 +1342,40 @@ function standingOvertakeEmbed(
 export class LeaderState extends DurableObject<Env> {
   /** External webhook fetches open the DO input gate, so queue whole updates. */
   private readonly updates = new SerialTaskQueue();
+  /** Parsed once per object instance so a bad secret warns promptly, not twice an hour. */
+  private discordUserIds?: ReadonlyMap<string, string>;
 
-  private async notify(embed: DiscordEmbed): Promise<void> {
+  private async notify(notification: DiscordNotification): Promise<void> {
     if (!this.env.DISCORD_WEBHOOK_URL) return;
-    const response = await fetch(this.env.DISCORD_WEBHOOK_URL, {
+    const webhookUrl = discordWebhookUrl(this.env.DISCORD_WEBHOOK_URL, notification);
+    const response = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        username: "git board",
-        allowed_mentions: { parse: [] },
-        embeds: [embed],
-      }),
+      body: JSON.stringify(discordWebhookPayload(notification)),
     });
     if (!response.ok) throw new Error(`Discord rejected the notification (${response.status}).`);
+  }
+
+  private cakeDayUserIds(): ReadonlyMap<string, string> {
+    if (this.discordUserIds) return this.discordUserIds;
+    try {
+      const { users, invalidLogins, duplicateLogins } = parseDiscordUserIds(
+        this.env.DISCORD_USER_IDS,
+      );
+      this.discordUserIds = users;
+      if (invalidLogins.length > 0) {
+        console.warn("invalid cake-day Discord user mappings ignored", { logins: invalidLogins });
+      }
+      if (duplicateLogins.length > 0) {
+        console.warn("duplicate cake-day GitHub logins ignored", { logins: duplicateLogins });
+      }
+    } catch (error) {
+      this.discordUserIds = new Map();
+      console.warn("cake-day Discord user mapping ignored", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return this.discordUserIds;
   }
 
   private async updateStandings(year: number, board: Board): Promise<void> {
@@ -1376,11 +1386,13 @@ export class LeaderState extends DurableObject<Env> {
     await deliverStandings(
       plan,
       (notification) =>
-        this.notify(
-          notification.type === "leader"
-            ? leaderEmbed(year, notification)
-            : standingOvertakeEmbed(year, notification),
-        ),
+        this.notify({
+          kind: "embed",
+          embed:
+            notification.type === "leader"
+              ? leaderEmbed(year, notification)
+              : standingOvertakeEmbed(year, notification),
+        }),
       (state) => this.ctx.storage.put("leader", state),
     );
   }
@@ -1391,11 +1403,13 @@ export class LeaderState extends DurableObject<Env> {
     await deliverDailyRecords(
       plan,
       (notification) =>
-        this.notify(
-          notification.type === "personal-best"
-            ? personalBestEmbed(year, notification.event)
-            : boardRecordEmbed(year, notification.event),
-        ),
+        this.notify({
+          kind: "embed",
+          embed:
+            notification.type === "personal-best"
+              ? personalBestEmbed(year, notification.event)
+              : boardRecordEmbed(year, notification.event),
+        }),
       (state) => this.ctx.storage.put("daily-records", state),
     );
   }
@@ -1406,11 +1420,13 @@ export class LeaderState extends DurableObject<Env> {
     await deliverMilestones(
       plan,
       (notification) =>
-        this.notify(
-          notification.type === "personal-milestone"
-            ? personalMilestoneEmbed(year, notification.event)
-            : boardMilestoneEmbed(year, notification.event),
-        ),
+        this.notify({
+          kind: "embed",
+          embed:
+            notification.type === "personal-milestone"
+              ? personalMilestoneEmbed(year, notification.event)
+              : boardMilestoneEmbed(year, notification.event),
+        }),
       (state) => this.ctx.storage.put("milestones", state),
     );
   }
@@ -1418,9 +1434,10 @@ export class LeaderState extends DurableObject<Env> {
   private async updateCakeDays(today: string, board: Board): Promise<void> {
     const previous = await this.ctx.storage.get<CakeDayState>("cake-days");
     const plan = planCakeDays(today, board, previous);
+    const userIds = this.cakeDayUserIds();
     await deliverCakeDays(
       plan,
-      (event) => this.notify(cakeDayEmbed(event)),
+      (event) => this.notify(cakeDayNotification(event, userIds)),
       (state) => this.ctx.storage.put("cake-days", state),
     );
   }

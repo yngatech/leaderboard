@@ -105,9 +105,9 @@ A scheduled Worker checks the current-year board every 30 minutes. When a new
 account takes the lead, someone overtakes another account for any board
 position, someone sets a daily contributions PB, someone beats the board's peak
 daily contributions record, or a user or the board reaches a contribution
-milestone, it posts an embed to Discord. Daily records and milestones restart
-each calendar year. Durable state prevents duplicate messages; the first run
-records a baseline without sending one.
+milestone, it posts a rich message to Discord. Daily records and milestones
+restart each calendar year. Durable state prevents duplicate messages; the
+first run records a baseline without sending one.
 
 Cake days are the exception to that baseline. Their durable state only records
 which accounts have already been announced this calendar year, so a cake day
@@ -122,6 +122,22 @@ Set the webhook as an encrypted Worker secret before deploying:
 npx wrangler secret put DISCORD_WEBHOOK_URL
 npm run deploy
 ```
+
+Cake-day posts can ping the person instead of linking their GitHub login. Store
+the optional GitHub-login-to-Discord-ID map as another encrypted secret; keep
+the IDs quoted so JSON does not round them:
+
+```sh
+npx wrangler secret put DISCORD_USER_IDS
+# Enter, for example: {"example-user":"123456789012345678"}
+```
+
+GitHub logins are matched case-insensitively. Cake-day posts use a Discord
+Components V2 card so a mapped mention can stay beside the message and avatar
+while still notifying the person. An account missing from the map keeps its
+GitHub profile link. Invalid IDs and duplicate logins are logged separately and
+skipped without disabling valid mappings, and no other notification is allowed
+to ping Discord users.
 
 ## Caching
 
