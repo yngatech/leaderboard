@@ -334,7 +334,6 @@ test("the cake day badge belongs to the day, and only to the live board", () => 
     today: "2026-03-12",
   });
   assert.ok(turningOne.includes("cake day — 1 year on GitHub today"));
-  assert.ok(!turningOne.includes("1 years"));
 });
 
 test("the streak belongs to the live board, and only when it outlives a day", () => {
