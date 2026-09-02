@@ -219,7 +219,7 @@ export function yearStripSvg(cells: YearCell[], options: YearStripOptions): Html
   cells.forEach((item, index) => {
     const tooltip = yearTooltip(item);
     const rect = html`<rect
-      class="fill-heat-0 transition-[fill] duration-150 hover:stroke-1 hover:stroke-white/70 data-[level=1]:fill-heat-1 data-[level=2]:fill-heat-2 data-[level=3]:fill-heat-3 data-[level=4]:fill-heat-4${options.hrefFor
+      class="heat-cell${options.hrefFor
         ? " cursor-pointer"
         : ""}"
       data-state="day"
