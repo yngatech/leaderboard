@@ -135,7 +135,8 @@ npx wrangler secret put DISCORD_USER_IDS
 GitHub logins are matched case-insensitively. A mapped cake-day sentence is sent
 as message content, because Discord does not notify for mentions that only
 appear inside embeds. An account missing from the map keeps its GitHub profile
-link, and no other notification is allowed to ping Discord users.
+link. Invalid entries are logged and skipped without disabling valid mappings,
+and no other notification is allowed to ping Discord users.
 
 ## Caching
 

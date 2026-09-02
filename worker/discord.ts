@@ -1,4 +1,23 @@
+import { joinDay } from "../shared/cakeday.ts";
+import { formatDayYear } from "../shared/format.ts";
+import type { CakeDayEvent } from "./notifications.ts";
+import { SITE } from "./views/layout.ts";
+
 const DISCORD_USER_ID = /^[1-9]\d{16,19}$/;
+
+export interface DiscordEmbed {
+  title: string;
+  url: string;
+  description?: string;
+  color: number;
+  thumbnail?: { url: string };
+}
+
+export interface DiscordNotification {
+  embed: DiscordEmbed;
+  content?: string;
+  mentionedUserId?: string;
+}
 
 export interface AllowedMentions {
   parse: string[];
@@ -10,9 +29,14 @@ export interface DiscordUserReference {
   userId?: string;
 }
 
-/** Parses the encrypted GitHub-login-to-Discord-ID mapping. */
-export function parseDiscordUserIds(value: string | undefined): ReadonlyMap<string, string> {
-  if (!value) return new Map();
+export interface DiscordUserIds {
+  users: ReadonlyMap<string, string>;
+  invalidLogins: string[];
+}
+
+/** Parses the encrypted mapping, retaining valid entries beside invalid ones. */
+export function parseDiscordUserIds(value: string | undefined): DiscordUserIds {
+  if (!value) return { users: new Map(), invalidLogins: [] };
 
   let parsed: unknown;
   try {
@@ -25,17 +49,20 @@ export function parseDiscordUserIds(value: string | undefined): ReadonlyMap<stri
   }
 
   const users = new Map<string, string>();
+  const invalidLogins: string[] = [];
   for (const [login, userId] of Object.entries(parsed)) {
-    if (typeof userId !== "string" || !DISCORD_USER_ID.test(userId)) {
-      throw new Error(`DISCORD_USER_IDS has an invalid ID for ${login}.`);
-    }
     const normalizedLogin = login.toLowerCase();
-    if (users.has(normalizedLogin)) {
-      throw new Error(`DISCORD_USER_IDS repeats the GitHub login ${login}.`);
+    if (
+      typeof userId !== "string" ||
+      !DISCORD_USER_ID.test(userId) ||
+      users.has(normalizedLogin)
+    ) {
+      invalidLogins.push(login);
+      continue;
     }
     users.set(normalizedLogin, userId);
   }
-  return users;
+  return { users, invalidLogins };
 }
 
 /** Uses a real mention when mapped, otherwise preserves the GitHub profile link. */
@@ -53,4 +80,25 @@ export function discordUserReference(
 /** Keeps mentions disabled unless this particular notification names one user. */
 export function allowedMentions(userId?: string): AllowedMentions {
   return userId ? { parse: [], users: [userId] } : { parse: [] };
+}
+
+/** Moves mapped cake-day copy into message content, where Discord can notify. */
+export function cakeDayNotification(
+  event: CakeDayEvent,
+  userIds: ReadonlyMap<string, string>,
+): DiscordNotification {
+  const years = event.years === 1 ? "1 year" : `${event.years} years`;
+  const user = discordUserReference(event.login, event.url, userIds);
+  const description = `${user.text} has been on GitHub for **${years}** today, since ${formatDayYear(joinDay(event.createdAt))}.`;
+  const embed: DiscordEmbed = {
+    title: "🎂 Cake day",
+    url: `${SITE}/u/${encodeURIComponent(event.login)}`,
+    color: 0x58a6ff,
+    thumbnail: { url: event.avatarUrl },
+  };
+  return {
+    embed: user.userId ? embed : { ...embed, description },
+    content: user.userId ? description : undefined,
+    mentionedUserId: user.userId,
+  };
 }
