@@ -4,7 +4,10 @@ import {
   allowedMentions,
   cakeDayNotification,
   discordUserReference,
+  discordWebhookPayload,
+  discordWebhookUrl,
   parseDiscordUserIds,
+  type DiscordNotification,
 } from "../worker/discord.ts";
 import type { CakeDayEvent } from "../worker/notifications.ts";
 
@@ -44,21 +47,84 @@ test("only an explicitly named Discord user is allowed to be pinged", () => {
   });
 });
 
-test("a mapped cake-day sentence moves to message content so it can ping", () => {
+function componentText(notification: DiscordNotification): string {
+  if (notification.kind !== "components") throw new Error("expected Components V2");
+  return notification.components[0]?.components[0]?.components[0]?.content ?? "";
+}
+
+test("a mapped cake-day sentence is a pingable text component inside the card", () => {
   const { users } = parseDiscordUserIds('{"example-user":"123456789012345678"}');
   const notification = cakeDayNotification(EVENT, users);
 
-  assert.match(notification.content ?? "", /^<@123456789012345678> has been/);
-  assert.equal(notification.embed.description, undefined);
-  assert.equal(notification.mentionedUserId, "123456789012345678");
+  assert.match(
+    componentText(notification),
+    /^## \[🎂 Happy cake day!\]\(https:\/\/leaderboard\.ynga\.tech\/u\/example-user\)\n<@123456789012345678> has been/,
+  );
+  assert.equal(
+    notification.kind === "components" ? notification.mentionedUserId : undefined,
+    "123456789012345678",
+  );
 });
 
-test("an unmapped cake-day sentence remains in the embed with its GitHub link", () => {
+test("an unmapped cake-day card keeps its GitHub profile link", () => {
   const notification = cakeDayNotification(EVENT, new Map());
 
-  assert.equal(notification.content, undefined);
-  assert.match(notification.embed.description ?? "", /^\[example-user\]\(https:\/\/github.com\/example-user\) has been/);
-  assert.equal(notification.mentionedUserId, undefined);
+  assert.match(
+    componentText(notification),
+    /\n\[example-user\]\(https:\/\/github.com\/example-user\) has been/,
+  );
+  assert.equal(
+    notification.kind === "components" ? notification.mentionedUserId : undefined,
+    undefined,
+  );
+});
+
+test("Components V2 payloads cannot include classic message content or embeds", () => {
+  const notification = cakeDayNotification(EVENT, new Map());
+  const payload = discordWebhookPayload(notification);
+
+  assert.equal("flags" in payload ? payload.flags : undefined, 32768);
+  assert.ok("components" in payload);
+  assert.ok(!("content" in payload));
+  assert.ok(!("embeds" in payload));
+  assert.equal(
+    discordWebhookUrl("https://discord.example/webhook?wait=true", notification).search,
+    "?wait=true&with_components=true",
+  );
+});
+
+test("classic notifications remain embed-only with mentions disabled", () => {
+  const payload = discordWebhookPayload({
+    kind: "embed",
+    embed: {
+      title: "Board update",
+      url: "https://leaderboard.ynga.tech",
+      description: "A board update.",
+      color: 0x58a6ff,
+    },
+  });
+
+  assert.deepEqual(payload, {
+    username: "git board",
+    allowed_mentions: { parse: [] },
+    embeds: [{
+      title: "Board update",
+      url: "https://leaderboard.ynga.tech",
+      description: "A board update.",
+      color: 0x58a6ff,
+    }],
+  });
+  assert.equal(
+    discordWebhookUrl("https://discord.example/webhook?wait=true", {
+      kind: "embed",
+      embed: {
+        title: "Board update",
+        url: "https://leaderboard.ynga.tech",
+        color: 0x58a6ff,
+      },
+    }).search,
+    "?wait=true",
+  );
 });
 
 test("the Discord user map rejects malformed JSON objects", () => {

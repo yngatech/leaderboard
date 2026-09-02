@@ -4,6 +4,7 @@ import type { CakeDayEvent } from "./notifications.ts";
 import { SITE } from "./views/layout.ts";
 
 const DISCORD_USER_ID = /^[1-9]\d{16,19}$/;
+const COMPONENTS_V2_FLAG = 1 << 15;
 
 export interface DiscordEmbed {
   title: string;
@@ -13,11 +14,41 @@ export interface DiscordEmbed {
   thumbnail?: { url: string };
 }
 
-export interface DiscordNotification {
+export interface DiscordEmbedNotification {
+  kind: "embed";
   embed: DiscordEmbed;
-  content?: string;
+}
+
+export interface DiscordTextDisplay {
+  type: 10;
+  content: string;
+}
+
+export interface DiscordThumbnail {
+  type: 11;
+  media: { url: string };
+  description: string;
+}
+
+export interface DiscordSection {
+  type: 9;
+  components: DiscordTextDisplay[];
+  accessory: DiscordThumbnail;
+}
+
+export interface DiscordContainer {
+  type: 17;
+  accent_color: number;
+  components: DiscordSection[];
+}
+
+export interface DiscordComponentsNotification {
+  kind: "components";
+  components: DiscordContainer[];
   mentionedUserId?: string;
 }
+
+export type DiscordNotification = DiscordEmbedNotification | DiscordComponentsNotification;
 
 export interface AllowedMentions {
   parse: string[];
@@ -84,7 +115,37 @@ export function allowedMentions(userId?: string): AllowedMentions {
   return userId ? { parse: [], users: [userId] } : { parse: [] };
 }
 
-/** Moves mapped cake-day copy into message content, where Discord can notify. */
+/** Builds the mutually exclusive classic-embed or Components V2 webhook body. */
+export function discordWebhookPayload(notification: DiscordNotification) {
+  const common = {
+    username: "git board",
+    allowed_mentions: allowedMentions(
+      notification.kind === "components" ? notification.mentionedUserId : undefined,
+    ),
+  };
+  return notification.kind === "components"
+    ? {
+        ...common,
+        flags: COMPONENTS_V2_FLAG,
+        components: notification.components,
+      }
+    : {
+        ...common,
+        embeds: [notification.embed],
+      };
+}
+
+/** Enables non-interactive Components V2 on ordinary incoming webhooks. */
+export function discordWebhookUrl(
+  value: string,
+  notification: DiscordNotification,
+): URL {
+  const url = new URL(value);
+  if (notification.kind === "components") url.searchParams.set("with_components", "true");
+  return url;
+}
+
+/** Keeps a pingable mention inside the same rich card as the cake-day copy. */
 export function cakeDayNotification(
   event: CakeDayEvent,
   userIds: ReadonlyMap<string, string>,
@@ -92,15 +153,24 @@ export function cakeDayNotification(
   const years = event.years === 1 ? "1 year" : `${event.years} years`;
   const user = discordUserReference(event.login, event.url, userIds);
   const description = `${user.text} has been on GitHub for **${years}** today, since ${formatDayYear(joinDay(event.createdAt))}.`;
-  const embed: DiscordEmbed = {
-    title: "🎂 Cake day",
-    url: `${SITE}/u/${encodeURIComponent(event.login)}`,
-    color: 0x58a6ff,
-    thumbnail: { url: event.avatarUrl },
-  };
   return {
-    embed: user.userId ? embed : { ...embed, description },
-    content: user.userId ? description : undefined,
+    kind: "components",
+    components: [{
+      type: 17,
+      accent_color: 0x58a6ff,
+      components: [{
+        type: 9,
+        components: [{
+          type: 10,
+          content: `## [🎂 Happy cake day!](${SITE}/u/${encodeURIComponent(event.login)})\n${description}`,
+        }],
+        accessory: {
+          type: 11,
+          media: { url: event.avatarUrl },
+          description: "GitHub avatar",
+        },
+      }],
+    }],
     mentionedUserId: user.userId,
   };
 }

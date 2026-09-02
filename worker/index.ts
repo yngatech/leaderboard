@@ -7,8 +7,9 @@ import { badgeSvg, type BadgeInput, type BadgeKind } from "./views/badge";
 import { absentCardSvg, cardSvg } from "./views/card";
 import { apiCatalog } from "./api-catalog";
 import {
-  allowedMentions,
   cakeDayNotification,
+  discordWebhookPayload,
+  discordWebhookUrl,
   parseDiscordUserIds,
   type DiscordEmbed,
   type DiscordNotification,
@@ -1344,17 +1345,13 @@ export class LeaderState extends DurableObject<Env> {
   /** Parsed once per object instance so a bad secret warns promptly, not twice an hour. */
   private discordUserIds?: ReadonlyMap<string, string>;
 
-  private async notify({ embed, content, mentionedUserId }: DiscordNotification): Promise<void> {
+  private async notify(notification: DiscordNotification): Promise<void> {
     if (!this.env.DISCORD_WEBHOOK_URL) return;
-    const response = await fetch(this.env.DISCORD_WEBHOOK_URL, {
+    const webhookUrl = discordWebhookUrl(this.env.DISCORD_WEBHOOK_URL, notification);
+    const response = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        username: "git board",
-        content,
-        allowed_mentions: allowedMentions(mentionedUserId),
-        embeds: [embed],
-      }),
+      body: JSON.stringify(discordWebhookPayload(notification)),
     });
     if (!response.ok) throw new Error(`Discord rejected the notification (${response.status}).`);
   }
@@ -1390,6 +1387,7 @@ export class LeaderState extends DurableObject<Env> {
       plan,
       (notification) =>
         this.notify({
+          kind: "embed",
           embed:
             notification.type === "leader"
               ? leaderEmbed(year, notification)
@@ -1406,6 +1404,7 @@ export class LeaderState extends DurableObject<Env> {
       plan,
       (notification) =>
         this.notify({
+          kind: "embed",
           embed:
             notification.type === "personal-best"
               ? personalBestEmbed(year, notification.event)
@@ -1422,6 +1421,7 @@ export class LeaderState extends DurableObject<Env> {
       plan,
       (notification) =>
         this.notify({
+          kind: "embed",
           embed:
             notification.type === "personal-milestone"
               ? personalMilestoneEmbed(year, notification.event)
