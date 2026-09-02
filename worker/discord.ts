@@ -32,11 +32,12 @@ export interface DiscordUserReference {
 export interface DiscordUserIds {
   users: ReadonlyMap<string, string>;
   invalidLogins: string[];
+  duplicateLogins: string[];
 }
 
 /** Parses the encrypted mapping, retaining valid entries beside invalid ones. */
 export function parseDiscordUserIds(value: string | undefined): DiscordUserIds {
-  if (!value) return { users: new Map(), invalidLogins: [] };
+  if (!value) return { users: new Map(), invalidLogins: [], duplicateLogins: [] };
 
   let parsed: unknown;
   try {
@@ -50,19 +51,20 @@ export function parseDiscordUserIds(value: string | undefined): DiscordUserIds {
 
   const users = new Map<string, string>();
   const invalidLogins: string[] = [];
+  const duplicateLogins: string[] = [];
   for (const [login, userId] of Object.entries(parsed)) {
     const normalizedLogin = login.toLowerCase();
-    if (
-      typeof userId !== "string" ||
-      !DISCORD_USER_ID.test(userId) ||
-      users.has(normalizedLogin)
-    ) {
+    if (users.has(normalizedLogin)) {
+      duplicateLogins.push(login);
+      continue;
+    }
+    if (typeof userId !== "string" || !DISCORD_USER_ID.test(userId)) {
       invalidLogins.push(login);
       continue;
     }
     users.set(normalizedLogin, userId);
   }
-  return { users, invalidLogins };
+  return { users, invalidLogins, duplicateLogins };
 }
 
 /** Uses a real mention when mapped, otherwise preserves the GitHub profile link. */

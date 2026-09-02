@@ -1362,10 +1362,15 @@ export class LeaderState extends DurableObject<Env> {
   private cakeDayUserIds(): ReadonlyMap<string, string> {
     if (this.discordUserIds) return this.discordUserIds;
     try {
-      const { users, invalidLogins } = parseDiscordUserIds(this.env.DISCORD_USER_IDS);
+      const { users, invalidLogins, duplicateLogins } = parseDiscordUserIds(
+        this.env.DISCORD_USER_IDS,
+      );
       this.discordUserIds = users;
       if (invalidLogins.length > 0) {
         console.warn("invalid cake-day Discord user mappings ignored", { logins: invalidLogins });
+      }
+      if (duplicateLogins.length > 0) {
+        console.warn("duplicate cake-day GitHub logins ignored", { logins: duplicateLogins });
       }
     } catch (error) {
       this.discordUserIds = new Map();

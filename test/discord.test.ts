@@ -67,10 +67,21 @@ test("the Discord user map rejects malformed JSON objects", () => {
 });
 
 test("invalid Discord IDs are reported without discarding valid mappings", () => {
-  const { users, invalidLogins } = parseDiscordUserIds(
+  const { users, invalidLogins, duplicateLogins } = parseDiscordUserIds(
     '{"valid-user":"123456789012345678","number-user":123456789012345678,"bad-user":"not-a-discord-id"}',
   );
 
   assert.deepEqual([...users], [["valid-user", "123456789012345678"]]);
   assert.deepEqual(invalidLogins, ["number-user", "bad-user"]);
+  assert.deepEqual(duplicateLogins, []);
+});
+
+test("case-variant duplicate GitHub logins are reported and the first mapping wins", () => {
+  const { users, invalidLogins, duplicateLogins } = parseDiscordUserIds(
+    '{"Example-User":"123456789012345678","example-user":"987654321098765432"}',
+  );
+
+  assert.deepEqual([...users], [["example-user", "123456789012345678"]]);
+  assert.deepEqual(invalidLogins, []);
+  assert.deepEqual(duplicateLogins, ["example-user"]);
 });
