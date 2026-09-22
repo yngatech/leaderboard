@@ -418,6 +418,7 @@ function cardSectionHtml(login: string): Html {
   const cardPath = `/u/${login}.svg`;
   const yearPath = `/u/${login}/year.svg`;
   const allPath = `/u/${login}/all.svg`;
+  const streakPath = `/u/${login}/streak.svg`;
   // A preview is same-origin so a preview deployment shows its own images
   // rather than production's; a snippet has to be absolute, since it is read
   // somewhere that has never heard of this site.
@@ -425,6 +426,7 @@ function cardSectionHtml(login: string): Html {
   const badgeSnippet = [
     `[![contributions this year](${SITE}${yearPath})](${SITE}/u/${login})`,
     `[![contributions all time](${SITE}${allPath})](${SITE}/u/${login})`,
+    `[![current streak](${SITE}${streakPath})](${SITE}/u/${login})`,
   ].join(" ");
 
   return html`<section class="mt-[clamp(2rem,5vw,3rem)] ${CARD} border-line-soft [animation-delay:180ms]"
@@ -444,6 +446,7 @@ function cardSectionHtml(login: string): Html {
     <div class="mt-[1.4rem] flex flex-wrap items-center gap-2 px-[1.3rem] max-phone:px-4">
       <img class="block h-5 w-auto" src="${yearPath}" alt="Contributions this year" height="20" />
       <img class="block h-5 w-auto" src="${allPath}" alt="Contributions all time" height="20" />
+      <img class="block h-5 w-auto" src="${streakPath}" alt="Current streak" height="20" />
     </div>
     ${snippetRowHtml("badge-snippet", badgeSnippet)}
     <p class="px-[1.3rem] pt-[1.1rem] pb-[1.15rem] text-[0.68rem] leading-[1.6] text-dimmer max-phone:px-4">
