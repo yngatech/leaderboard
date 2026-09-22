@@ -16,8 +16,8 @@ import { MONO_STACK, monoWidth } from "./mono.ts";
    under a kilobyte, and the system mono stack is enough.
 --------------------------------------------------------------------------- */
 
-/** The year in progress, or the whole career. Two badges, no third. */
-export type BadgeKind = "year" | "all";
+/** Yearly contributions, career contributions, or the live year's streak. */
+export type BadgeKind = "year" | "all" | "streak";
 
 /**
  * A union rather than one shape with both numbers on it: each badge is drawn
@@ -37,6 +37,11 @@ export type BadgeInput =
       /** First year with any contributions, so the badge has a span to name. */
       firstYear: number;
       allTime: number | null;
+    }
+  | {
+      kind: "streak";
+      /** Null when GitHub returned no data for this account. */
+      days: number | null;
     };
 
 const HEIGHT = 20;
@@ -74,18 +79,25 @@ function wording(input: BadgeInput): Wording {
   const label =
     input.kind === "year"
       ? `contributions in ${input.year}`
-      : `contributions since ${input.firstYear}`;
-  const count = input.kind === "year" ? input.total : input.allTime;
+      : input.kind === "all"
+        ? `contributions since ${input.firstYear}`
+        : "current streak";
+  const count =
+    input.kind === "year" ? input.total : input.kind === "all" ? input.allTime : input.days;
 
   if (count === null) {
     return { label, value: "no data", alt: `No GitHub contribution data for this account.` };
   }
 
-  const value = formatNumber(count);
+  const value = input.kind === "streak"
+    ? `${formatNumber(count)} ${count === 1 ? "day" : "days"}`
+    : formatNumber(count);
   const alt =
     input.kind === "year"
       ? `${value} GitHub contributions in ${input.year}.`
-      : `${value} GitHub contributions since ${input.firstYear}.`;
+      : input.kind === "all"
+        ? `${value} GitHub contributions since ${input.firstYear}.`
+        : `Current GitHub contribution streak: ${value}.`;
   return { label, value, alt };
 }
 

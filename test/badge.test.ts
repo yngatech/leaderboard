@@ -5,6 +5,7 @@ import { badgeSvg } from "../worker/views/badge.ts";
 
 type YearInput = Extract<BadgeInput, { kind: "year" }>;
 type AllInput = Extract<BadgeInput, { kind: "all" }>;
+type StreakInput = Extract<BadgeInput, { kind: "streak" }>;
 // oxlint-disable-next-line no-control-regex -- XML explicitly excludes these code points.
 const ILLEGAL_XML_CONTROL = new RegExp("[\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f]");
 
@@ -14,6 +15,10 @@ function yearBadge(overrides: Partial<YearInput> = {}): BadgeInput {
 
 function allBadge(overrides: Partial<AllInput> = {}): BadgeInput {
   return { kind: "all", firstYear: 2019, allTime: 12480, ...overrides };
+}
+
+function streakBadge(overrides: Partial<StreakInput> = {}): BadgeInput {
+  return { kind: "streak", days: 3, ...overrides };
 }
 
 /** A badge fails the way a card does: silently, as a broken image. */
@@ -59,8 +64,22 @@ test("the year badge counts the year and the all-time badge counts the span", ()
   assert.ok(!all.includes("1,204"));
 });
 
+test("the streak badge gives the run in days, including zero and one", () => {
+  for (const [days, unit] of [[0, "days"], [1, "day"], [3, "days"]] as const) {
+    const badge = badgeSvg(streakBadge({ days }));
+    assertWellFormed(badge);
+    assert.match(badge, />current streak</);
+    assert.ok(badge.includes(`<title>Current GitHub contribution streak: ${days} ${unit}.</title>`));
+    assert.ok(badge.includes(`>${days} ${unit}</text>`));
+  }
+});
+
 test("says so rather than drawing a zero for an account GitHub has no data for", () => {
-  for (const badge of [badgeSvg(yearBadge({ total: null })), badgeSvg(allBadge({ allTime: null }))]) {
+  for (const badge of [
+    badgeSvg(yearBadge({ total: null })),
+    badgeSvg(allBadge({ allTime: null })),
+    badgeSvg(streakBadge({ days: null })),
+  ]) {
     assertWellFormed(badge);
     assert.match(badge, />no data</);
     assert.ok(!badge.includes(">0<"));
@@ -75,6 +94,7 @@ test("each kind carries only its own feed's number", () => {
   // total in, so the route cannot make one of them wait on the other's feed.
   assert.deepEqual(Object.keys(yearBadge()).sort(), ["kind", "total", "year"]);
   assert.deepEqual(Object.keys(allBadge()).sort(), ["allTime", "firstYear", "kind"]);
+  assert.deepEqual(Object.keys(streakBadge()).sort(), ["days", "kind"]);
 });
 
 test("the pill grows with the number it has to hold", () => {
@@ -87,7 +107,7 @@ test("the pill grows with the number it has to hold", () => {
 });
 
 test("holds the shields line height whatever it is asked to draw", () => {
-  for (const input of [yearBadge(), allBadge(), yearBadge({ total: null })]) {
+  for (const input of [yearBadge(), allBadge(), streakBadge(), yearBadge({ total: null })]) {
     assert.match(badgeSvg(input), /\sheight="20"/);
   }
 });

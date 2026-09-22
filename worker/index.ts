@@ -1113,7 +1113,7 @@ async function handleUserCard(login: string, env: Env, ctx: ExecutionContext): P
 
 /* ---------------------------------------------------------------------------
    README badges
-   The card's two feeds and none of its weight: no avatar to fetch, no fonts to
+   A single feed and none of the card's weight: no avatar to fetch, no fonts to
    inline, one number out.
 --------------------------------------------------------------------------- */
 
@@ -1127,6 +1127,17 @@ function yearBadge(board: Board, login: string, year: number): DrawnBadge {
   const user = board.find((other) => other.login === login);
   return {
     input: { kind: "year", year, total: user?.totalContributions ?? null },
+    present: user !== undefined,
+  };
+}
+
+function streakBadge(board: Board, login: string, year: number, today: string): DrawnBadge {
+  const user = board.find((other) => other.login === login);
+  return {
+    input: {
+      kind: "streak",
+      days: user ? yearShape(userGrid(user.weeks, year, today), today).currentStreak : null,
+    },
     present: user !== undefined,
   };
 }
@@ -1149,7 +1160,7 @@ function allTimeBadge(data: AllTime, login: string, year: number): DrawnBadge {
 }
 
 /**
- * A badge for one account. Two kinds and a canonical `login`, so the roster
+ * A badge for one account. Three kinds and a canonical `login`, so the roster
  * still bounds the set of images that exist.
  */
 async function handleUserBadge(
@@ -1158,7 +1169,8 @@ async function handleUserBadge(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<Response> {
-  const year = Math.max(MIN_YEAR, featuredYear(todayIso()));
+  const today = todayIso();
+  const year = Math.max(MIN_YEAR, kind === "streak" ? Number(today.slice(0, 4)) : featuredYear(today));
   const cacheKey = new Request(`${HTML_CACHE_PREFIX}${year}/badge/${kind}/${login}`, {
     method: "GET",
   });
@@ -1166,12 +1178,12 @@ async function handleUserBadge(
   const hit = await renderedPageHit(cacheKey);
   if (hit) return withBrowserHeaders(hit, "HIT");
 
-  /* One feed each. A year badge has no business failing because the archive is
+  /* One feed each. A year or streak badge has no business failing because the archive is
      down, and the card's habit of awaiting both cannot be shared here: the two
      callers that pass a board to `allTimeJson` fetch `currentYear()`, while a
      badge draws `featuredYear`, and those differ for a fortnight each January. */
   const source =
-    kind === "year" ? await boardJson(year, env, ctx) : await allTimeJson(env, ctx);
+    kind === "all" ? await allTimeJson(env, ctx) : await boardJson(year, env, ctx);
   if (!source.response.ok) return imageFromFailure(source.response);
 
   const generatedAt =
@@ -1180,7 +1192,9 @@ async function handleUserBadge(
   const drawn =
     kind === "year"
       ? yearBadge((await source.response.json()) as Board, login, year)
-      : allTimeBadge((await source.response.json()) as AllTime, login, year);
+      : kind === "streak"
+        ? streakBadge((await source.response.json()) as Board, login, year, today)
+        : allTimeBadge((await source.response.json()) as AllTime, login, year);
 
   const body = badgeSvg(drawn.input);
 
@@ -1199,7 +1213,7 @@ async function handleUserBadge(
       Link: pageLinks(`/api/users/${login}`),
       "X-Board-Generated": generatedAt,
       // What the badge actually read, matching the feed it came from.
-      "X-Board-Year": kind === "year" ? String(year) : "all",
+      "X-Board-Year": kind === "all" ? "all" : String(year),
     },
   });
 
@@ -1528,7 +1542,7 @@ async function routeImage(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<Response | null> {
-  const badgeMatch = /^\/u\/([A-Za-z0-9][A-Za-z0-9-]*)\/(year|all)\.svg$/.exec(url.pathname);
+  const badgeMatch = /^\/u\/([A-Za-z0-9][A-Za-z0-9-]*)\/(year|all|streak)\.svg$/.exec(url.pathname);
   if (badgeMatch) {
     if (!readOnly) return text("Use GET for badges.\n", { status: 405 });
     const [, requested, kind] = badgeMatch;

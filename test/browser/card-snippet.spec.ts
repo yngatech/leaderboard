@@ -16,7 +16,8 @@ const SNIPPET =
 
 const BADGE_SNIPPET =
   "[![contributions this year](https://leaderboard.ynga.tech/u/alice/year.svg)](https://leaderboard.ynga.tech/u/alice) " +
-  "[![contributions all time](https://leaderboard.ynga.tech/u/alice/all.svg)](https://leaderboard.ynga.tech/u/alice)";
+  "[![contributions all time](https://leaderboard.ynga.tech/u/alice/all.svg)](https://leaderboard.ynga.tech/u/alice) " +
+  "[![current streak](https://leaderboard.ynga.tech/u/alice/streak.svg)](https://leaderboard.ynga.tech/u/alice)";
 
 const board: Board = [
   {
@@ -27,7 +28,11 @@ const board: Board = [
     followers: 12,
     following: 3,
     totalContributions: 320,
-    weeks: [{ days: [{ date: "2026-03-02", count: 200, level: 4 }] }],
+    weeks: [{ days: [
+      { date: "2026-03-02", count: 200, level: 4 },
+      { date: "2026-08-08", count: 2, level: 1 },
+      { date: "2026-08-09", count: 3, level: 1 },
+    ] }],
   },
 ];
 
@@ -75,17 +80,19 @@ const CARD_STUB = {
   }),
 };
 
-const badge = (kind: "year" | "all") => ({
+const badge = (kind: "year" | "all" | "streak") => ({
   path: `/u/alice/${kind}.svg`,
   contentType: "image/svg+xml",
   body: badgeSvg(
     kind === "year"
       ? { kind, year: 2026, total: 320 }
-      : { kind, firstYear: 2025, allTime: 1220 },
+      : kind === "all"
+        ? { kind, firstYear: 2025, allTime: 1220 }
+        : { kind, days: yearShape(grid, "2026-08-10").currentStreak },
   ),
 });
 
-const IMAGE_STUBS = [CARD_STUB, badge("year"), badge("all")];
+const IMAGE_STUBS = [CARD_STUB, badge("year"), badge("all"), badge("streak")];
 
 test.describe("without JavaScript", () => {
   test.use({ javaScriptEnabled: false });
@@ -104,7 +111,7 @@ test.describe("without JavaScript", () => {
     await expect(card).toBeVisible();
     expect(await card.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
 
-    for (const name of [/contributions this year/i, /contributions all time/i]) {
+    for (const name of [/contributions this year/i, /contributions all time/i, /current streak/i]) {
       const pill = page.getByRole("img", { name });
       await expect(pill).toBeVisible();
       expect(await pill.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);

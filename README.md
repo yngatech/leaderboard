@@ -17,6 +17,7 @@ the chart hover, and every page works without it.
 | `/u/{login}.svg` | That account's year as a card, for a profile README |
 | `/u/{login}/year.svg` | Badge: that account's contributions this year |
 | `/u/{login}/all.svg` | Badge: that account's contributions all time |
+| `/u/{login}/streak.svg` | Badge: that account's current contribution streak |
 | `/{year}.md` | Markdown rankings for a year |
 | `/all.md` | Markdown table, one row per account, one column per year |
 | `/api/board?year=` | Board JSON for a year (`year` defaults to the current one) |
@@ -69,21 +70,24 @@ subsets with `node scripts/subset-fonts.ts` after changing the character set —
 never at build time, so a deploy cannot depend on Google Fonts being up. Both
 faces are OFL-1.1; the licences sit beside them.
 
-`/u/{login}/year.svg` and `/u/{login}/all.svg` are the same two numbers without
+`/u/{login}/year.svg`, `/u/{login}/all.svg`, and `/u/{login}/streak.svg` are small facts without
 the card around them: a 20px shields-shaped pill, label left and value right, so
 they line up in a README row beside badges from anywhere else. Only the palette
 is ours, which is the reason to draw them here rather than point shields.io at
 `/api/users/{login}`. The account page carries their snippet too:
 
 ```markdown
-[![contributions this year](https://leaderboard.ynga.tech/u/login/year.svg)](https://leaderboard.ynga.tech/u/login) [![contributions all time](https://leaderboard.ynga.tech/u/login/all.svg)](https://leaderboard.ynga.tech/u/login)
+[![contributions this year](https://leaderboard.ynga.tech/u/login/year.svg)](https://leaderboard.ynga.tech/u/login) [![contributions all time](https://leaderboard.ynga.tech/u/login/all.svg)](https://leaderboard.ynga.tech/u/login) [![current streak](https://leaderboard.ynga.tech/u/login/streak.svg)](https://leaderboard.ynga.tech/u/login)
 ```
 
 A badge carries no avatar and no typeface — nothing in one comes from GitHub
 except the number, and the layout measures the rest against the system mono
 advance in `views/mono.ts`. That is the whole difference between a badge under
-two kilobytes and a card over a hundred. Both read the same two cached feeds as
-the card, so a badge costs no GitHub request the board was not already making.
+two kilobytes and a card over a hundred. Each badge reads one of the same two
+cached feeds as the card, so it costs no GitHub request the board was not already making.
+The streak badge uses the live calendar year's daily data, counts any day with
+at least one contribution, and keeps yesterday's streak while today is still
+quiet. Like the board's streak display, it starts over at the year boundary.
 
 Two caveats worth knowing before filing a bug. GitHub caches proxied images on
 its own schedule, so a card or badge in a README lags the site by hours whatever
