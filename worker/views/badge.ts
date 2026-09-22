@@ -2,21 +2,6 @@ import { formatNumber } from "../../shared/format.ts";
 import { html, type Html } from "../html.ts";
 import { MONO_STACK, monoWidth } from "./mono.ts";
 
-/* ---------------------------------------------------------------------------
-   README badges: one number each, in the shape a README already expects.
-
-   Shields geometry — 20px tall, label left, value right — because these sit in
-   a row beside real shields.io badges, and a taller or rounder pill breaks the
-   line. Only the palette is ours, which is the entire reason to draw them here
-   rather than point shields at /api/users/{login}.
-
-   Nothing in a badge comes from GitHub except the number, so unlike the card
-   there is no display name to escape, no avatar to inline and nothing to
-   measure against a typeface we would have to embed to be sure of. A badge is
-   under a kilobyte, and the system mono stack is enough.
---------------------------------------------------------------------------- */
-
-/** Yearly contributions, career contributions, or the live year's streak. */
 export type BadgeKind = "year" | "all" | "streak";
 
 /**

@@ -1111,12 +1111,6 @@ async function handleUserCard(login: string, env: Env, ctx: ExecutionContext): P
   return withBrowserHeaders(fresh, state);
 }
 
-/* ---------------------------------------------------------------------------
-   README badges
-   A single feed and none of the card's weight: no avatar to fetch, no fonts to
-   inline, one number out.
---------------------------------------------------------------------------- */
-
 /** What one feed yields a badge, and whether the account was in it at all. */
 interface DrawnBadge {
   input: BadgeInput;
@@ -1159,10 +1153,6 @@ function allTimeBadge(data: AllTime, login: string, year: number): DrawnBadge {
   };
 }
 
-/**
- * A badge for one account. Three kinds and a canonical `login`, so the roster
- * still bounds the set of images that exist.
- */
 async function handleUserBadge(
   login: string,
   kind: BadgeKind,
@@ -1178,10 +1168,6 @@ async function handleUserBadge(
   const hit = await renderedPageHit(cacheKey);
   if (hit) return withBrowserHeaders(hit, "HIT");
 
-  /* One feed each. A year or streak badge has no business failing because the archive is
-     down, and the card's habit of awaiting both cannot be shared here: the two
-     callers that pass a board to `allTimeJson` fetch `currentYear()`, while a
-     badge draws `featuredYear`, and those differ for a fortnight each January. */
   const source =
     kind === "all" ? await allTimeJson(env, ctx) : await boardJson(year, env, ctx);
   if (!source.response.ok) return imageFromFailure(source.response);
@@ -1212,7 +1198,6 @@ async function handleUserBadge(
       "Cache-Control": `public, max-age=${LIVE_TTL_SECONDS}`,
       Link: pageLinks(`/api/users/${login}`),
       "X-Board-Generated": generatedAt,
-      // What the badge actually read, matching the feed it came from.
       "X-Board-Year": kind === "all" ? "all" : String(year),
     },
   });
