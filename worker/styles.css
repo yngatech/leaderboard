@@ -212,3 +212,7 @@ a[data-day]:focus-visible { outline: 2px solid var(--color-accent); outline-offs
 .breakdown-private {
   background: repeating-linear-gradient(135deg, var(--color-line) 0 3px, var(--color-faint) 3px 6px);
 }
+#day-breakdown[aria-busy="true"] {
+  opacity: 0.45;
+  transition: opacity 0.15s;
+}

@@ -221,6 +221,11 @@ document.addEventListener("click", async (event) => {
   event.preventDefault();
   const href = link.getAttribute("href");
   const request = ++dayRequest;
+  // GitHub takes a moment to answer for a day, so acknowledge the click now:
+  // the cell lights up and any open panel dims until the new one lands.
+  clearSelectedDay();
+  link.querySelector(".heat-cell")?.setAttribute("data-selected", "true");
+  document.getElementById("day-breakdown")?.setAttribute("aria-busy", "true");
   try {
     const response = await fetch(href);
     if (!response.ok) throw new Error("Day unavailable");

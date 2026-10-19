@@ -179,7 +179,7 @@ test("windows and TTL use today UTC, including a finished day in this year", () 
     to: "2026-10-10T23:59:59Z",
   });
   assert.equal(yearWindow(2026, now).to, "2026-10-19T12:00:00Z");
-  assert.equal(breakdownTtl(yearWindow(2026, now), now), 60);
+  assert.equal(breakdownTtl(yearWindow(2026, now), now), 1800);
   assert.equal(breakdownTtl(dayWindow("2026-10-19"), now), 60);
   assert.equal(breakdownTtl(window, now), 2592000);
   assert.equal(breakdownTtl(yearWindow(2025, now), now), 2592000);
@@ -188,8 +188,8 @@ test("windows and TTL use today UTC, including a finished day in this year", () 
   assert.equal(breakdownTtl(dayWindow("2026-10-18"), now), 60);
   const beforeMidnight = new Date("2026-10-19T23:59:59Z");
   const afterMidnight = new Date("2026-10-20T00:00:02Z");
-  assert.equal(breakdownTtl(yearWindow(2026, beforeMidnight), afterMidnight), 60);
-  assert.equal(breakdownTtl(yearWindow(2025, new Date("2026-01-01T00:00:30Z")), new Date("2026-01-01T00:00:30Z")), 60);
+  assert.equal(breakdownTtl(yearWindow(2026, beforeMidnight), afterMidnight), 1800);
+  assert.equal(breakdownTtl(yearWindow(2025, new Date("2026-01-01T00:00:30Z")), new Date("2026-01-01T00:00:30Z")), 1800);
 });
 
 test("fetchBreakdown aliases accounts with variables, drops null accounts and handles failures", async () => {

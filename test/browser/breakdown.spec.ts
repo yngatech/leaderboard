@@ -272,3 +272,28 @@ test("back then forward after closing a day shows what the URL names", async ({ 
   await expect(page.locator("#day-breakdown")).toHaveCount(0);
   await expect(page.locator(".heat-cell[data-selected]")).toHaveCount(0);
 });
+
+test("a day click is acknowledged before GitHub answers", async ({ page, context }) => {
+  const nextDayPage = userPageHtml({
+    ...options,
+    day: "2026-03-03",
+    dayBreakdown: { ...breakdown, window: { kind: "day", date: "2026-03-03", from: "2026-03-03T00:00:00Z", to: "2026-03-03T23:59:59Z" } },
+  });
+  let release!: () => void;
+  const answered = new Promise<void>((resolve) => (release = resolve));
+  await serveFixture(context, dayPage);
+  await context.route(`${ORIGIN}/u/example?day=2026-03-03*`, async (route) => {
+    await answered;
+    await route.fulfill({ contentType: "text/html", body: nextDayPage });
+  });
+  await page.goto(`${ORIGIN}${href}`);
+  await page.locator('a[data-day="2026-03-03"]').click();
+  await expect(page.locator('a[data-day="2026-03-03"] rect')).toHaveAttribute("data-selected", "true");
+  await expect(page.locator('a[data-day="2026-03-02"] rect')).not.toHaveAttribute("data-selected", "true");
+  await expect(page.locator("#day-breakdown")).toHaveAttribute("aria-busy", "true");
+  await page.evaluate(() => document.body.setAttribute("data-test-document", "original"));
+  release();
+  await expect(page.locator("#day-breakdown")).toHaveAttribute("data-date", "2026-03-03");
+  await expect(page.locator("#day-breakdown")).not.toHaveAttribute("aria-busy", "true");
+  await expect(page.locator("body")).toHaveAttribute("data-test-document", "original");
+});

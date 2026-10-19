@@ -1,6 +1,7 @@
 import {
   breakdownTtl,
   dayWindow,
+  isLiveWindow,
   parseBreakdownDate,
   yearWindow,
   type BreakdownWindow,
@@ -1050,7 +1051,7 @@ function breakdownBrowserResponse(
   state: CacheState = "MISS",
 ): Response {
   if (!response.ok) return response;
-  const live = breakdownTtl(window, new Date()) === 60;
+  const live = isLiveWindow(window, new Date());
   const wrapped = withBrowserHeaders(response, state);
   const headers = new Headers(wrapped.headers);
   if (!__DEV__)

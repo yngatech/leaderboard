@@ -138,6 +138,16 @@ export function dayWindow(date: string): BreakdownWindow {
  *  filed as finished and pinned for a month. */
 const LIVE_MARGIN_MS = 24 * 60 * 60 * 1000;
 
+export function isLiveWindow(window: BreakdownWindow, now: Date): boolean {
+  return Date.parse(window.to) > now.getTime() - LIVE_MARGIN_MS;
+}
+
+/**
+ * A live day is one cheap query and keeps to the minute. The year so far is
+ * the slow one (seconds, not milliseconds) and every user page renders it,
+ * so it keeps the board's own half-hour; the page reconciles any gap.
+ */
 export function breakdownTtl(window: BreakdownWindow, now: Date): number {
-  return Date.parse(window.to) > now.getTime() - LIVE_MARGIN_MS ? 60 : 30 * 24 * 60 * 60;
+  if (!isLiveWindow(window, now)) return 30 * 24 * 60 * 60;
+  return window.kind === "year" ? 30 * 60 : 60;
 }
