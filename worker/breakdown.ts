@@ -133,9 +133,11 @@ export function dayWindow(date: string): BreakdownWindow {
     to: `${date}T23:59:59Z`,
   };
 }
+/** A window still counts as live for a day after it ends: GitHub may still
+ *  revise the latest day, and a fetch that crosses midnight must not be
+ *  filed as finished and pinned for a month. */
+const LIVE_MARGIN_MS = 24 * 60 * 60 * 1000;
+
 export function breakdownTtl(window: BreakdownWindow, now: Date): number {
-  const today = now.toISOString().slice(0, 10);
-  return window.from.slice(0, 10) <= today && window.to.slice(0, 10) >= today
-    ? 60
-    : 30 * 24 * 60 * 60;
+  return Date.parse(window.to) > now.getTime() - LIVE_MARGIN_MS ? 60 : 30 * 24 * 60 * 60;
 }

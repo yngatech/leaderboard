@@ -181,6 +181,13 @@ test("windows and TTL use today UTC, including a finished day in this year", () 
   assert.equal(breakdownTtl(dayWindow("2026-10-19"), now), 60);
   assert.equal(breakdownTtl(window, now), 2592000);
   assert.equal(breakdownTtl(yearWindow(2025, now), now), 2592000);
+  // Yesterday may still move, and a window built before midnight but cached
+  // after it must not be pinned as finished.
+  assert.equal(breakdownTtl(dayWindow("2026-10-18"), now), 60);
+  const beforeMidnight = new Date("2026-10-19T23:59:59Z");
+  const afterMidnight = new Date("2026-10-20T00:00:02Z");
+  assert.equal(breakdownTtl(yearWindow(2026, beforeMidnight), afterMidnight), 60);
+  assert.equal(breakdownTtl(yearWindow(2025, new Date("2026-01-01T00:00:30Z")), new Date("2026-01-01T00:00:30Z")), 60);
 });
 
 test("fetchBreakdown aliases accounts with variables, drops null accounts and handles failures", async () => {

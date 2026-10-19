@@ -213,6 +213,16 @@ document.addEventListener("click", async (event) => {
     const detail = doc.getElementById("day-breakdown");
     if (!detail) throw new Error("Missing day detail");
     if (request !== dayRequest) return;
+    /* The day detail is reconciled against the fetched page's heatmap. If the
+       board has moved on since this page was drawn, transplanting it would
+       put two different counts side by side, so load the whole page. */
+    const day = link.getAttribute("data-day");
+    const cellLabel = (root) => root.querySelector(`a[data-day="${day}"]`)?.getAttribute("aria-label");
+    const yearTotal = (root) => root.querySelector("#year-breakdown h3")?.textContent.trim();
+    if (cellLabel(doc) !== cellLabel(document) || yearTotal(doc) !== yearTotal(document)) {
+      location.assign(href);
+      return;
+    }
     const old = document.getElementById("day-breakdown");
     if (old) old.replaceWith(detail);
     else blocks.prepend(detail);

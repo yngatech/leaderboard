@@ -137,3 +137,33 @@ test("failed day fetch falls back to full navigation", async ({ page, context })
   await expect(page).toHaveURL(`${ORIGIN}${href}`);
   await expect(page.locator("#day-breakdown")).toBeVisible();
 });
+
+test("a day from a board that has since moved loads the whole page", async ({ page, context }) => {
+  // The board refreshed between page loads: the fetched page counts the day
+  // higher, so its day detail would disagree with the heatmap already shown.
+  const movedUser: BoardUser = {
+    ...boardUser,
+    totalContributions: 6,
+    weeks: [{ days: [{ date: "2026-03-02", count: 5, level: 4 }, boardUser.weeks[0].days[1]] }],
+  };
+  const movedDayPage = userPageHtml({
+    ...options,
+    board: [movedUser],
+    day: "2026-03-02",
+    dayBreakdown: {
+      ...breakdown,
+      window: { kind: "day", date: "2026-03-02", from: "2026-03-02T00:00:00Z", to: "2026-03-02T23:59:59Z" },
+    },
+  });
+  await serveFixture(context, yearPage);
+  await context.route(`${ORIGIN}/u/example?day=*`, (route) =>
+    route.fulfill({ contentType: "text/html", body: movedDayPage }),
+  );
+  await page.goto(`${ORIGIN}/u/example`);
+  await page.evaluate(() => document.body.setAttribute("data-test-document", "original"));
+  await page.locator('a[data-day="2026-03-02"]').click();
+  await expect(page).toHaveURL(`${ORIGIN}${href}`);
+  await expect(page.locator("#day-breakdown")).toContainText("5 contributions on 2 Mar 2026");
+  await expect(page.locator('a[data-day="2026-03-02"]')).toHaveAttribute("aria-label", /^5 contributions/);
+  await expect(page.locator("body")).not.toHaveAttribute("data-test-document", "original");
+});
