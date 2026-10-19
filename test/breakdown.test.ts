@@ -70,43 +70,17 @@ test("116 example reconciles reported types and restricted work", () => {
   assert.equal(counts.reduce((a, b) => a + b, 0), result.calendarTotal);
 });
 
-test("private repository counts fold into private without exposing names or URLs", () => {
-  const result = map(
-    collection({
-      contributionCalendar: { totalContributions: 20 },
-      restrictedContributionsCount: 3,
-      totalCommitContributions: 10,
-      totalPullRequestContributions: 7,
-      commitContributionsByRepository: [
-        repo("secret-org/secret-repo", 4, true),
-        repo("example/app", 6),
-      ],
-      pullRequestContributionsByRepository: [repo("secret-org/secret-repo", 7, true)],
-    }),
-  );
-  assert.equal(result.private, 14);
-  assert.equal(result.kinds[0].total, 6);
-  assert.equal(result.kinds[1].total, 0);
-  assert.equal(result.other, 0);
-  assert.ok(!JSON.stringify(result).includes("secret"));
-  assert.ok(!String(breakdownHtml(result)).includes("secret"));
-});
-
-test("other preserves positive, zero and negative reconciliation", () => {
-  for (const [calendar, expected] of [
-    [7, 2],
-    [5, 0],
-    [3, -2],
-  ]) {
-    assert.equal(
-      map(
-        collection({
-          contributionCalendar: { totalContributions: calendar },
-          totalIssueContributions: 5,
-        }),
-      ).other,
-      expected,
-    );
+test("other preserves signed gaps when mapped or reconciled to the shown total", () => {
+  const counts = { totalIssueContributions: 3, restrictedContributionsCount: 2 };
+  const base = map(collection(counts));
+  for (const [calendar, expected] of [[7, 2], [5, 0], [3, -2]]) {
+    const mapped = map(collection({
+      ...counts, contributionCalendar: { totalContributions: calendar },
+    }));
+    assert.equal(mapped.other, expected);
+    const reconciled = reconcileBreakdown(base, calendar);
+    assert.equal(reconciled.calendarTotal, calendar);
+    assert.equal(reconciled.other, expected);
   }
 });
 
@@ -189,12 +163,14 @@ test("windows and TTL use today UTC, including a finished day in this year", () 
   const beforeMidnight = new Date("2026-10-19T23:59:59Z");
   const afterMidnight = new Date("2026-10-20T00:00:02Z");
   assert.equal(breakdownTtl(yearWindow(2026, beforeMidnight), afterMidnight), 1800);
-  assert.equal(breakdownTtl(yearWindow(2025, new Date("2026-01-01T00:00:30Z")), new Date("2026-01-01T00:00:30Z")), 1800);
+  const newYear = new Date("2026-01-01T00:00:30Z");
+  assert.equal(breakdownTtl(yearWindow(2025, newYear), newYear), 1800);
 });
 
 test("fetchBreakdown aliases accounts with variables, drops null accounts and handles failures", async () => {
   const original = globalThis.fetch;
   let calls = 0;
+  let errors = [{ type: "NOT_FOUND", message: "No such account" }];
   let data: unknown = {
     a0: {
       login: "example",
@@ -210,7 +186,7 @@ test("fetchBreakdown aliases accounts with variables, drops null accounts and ha
     assert.equal(body.variables.from, window.from);
     assert.ok(body.query.includes("a0: user(login: $l0)"));
     assert.ok(!body.query.includes('"example"'));
-    return Response.json({ data });
+    return Response.json({ data, errors });
   };
   try {
     const result = await fetchBreakdown(
@@ -227,7 +203,14 @@ test("fetchBreakdown aliases accounts with variables, drops null accounts and ha
       fetchBreakdown("synthetic-token", "example", ["example", "secondary"], window),
       (error: unknown) => error instanceof GitHubError && error.status === 404,
     );
+    data = { a0: { login: "example", contributionsCollection: collection() }, a1: null };
+    errors = [{ type: "FORBIDDEN", message: "Access denied" }];
+    await assert.rejects(
+      fetchBreakdown("synthetic-token", "example", ["example", "secondary"], window),
+      (error: unknown) => error instanceof GitHubError && error.status === 502,
+    );
     data = null;
+    errors = [];
     await assert.rejects(
       fetchBreakdown("synthetic-token", "example", ["example", "secondary"], window),
       (error: unknown) => error instanceof GitHubError && error.status === 502,
@@ -241,25 +224,30 @@ test("all repository-bearing kinds hide private work; created repositories have 
   const entry = repo("secret/repository", 2, true);
   const result = map(
     collection({
-      totalCommitContributions: 2,
+      totalCommitContributions: 8,
       totalPullRequestContributions: 2,
       totalIssueContributions: 2,
       totalPullRequestReviewContributions: 2,
       totalRepositoryContributions: 1,
-      commitContributionsByRepository: [entry],
+      commitContributionsByRepository: [entry, repo("example/app", 6)],
       pullRequestContributionsByRepository: [entry],
       issueContributionsByRepository: [entry],
       pullRequestReviewContributionsByRepository: [entry],
-      contributionCalendar: { totalContributions: 9 },
+      restrictedContributionsCount: 3,
+      contributionCalendar: { totalContributions: 18 },
     }),
   );
   assert.deepEqual(
     result.kinds.map((k) => k.total),
-    [0, 0, 0, 0, 1],
+    [6, 0, 0, 0, 1],
   );
-  assert.equal(result.private, 8);
+  assert.equal(result.private, 11);
   assert.equal(result.other, 0);
-  assert.ok(!JSON.stringify(result).includes("secret"));
+  for (const output of [JSON.stringify(result), String(breakdownHtml(result)),
+    String(dayBreakdownHtml("2026-10-10", result, "example", 2026))]) {
+    assert.ok(!output.includes(entry.repository.nameWithOwner));
+    assert.ok(!output.includes(entry.repository.url));
+  }
   assert.deepEqual(result.kinds[4].repositories, []);
   assert.equal(result.kinds[4].unlisted, 0);
 });
@@ -277,7 +265,8 @@ test("top repositories merge kinds and limit to five, with overflow and unlisted
   );
   const markup = String(breakdownHtml(result));
   assert.equal([...markup.matchAll(/href="https:\/\/github.com\//g)].length, 5);
-  assert.ok(markup.includes("4 PRs"));
+  assert.match(markup, /title="4 PRs · 1 commit">5</);
+  assert.equal((markup.match(/>example\/repo-00<\/a>/g) ?? []).length, 1);
   assert.ok(markup.includes("and 15 more in other repositories"));
   assert.ok(!markup.includes("example/repo-05"));
   const dayMarkup = String(dayBreakdownHtml("2026-10-10", result, "example", 2026));
@@ -286,17 +275,6 @@ test("top repositories merge kinds and limit to five, with overflow and unlisted
   const complete = { ...result, kinds: result.kinds.map((k) => ({ ...k, unlisted: 0 })) };
   assert.ok(String(breakdownHtml(complete)).includes("and 7 more in 7 other repositories"));
   assert.ok(!String(breakdownHtml(map(collection()))).includes("NaN"));
-});
-
-test("reconciling against the shown calendar total moves the gap into other", () => {
-  const base = breakdownFromCollections("example", dayWindow("2026-10-10"), [collection({ restrictedContributionsCount: 5, totalCommitContributions: 2, commitContributionsByRepository: [repo("example/site", 2)] })], "2026-10-10T12:00:00Z");
-  const parts = base.private + base.kinds.reduce((sum, kind) => sum + kind.total, 0);
-  const ahead = reconcileBreakdown(base, parts + 3);
-  assert.equal(ahead.calendarTotal, parts + 3);
-  assert.equal(ahead.other, 3);
-  const behind = reconcileBreakdown(base, parts - 2);
-  assert.equal(behind.other, -2);
-  assert.equal(reconcileBreakdown(base, parts).other, 0);
 });
 
 test("year bars separate visibility from public types and omit negative gaps", () => {
