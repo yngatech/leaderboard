@@ -1,4 +1,11 @@
-import type { Board, BoardUser, ContributionDay, ContributionWeek } from "../shared/types";
+import type {
+  Board,
+  BoardUser,
+  ContributionBreakdown,
+  ContributionDay,
+  ContributionWeek,
+} from "../shared/types";
+import { breakdownFromCollections, type BreakdownWindow, type RawCollection } from "./breakdown.ts";
 import { levelFor, quartiles } from "../shared/contributions.ts";
 
 interface PersonDefinition {
@@ -487,4 +494,53 @@ export async function fetchArchiveTotals(
     users: knownUsers,
     missing: logins.filter((_, index) => users[index] === null),
   };
+}
+
+/** One aliased request per person, including secondary accounts. */
+export async function fetchBreakdown(
+  token: string,
+  login: string,
+  accounts: readonly string[],
+  window: BreakdownWindow,
+): Promise<ContributionBreakdown> {
+  const variables: Record<string, string> = {
+    from: window.from,
+    to: window.to,
+  };
+  accounts.forEach((account, i) => {
+    variables[`l${i}`] = account;
+  });
+  const declarations = accounts.map((_, i) => `$l${i}: String!`).join(", ");
+  const aliases = accounts
+    .map(
+      (_, i) =>
+        `a${i}: user(login: $l${i}) { login contributionsCollection(from: $from, to: $to) { ...Breakdown } }`,
+    )
+    .join("\n");
+  const lists = ["commit", "issue", "pullRequest", "pullRequestReview"]
+    .map(
+      (prefix) =>
+        `${prefix}ContributionsByRepository(maxRepositories: 100) { repository { nameWithOwner isPrivate url } contributions { totalCount } }`,
+    )
+    .join("\n");
+  const query = `query BreakdownQuery($from: DateTime!, $to: DateTime!, ${declarations}) { ${aliases} }
+    fragment Breakdown on ContributionsCollection {
+      contributionCalendar { totalContributions } restrictedContributionsCount
+      totalCommitContributions totalIssueContributions totalPullRequestContributions
+      totalPullRequestReviewContributions totalRepositoryContributions ${lists}
+    }`;
+  const payload = await graphql<{
+    login: string;
+    contributionsCollection: Omit<RawCollection, "login">;
+  }>(token, { query, variables });
+  if (!payload.data) throw new GitHubError("GitHub returned no breakdown data.", 502);
+  // Missing users may accompany NOT_FOUND errors; other partial errors must not be cached.
+  if (payload.errors?.some((error) => error.type !== "NOT_FOUND"))
+    throw new GitHubError("GitHub could not return contribution details.", 502);
+  const collections = accounts.flatMap((_, i) => {
+    const user = payload.data?.[`a${i}`];
+    return user ? [{ ...user.contributionsCollection, login: user.login }] : [];
+  });
+  if (!collections.length) throw new GitHubError("GitHub returned no users.", 404);
+  return breakdownFromCollections(login, window, collections, new Date().toISOString());
 }

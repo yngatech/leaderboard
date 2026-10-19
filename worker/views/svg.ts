@@ -15,6 +15,8 @@ import { html, type Html } from "../html.ts";
 --------------------------------------------------------------------------- */
 
 export interface HeatmapOptions {
+  dayHref?: (date: string) => string;
+  selectedDate?: string;
   /** Square edge in px at 1:1. The SVG scales down below that. */
   cell?: number;
   gap?: number;
@@ -110,19 +112,30 @@ export function heatmapSvg(weeks: Grid, options: HeatmapOptions): Html {
       const level = day.state === "day" ? html` data-level="${day.level}"` : null;
       const title =
         day.state === "day" ? html`<title>${dayTitle(day.count, day.date, unit)}</title>` : null;
-      parts.push(
+      const rect =
         // Level drives the ramp; "future" days are an outline rather than a
         // filled square, and only real days light up on hover.
         html`<rect
           class="heat-cell"
-          data-state="${day.state}"${level}
+          data-state="${day.state}"${level}${day.date === options.selectedDate
+            ? html` data-selected="true"`
+            : null}
           x="${weekIndex * pitch}"
           y="${y}"
           width="${cell}"
           height="${cell}"
           rx="${rx}"
           >${title}</rect
-        >`,
+        >`;
+      parts.push(
+        options.dayHref && day.state === "day"
+          ? html`<a
+              data-day="${day.date}"
+              href="${options.dayHref(day.date)}"
+              aria-label="${dayTitle(day.count, day.date, unit)}"
+              >${rect}</a
+            >`
+          : rect,
       );
 
       if (
@@ -159,7 +172,7 @@ export function heatmapSvg(weeks: Grid, options: HeatmapOptions): Html {
     viewBox="0 0 ${width} ${height}"
     width="${width}"
     height="${height}"
-    role="img"
+    role="${options.dayHref ? "group" : "img"}"
     aria-label="${options.label}"
     style="max-width:${width}px"
   >

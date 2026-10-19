@@ -42,6 +42,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
 
   const target = event.target;
+  if (target instanceof Element && target.closest("a[data-day]")) return;
   if (
     target instanceof HTMLElement &&
     (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
@@ -183,3 +184,48 @@ if (navigator.clipboard) {
     });
   }
 }
+
+/* Day detail is rendered on the destination page; only transplant that markup. */
+let dayRequest = 0;
+/* Once a day has been swapped in, the history entries no longer match the
+   markup, so going back or forward loads the page the URL names. */
+let swappedDay = false;
+document.addEventListener("click", async (event) => {
+  if (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  )
+    return;
+  const link = event.target instanceof Element ? event.target.closest("a[data-day]") : null;
+  const blocks = document.getElementById("breakdown-blocks");
+  if (!link || !blocks) return;
+  event.preventDefault();
+  const href = link.getAttribute("href");
+  const request = ++dayRequest;
+  try {
+    const response = await fetch(href);
+    if (!response.ok) throw new Error("Day unavailable");
+    const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+    const detail = doc.getElementById("day-breakdown");
+    if (!detail) throw new Error("Missing day detail");
+    if (request !== dayRequest) return;
+    const old = document.getElementById("day-breakdown");
+    if (old) old.replaceWith(detail);
+    else blocks.prepend(detail);
+    for (const cell of document.querySelectorAll("a[data-day] .heat-cell[data-selected]"))
+      cell.removeAttribute("data-selected");
+    link.querySelector(".heat-cell")?.setAttribute("data-selected", "true");
+    history.pushState({ day: true }, "", href);
+    swappedDay = true;
+    detail.scrollIntoView({ block: "nearest" });
+  } catch {
+    if (request === dayRequest) location.assign(href);
+  }
+});
+window.addEventListener("popstate", () => {
+  if (swappedDay) location.reload();
+});

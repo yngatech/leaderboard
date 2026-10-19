@@ -65,3 +65,31 @@ export interface BoardError {
   error: string;
   status: number;
 }
+
+export type ContributionKind = "commits" | "pullRequests" | "issues" | "reviews" | "repositories";
+export interface BreakdownRepository {
+  nameWithOwner: string;
+  url: string;
+  count: number;
+}
+export interface BreakdownKindTotal {
+  kind: ContributionKind;
+  /** Public contributions only. */
+  total: number;
+  repositories: BreakdownRepository[];
+  /** Public contributions omitted by GitHub's repository cap. */
+  unlisted: number;
+}
+export interface ContributionBreakdown {
+  login: string;
+  accounts: string[];
+  window:
+    | { kind: "year"; year: number; from: string; to: string }
+    | { kind: "day"; date: string; from: string; to: string };
+  calendarTotal: number;
+  kinds: BreakdownKindTotal[];
+  private: number;
+  /** Signed difference between calendar and per-type counts. */
+  other: number;
+  generatedAt: string;
+}

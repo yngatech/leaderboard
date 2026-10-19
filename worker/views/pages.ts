@@ -1,4 +1,12 @@
-import type { AllTime, AllTimeUser, Board, BoardUser } from "../../shared/types.ts";
+import type {
+  AllTime,
+  AllTimeUser,
+  Board,
+  BoardUser,
+  ContributionBreakdown,
+} from "../../shared/types.ts";
+import { breakdownHtml, countingNoteHtml } from "./breakdown.ts";
+import { reconcileBreakdown } from "../breakdown.ts";
 import {
   boardGoal,
   boardYearRanks,
@@ -78,9 +86,13 @@ const PLOT_PANEL =
 const SECTION_RULE =
   "mt-[clamp(2.25rem,5vw,3.25rem)] mb-4 flex items-center gap-[0.85rem] text-[0.66rem] tracking-[0.2em] text-dimmer uppercase";
 
-function sectionRuleHtml(label: string | number): Html {
-  return html`<div class="${SECTION_RULE}">
-    <span>${label}</span><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span>
+function sectionRuleHtml(label: string | number, detail?: Html): Html {
+  return html`<div class="${SECTION_RULE}${detail ? " flex-wrap" : ""}">
+    ${detail ? html`<h2>${label}</h2>` : html`<span>${label}</span>`}<span
+      class="h-px flex-1 bg-line-soft"
+      aria-hidden="true"
+    ></span
+    >${detail}
   </div>`;
 }
 
@@ -374,6 +386,9 @@ function ledgerHtml(fields: LedgerField[]): Html | null {
 }
 
 export interface UserPageOptions {
+  breakdown?: ContributionBreakdown | null;
+  dayBreakdown?: ContributionBreakdown | null;
+  day?: string;
   chrome: SiteChrome;
   /** The account's all-time record; the page's source of truth. */
   user: AllTimeUser;
@@ -613,6 +628,7 @@ function rankGapHtml(goals: UserGoals | null): Html | null {
 }
 
 interface LiveYearSectionOptions {
+  selectedDate?: string;
   user: AllTimeUser;
   boardUser: BoardUser | null;
   grid: Grid | null;
@@ -671,13 +687,17 @@ function liveYearSectionHtml(options: LiveYearSectionOptions): Html {
     class="${CARD} [animation-delay:90ms] ${leadsYear ? "border-accent/32" : "border-line-soft"}"
     aria-label="${user.login} in ${year}"
   >
-    <div class="${CARD_WELL}">${heatmapSvg(grid, {
-    cell: 17,
-    gap: 3,
-    months: true,
-    peakDate: peak?.date,
-    label: `${user.login} made ${formatNumber(boardUser.totalContributions)} contributions in ${year}`,
-  })}</div>
+    <div class="${CARD_WELL}">
+      ${heatmapSvg(grid, {
+        dayHref: (date) => `/u/${user.login}?day=${date}#day-breakdown`,
+        selectedDate: options.selectedDate,
+        cell: 17,
+        gap: 3,
+        months: true,
+        peakDate: peak?.date,
+        label: `${user.login} made ${formatNumber(boardUser.totalContributions)} contributions in ${year}`,
+      })}
+    </div>
     ${ledgerHtml(fields)}
   </section>`;
 }
@@ -729,11 +749,29 @@ export function userPageHtml(options: UserPageOptions): string {
     boardRank,
     year,
     leadsYear,
+    selectedDate: options.day,
   });
 
-  const main = html`${identityCard}${sectionRuleHtml(year)}${liveSection}${cardSectionHtml(
-    user.login,
-  )}`;
+  /* The breakdown answers to the totals this page already shows: the board's
+     year and, for a day in it, that day's heatmap cell. */
+  const shownDay = options.day
+    ? boardUser?.weeks.flatMap((week) => week.days).find((d) => d.date === options.day)
+    : undefined;
+  const yearBreakdown =
+    options.breakdown && boardUser
+      ? reconcileBreakdown(options.breakdown, boardUser.totalContributions)
+      : (options.breakdown ?? null);
+  const dayBreakdown =
+    options.dayBreakdown && shownDay
+      ? reconcileBreakdown(options.dayBreakdown, shownDay.count)
+      : (options.dayBreakdown ?? null);
+
+  const main = html`${identityCard}${sectionRuleHtml(year)}${liveSection}${sectionRuleHtml("Where contributions came from", countingNoteHtml())}
+    <div id="breakdown-blocks">
+      ${options.day ? (dayBreakdown ? breakdownHtml(dayBreakdown) : html`<section id="day-breakdown" class="mt-4 text-dim">Breakdown unavailable right now</section>`) : null}
+      ${yearBreakdown ? breakdownHtml(yearBreakdown) : html`<p class="mt-4 text-dim">Breakdown unavailable right now</p>`}
+    </div>
+    ${cardSectionHtml(user.login)}`;
 
   return pageHtml({
     chrome,

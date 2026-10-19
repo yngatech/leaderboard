@@ -10,10 +10,27 @@ test("publishes a self-contained API catalog with concrete user endpoints", () =
   assert.deepEqual(
     links.item.map(({ href, type }) => ({ href, type })),
     [
-      { href: "https://leaderboard.example/api/board", type: "application/json" },
+      {
+        href: "https://leaderboard.example/api/board",
+        type: "application/json",
+      },
       { href: "https://leaderboard.example/api/all", type: "application/json" },
-      { href: "https://leaderboard.example/api/users/alice", type: "application/json" },
-      { href: "https://leaderboard.example/api/users/bob", type: "application/json" },
+      {
+        href: "https://leaderboard.example/api/users/alice",
+        type: "application/json",
+      },
+      {
+        href: "https://leaderboard.example/api/users/alice/breakdown",
+        type: "application/json",
+      },
+      {
+        href: "https://leaderboard.example/api/users/bob",
+        type: "application/json",
+      },
+      {
+        href: "https://leaderboard.example/api/users/bob/breakdown",
+        type: "application/json",
+      },
     ],
   );
 });
