@@ -6,6 +6,7 @@ import { nextMilestone, PERSONAL_MILESTONES } from "../shared/milestones";
 import { badgeSvg, type BadgeInput, type BadgeKind } from "./views/badge";
 import { absentCardSvg, cardSvg } from "./views/card";
 import { apiCatalog } from "./api-catalog";
+import { BOARD_SNAPSHOT_KEY, supersedes, usableSnapshot, type BoardSnapshot } from "./board-snapshot";
 import {
   cakeDayNotification,
   discordWebhookPayload,
@@ -136,11 +137,21 @@ const AVATAR_CACHE_PREFIX = "https://ynga-git-board.internal/avatar/v1/";
 const TOKEN_MISSING = "The board is missing its GitHub token. Set the GITHUB_TOKEN secret.";
 /** A fresh fetch, an edge cache entry, or the last good copy standing in. */
 type CacheState = "HIT" | "MISS" | "STALE";
-/** The year in progress keeps moving. */
-const LIVE_TTL_SECONDS = 30 * 60;
+/**
+ * The year in progress keeps moving. Its numbers come from the scheduled
+ * check's snapshot, so the edge only needs to hold them long enough to spare
+ * the Durable Object a read per visitor.
+ */
+const LIVE_TTL_SECONDS = 60;
+/**
+ * The year in progress when no current snapshot exists (preview builds, local
+ * development, a stopped cron) and the board is fetched from GitHub directly.
+ * Short, so a snapshot that appears is picked up within minutes.
+ */
+const UPSTREAM_LIVE_TTL_SECONDS = 5 * 60;
 /** Finished years only shift if someone retoggles private-contribution visibility. */
 const ARCHIVE_TTL_SECONDS = 30 * 24 * 60 * 60;
-const BROWSER_TTL_SECONDS = 5 * 60;
+const BROWSER_TTL_SECONDS = 60;
 const BROWSER_ARCHIVE_TTL_SECONDS = 24 * 60 * 60;
 /**
  * A public contribution fragment has no second source, so when GitHub stops
@@ -167,6 +178,11 @@ const API_CATALOG_PROFILE = "https://www.rfc-editor.org/info/rfc9727";
  */
 function edgeTtl(year: number): number {
   return year >= featuredYear(todayIso()) ? LIVE_TTL_SECONDS : ARCHIVE_TTL_SECONDS;
+}
+
+/** `edgeTtl` for a board fetched from GitHub rather than read from the snapshot. */
+function upstreamTtl(year: number): number {
+  return year >= featuredYear(todayIso()) ? UPSTREAM_LIVE_TTL_SECONDS : ARCHIVE_TTL_SECONDS;
 }
 
 function json(body: unknown, init: ResponseInit = {}): Response {
@@ -251,6 +267,58 @@ function yearOutOfRange(): string {
   return `Year must be a whole number between ${MIN_YEAR} and ${currentYear()}.`;
 }
 
+/** The Durable Object that holds notification checkpoints and the board snapshot. */
+function leaderState(env: Env): DurableObjectStub<LeaderState> {
+  return env.LEADER_STATE.getByName("leaderboard");
+}
+
+/**
+ * The scheduled check's board for the year in progress, when it has a current
+ * one. Any failure to reach it reads as no snapshot, and the caller goes to
+ * GitHub as it did before snapshots existed.
+ */
+async function liveSnapshot(year: number, env: Env): Promise<BoardSnapshot | null> {
+  if (year !== currentYear() || !env.LEADER_STATE) return null;
+  try {
+    return await leaderState(env).boardSnapshot(year);
+  } catch (error) {
+    console.warn("board snapshot unavailable", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+function boardResponse(
+  board: Board,
+  year: number,
+  generatedAt: string,
+  missing: readonly string[],
+  ttl: number,
+): Response {
+  return json(board, {
+    headers: {
+      // Drives how long `caches.default` keeps the entry.
+      "Cache-Control": `public, max-age=${ttl}`,
+      "X-Board-Generated": generatedAt,
+      "X-Board-Missing": missing.join(","),
+      "X-Board-Year": String(year),
+    },
+  });
+}
+
+async function storeBoard(
+  cacheKey: Request,
+  lastGoodKey: Request,
+  fresh: Response,
+  ttl: number,
+): Promise<void> {
+  await Promise.all([
+    caches.default.put(cacheKey, fresh.clone()),
+    caches.default.put(lastGoodKey, lastGoodCopy(fresh.clone(), ttl + LAST_GOOD_GRACE_SECONDS)),
+  ]);
+}
+
 /**
  * The single upstream path: every route reads the board through here, so one
  * GitHub fetch per year serves the JSON API and the markdown views alike.
@@ -269,6 +337,13 @@ async function boardJson(
   const hit = await cache.match(cacheKey);
   if (hit) return { response: hit, cache: isStaleCopy(hit) ? "STALE" : "HIT" };
 
+  const snapshot = await liveSnapshot(year, env);
+  if (snapshot) {
+    const fresh = boardResponse(snapshot.board, year, snapshot.generatedAt, [], LIVE_TTL_SECONDS);
+    ctx.waitUntil(storeBoard(cacheKey, lastGoodKey, fresh, LIVE_TTL_SECONDS));
+    return { response: fresh, cache: "MISS" };
+  }
+
   if (!env.GITHUB_TOKEN) {
     return {
       response: json(
@@ -281,26 +356,9 @@ async function boardJson(
 
   try {
     const { board, missing } = await fetchBoard(env.GITHUB_TOKEN, year);
-
-    const fresh = json(board, {
-      headers: {
-        // Drives how long `caches.default` keeps the entry.
-        "Cache-Control": `public, max-age=${edgeTtl(year)}`,
-        "X-Board-Generated": new Date().toISOString(),
-        "X-Board-Missing": missing.join(","),
-        "X-Board-Year": String(year),
-      },
-    });
-
-    ctx.waitUntil(
-      Promise.all([
-        cache.put(cacheKey, fresh.clone()),
-        cache.put(
-          lastGoodKey,
-          lastGoodCopy(fresh.clone(), edgeTtl(year) + LAST_GOOD_GRACE_SECONDS),
-        ),
-      ]),
-    );
+    const ttl = upstreamTtl(year);
+    const fresh = boardResponse(board, year, new Date().toISOString(), missing, ttl);
+    ctx.waitUntil(storeBoard(cacheKey, lastGoodKey, fresh, ttl));
     return { response: fresh, cache: "MISS" };
   } catch (error) {
     const status = error instanceof GitHubError ? error.status : 500;
@@ -1248,17 +1306,26 @@ function withBrowserHeaders(
   return new Response(response.body, { status: response.status, headers });
 }
 
-async function refreshNotifications(env: Env): Promise<void> {
-  if (!env.DISCORD_WEBHOOK_URL) return;
+/**
+ * One fetch serves both readers: the snapshot the site renders the year in
+ * progress from, and the notifications Discord is sent from it.
+ */
+async function refreshBoard(env: Env): Promise<void> {
   if (!env.GITHUB_TOKEN) throw new Error(TOKEN_MISSING);
 
   const year = currentYear();
+  const generatedAt = new Date().toISOString();
   const { board, missing } = await fetchBoard(env.GITHUB_TOKEN, year);
+  // A partial board would drop people from the site; the last full one stands
+  // in until it ages out, and notifications wait for the same full board.
   if (!shouldUpdateNotifications(missing)) {
-    console.warn("notifications skipped for incomplete board", { year, missing });
+    console.warn("board refresh skipped for incomplete board", { year, missing });
     return;
   }
-  await env.LEADER_STATE.getByName("leaderboard").update(year, todayIso(), board);
+  const state = leaderState(env);
+  await state.saveBoard({ year, board, generatedAt });
+  if (!env.DISCORD_WEBHOOK_URL) return;
+  await state.update(year, todayIso(), board);
 }
 
 function count(value: number): string {
@@ -1337,7 +1404,10 @@ function standingOvertakeEmbed(
   };
 }
 
-/** Stores notification checkpoints, so scheduled checks cannot post duplicates. */
+/**
+ * Stores notification checkpoints, so scheduled checks cannot post duplicates,
+ * and the board those checks last fetched in full.
+ */
 export class LeaderState extends DurableObject<Env> {
   /** External webhook fetches open the DO input gate, so queue whole updates. */
   private readonly updates = new SerialTaskQueue();
@@ -1439,6 +1509,20 @@ export class LeaderState extends DurableObject<Env> {
       (event) => this.notify(cakeDayNotification(event, userIds)),
       (state) => this.ctx.storage.put("cake-days", state),
     );
+  }
+
+  /**
+   * Outside the update queue on purpose: a slow Discord post must not hold the
+   * site's numbers back, and neither method reads what the other writes.
+   */
+  async saveBoard(snapshot: BoardSnapshot): Promise<void> {
+    const current = await this.ctx.storage.get<BoardSnapshot>(BOARD_SNAPSHOT_KEY);
+    if (supersedes(snapshot, current)) await this.ctx.storage.put(BOARD_SNAPSHOT_KEY, snapshot);
+  }
+
+  async boardSnapshot(year: number): Promise<BoardSnapshot | null> {
+    const snapshot = await this.ctx.storage.get<BoardSnapshot>(BOARD_SNAPSHOT_KEY);
+    return usableSnapshot(snapshot, year, Date.now());
   }
 
   async update(year: number, today: string, board: Board): Promise<void> {
@@ -1726,6 +1810,6 @@ export default {
   },
 
   scheduled(_controller: ScheduledController, env: Env): Promise<void> {
-    return refreshNotifications(env);
+    return refreshBoard(env);
   },
 } satisfies ExportedHandler<Env>;

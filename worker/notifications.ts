@@ -431,7 +431,7 @@ function cakeDayStateSnapshot(state: CakeDayState): CakeDayState {
 
 /**
  * Finds the accounts whose anniversary is `today`. Unlike the other planners
- * this has no quiet baseline: state exists only to stop the half-hourly check
+ * this has no quiet baseline: state exists only to stop the scheduled check
  * repeating itself, so a cake day landing on a fresh Durable Object is still
  * announced. The stored year is what makes the next one fire.
  */

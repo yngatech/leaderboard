@@ -36,7 +36,7 @@ export interface PageOptions {
   nav: { kind: "year"; year: number } | { kind: "all" } | { kind: "user" } | null;
   /** ISO timestamp the data was generated, shown as footer freshness metadata. */
   generatedAt?: string | null;
-  /** Live pages refresh on the half hour; archived years sit still. */
+  /** Live pages refresh every ten minutes; archived years sit still. */
   liveCopy?: boolean;
   /** The page includes the current UTC day, which GitHub may still revise. */
   provisionalToday?: boolean;
@@ -159,7 +159,7 @@ const SOURCE_PANEL =
  */
 function sourceNoteHtml(options: PageOptions): Html {
   const cadence = options.liveCopy
-    ? "Data is cached for about 30 minutes."
+    ? "Data refreshes about every 10 minutes."
     : `${options.nav?.kind === "year" ? options.nav.year : "This year"} is final, so data is cached for 7 days.`;
   // Only the pages that actually include today can be behind on today.
   const provisional = options.provisionalToday
