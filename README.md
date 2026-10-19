@@ -185,6 +185,8 @@ The repository has separate Cloudflare Workers Builds connections for
 `leaderboard` and `leaderboard-preview`. Non-production branch builds are
 disabled on `leaderboard` and enabled on `leaderboard-preview`, which uploads
 each branch version and adds its `workers.dev` URL to the pull request. The
+`Preview deployment` workflow mirrors each successful upload as a GitHub
+deployment to the `preview` environment, so the pull request links it. The
 preview runs the branch's real Worker and static assets, including the rendered
 pages and API routes.
 
