@@ -187,9 +187,6 @@ if (navigator.clipboard) {
 
 /* Day detail is rendered on the destination page; only transplant that markup. */
 let dayRequest = 0;
-/* Once a day has been swapped in, the history entries no longer match the
-   markup, so going back or forward loads the page the URL names. */
-let swappedDay = false;
 function clearSelectedDay() {
   for (const cell of document.querySelectorAll("a[data-day] .heat-cell[data-selected]"))
     cell.removeAttribute("data-selected");
@@ -199,7 +196,6 @@ function closeDay(link) {
   document.getElementById("day-breakdown")?.remove();
   clearSelectedDay();
   history.pushState({}, "", link.getAttribute("href"));
-  swappedDay = true;
 }
 function plainDayClick(event) {
   return (
@@ -237,7 +233,10 @@ document.addEventListener("click", async (event) => {
        put two different counts side by side, so load the whole page. */
     const day = link.getAttribute("data-day");
     const cellLabel = (root) => root.querySelector(`a[data-day="${day}"]`)?.getAttribute("aria-label");
-    const yearTotal = (root) => root.querySelector("#year-breakdown h3")?.textContent.trim();
+    // The heatmap's own label carries the year total, and is drawn even when
+    // the year breakdown is not.
+    const yearTotal = (root) =>
+      root.querySelector(`a[data-day="${day}"]`)?.closest("svg")?.getAttribute("aria-label");
     if (cellLabel(doc) !== cellLabel(document) || yearTotal(doc) !== yearTotal(document)) {
       location.assign(href);
       return;
@@ -248,12 +247,15 @@ document.addEventListener("click", async (event) => {
     clearSelectedDay();
     link.querySelector(".heat-cell")?.setAttribute("data-selected", "true");
     history.pushState({ day: true }, "", href);
-    swappedDay = true;
-    detail.scrollIntoView({ block: "nearest" });
+      detail.scrollIntoView({ block: "nearest" });
   } catch {
     if (request === dayRequest) location.assign(href);
   }
 });
+/* History entries made here share one document, so whenever the day in the
+   URL and the day on screen part ways, load the page the URL names. */
 window.addEventListener("popstate", () => {
-  if (swappedDay) location.reload();
+  const wanted = new URLSearchParams(location.search).get("day");
+  const shown = document.getElementById("day-breakdown")?.getAttribute("data-date") ?? null;
+  if (wanted !== shown) location.reload();
 });

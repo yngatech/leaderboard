@@ -232,3 +232,43 @@ test("unavailable day detail stays in the heatmap card and can be closed", async
   await expect(page).toHaveURL(`${ORIGIN}/u/example`);
   await expect(page.locator("#day-breakdown")).toHaveCount(0);
 });
+
+test("a changed year total navigates even when both year breakdowns failed", async ({ page, context }) => {
+  const dayWindowFixture = { kind: "day", date: "2026-03-02", from: "2026-03-02T00:00:00Z", to: "2026-03-02T23:59:59Z" } as const;
+  const openPage = userPageHtml({ ...options, breakdown: null });
+  const movedPage = userPageHtml({
+    ...options,
+    breakdown: null,
+    board: [{ ...boardUser, totalContributions: 5 }],
+    day: "2026-03-02",
+    dayBreakdown: { ...breakdown, window: dayWindowFixture },
+  });
+  await serveFixture(context, openPage);
+  await context.route(`${ORIGIN}/u/example?day=*`, (route) =>
+    route.fulfill({ contentType: "text/html", body: movedPage }),
+  );
+  await page.goto(`${ORIGIN}/u/example`);
+  await page.evaluate(() => document.body.setAttribute("data-test-document", "original"));
+  await page.locator('a[data-day="2026-03-02"]').click();
+  await expect(page).toHaveURL(`${ORIGIN}${href}`);
+  await expect(page.locator("body")).not.toHaveAttribute("data-test-document", "original");
+});
+
+test("back then forward after closing a day shows what the URL names", async ({ page, context }) => {
+  await serveFixture(context, yearPage);
+  await context.route(`${ORIGIN}/u/example?day=*`, (route) =>
+    route.fulfill({ contentType: "text/html", body: dayPage }),
+  );
+  await page.goto(`${ORIGIN}/u/example`);
+  await page.locator('a[data-day="2026-03-02"]').click();
+  await expect(page.locator("#day-breakdown")).toHaveCount(1);
+  await page.locator("[data-day-close]").click();
+  await expect(page).toHaveURL(`${ORIGIN}/u/example`);
+  await page.goBack();
+  await expect(page).toHaveURL(`${ORIGIN}${href}`);
+  await expect(page.locator("#day-breakdown")).toHaveCount(1);
+  await page.goForward();
+  await expect(page).toHaveURL(`${ORIGIN}/u/example`);
+  await expect(page.locator("#day-breakdown")).toHaveCount(0);
+  await expect(page.locator(".heat-cell[data-selected]")).toHaveCount(0);
+});

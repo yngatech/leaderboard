@@ -63,7 +63,7 @@ test("116 example reconciles reported types and restricted work", () => {
     result.kinds.map((k) => k.total),
     [1, 51, 0, 0, 0],
   );
-  const markup = String(dayBreakdownHtml(result, "example", 2026));
+  const markup = String(dayBreakdownHtml("2026-10-10", result, "example", 2026));
   const bar = markup.match(/<div role="img"[^>]*>([\s\S]*?)<\/div>/)?.[1] ?? "";
   const counts = [...bar.matchAll(/data-breakdown-count="(\d+)"/g)].map((m) => Number(m[1]));
   assert.deepEqual(counts, [1, 51, 64]);
@@ -280,7 +280,7 @@ test("top repositories merge kinds and limit to five, with overflow and unlisted
   assert.ok(markup.includes("4 PRs"));
   assert.ok(markup.includes("and 15 more in other repositories"));
   assert.ok(!markup.includes("example/repo-05"));
-  const dayMarkup = String(dayBreakdownHtml(result, "example", 2026));
+  const dayMarkup = String(dayBreakdownHtml("2026-10-10", result, "example", 2026));
   assert.equal([...dayMarkup.matchAll(/href="https:\/\/github.com\//g)].length, 4);
   assert.ok(dayMarkup.includes("and 16 more in other repositories"));
   const complete = { ...result, kinds: result.kinds.map((k) => ({ ...k, unlisted: 0 })) };
@@ -314,4 +314,32 @@ test("year bars separate visibility from public types and omit negative gaps", (
     assert.deepEqual(counts(bars[1][1]), [5, 2]);
     assert.ok(!markup.includes("NaN"));
   }
+});
+
+test("a day missing from the calendar reconciles against the zero the heatmap draws", async () => {
+  const { userPageHtml } = await import("../worker/views/pages.ts");
+  const boardUser = {
+    login: "example", name: null, avatarUrl: "https://avatars.example/u", url: "https://github.com/example",
+    followers: 0, following: 0, totalContributions: 1,
+    weeks: [{ days: [{ date: "2026-03-02", count: 1, level: 1 as const }] }],
+  };
+  const user = { ...boardUser, total: 1, byYear: { "2026": 1 } };
+  const day = map(collection({
+    totalCommitContributions: 2,
+    commitContributionsByRepository: [repo("example/app", 2)],
+  }));
+  const markup = userPageHtml({
+    chrome: { thisYear: 2026, stylesUrl: "/s.css", enhanceUrl: "/e.js", buildSha: "0".repeat(40) },
+    user, board: [boardUser], allUsers: [user], years: [2026], year: 2026, today: "2026-08-10",
+    generatedAt: "2026-08-10T12:00:00Z", breakdown: null, day: "2026-03-04",
+    dayBreakdown: { ...day, window: dayWindow("2026-03-04") },
+  });
+  const panel = markup.slice(markup.indexOf('id="day-breakdown"'));
+  assert.match(panel, /<strong[^>]*>0<\/strong> contributions on/);
+  assert.match(panel, /come to 2 more than/);
+});
+
+test("a single contribution reads in the singular", () => {
+  const one = map(collection({ contributionCalendar: { totalContributions: 1 }, restrictedContributionsCount: 1 }));
+  assert.match(String(dayBreakdownHtml("2026-10-10", one, "example", 2026)), /<\/strong> contribution on/);
 });

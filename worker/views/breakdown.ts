@@ -99,6 +99,10 @@ function repositoriesHtml(data: ContributionBreakdown, limit: number): Html {
   ${remainder > 0 ? html`<p class="mt-1.5 text-[0.72rem] text-faint">and ${formatNumber(remainder)} more in ${unlisted > 0 ? "other repositories" : `${formatNumber(rest.length)} other ${rest.length === 1 ? "repository" : "repositories"}`}</p>` : null}`;
 }
 
+function contributions(count: number): string {
+  return count === 1 ? "contribution" : "contributions";
+}
+
 export function breakdownHtml(data: ContributionBreakdown): Html {
   const kinds = publicSegments(data);
   const publicTotal = kinds.reduce((n, s) => n + s.count, 0);
@@ -108,7 +112,7 @@ export function breakdownHtml(data: ContributionBreakdown): Html {
   ];
   const year = data.window.kind === "year" ? data.window.year : Number(data.window.date.slice(0, 4));
   return html`<section id="year-breakdown" class="${CARD} border-line-soft px-[1.3rem] py-[1.15rem] font-mono text-[0.75rem] leading-[1.7] text-dim max-phone:px-4">
-    <header class="mb-3.5"><h3><strong class="mr-1.5 font-display text-[30px] leading-none font-extrabold tracking-[-0.03em] tabular-nums text-accent">${formatNumber(data.calendarTotal)}</strong> contributions in ${year} so far</h3></header>
+    <header class="mb-3.5"><h3><strong class="mr-1.5 font-display text-[30px] leading-none font-extrabold tracking-[-0.03em] tabular-nums text-accent">${formatNumber(data.calendarTotal)}</strong> ${contributions(data.calendarTotal)} in ${year} so far</h3></header>
     ${barHtml(parts, "h-[10px]")}${splitHtml(parts)}${discrepancyHtml(data)}
     <h4 class="${LEDGER_TERM} mt-[22px] mb-2.5">public, by type</h4>
     ${barHtml(kinds, "h-[14px]")}
@@ -124,17 +128,21 @@ export function breakdownHtml(data: ContributionBreakdown): Html {
   </section>`;
 }
 
-export function dayBreakdownHtml(data: ContributionBreakdown | null, login: string, pageYear: number): Html {
+export function dayBreakdownHtml(
+  date: string,
+  data: ContributionBreakdown | null,
+  login: string,
+  pageYear: number,
+): Html {
   const close = html`<a data-day-close class="shrink-0 text-[0.69rem] text-dim hover:text-accent" href="/u/${login}">close ×</a>`;
   if (!data || data.window.kind !== "day") {
-    return html`<section id="day-breakdown" class="${CARD_LEDGER} flex items-baseline justify-between gap-4 text-[0.75rem] text-faint"><p>Breakdown unavailable for this day right now.</p>${close}</section>`;
+    return html`<section id="day-breakdown" data-date="${date}" class="${CARD_LEDGER} flex items-baseline justify-between gap-4 text-[0.75rem] text-faint"><p>Breakdown unavailable for this day right now.</p>${close}</section>`;
   }
-  const date = data.window.date;
   const caption = formatDayLong(date).replace(",", "");
   const parts = publicSegments(data);
   const labels = parts.map((s) => ({ ...s, label: s.count === 1 ? (s.label === "pull requests" ? "pull request" : s.label === "repos created" ? "repo created" : s.label.slice(0, -1)) : s.label })).sort((a, b) => b.count - a.count);
-  return html`<section id="day-breakdown" class="${CARD_LEDGER} font-mono text-[0.75rem] leading-[1.7] text-dim">
-    <header class="mb-3.5 flex items-baseline justify-between gap-4"><h3><strong class="mr-1.5 font-display text-xl leading-none font-extrabold tracking-[-0.03em] tabular-nums text-accent">${formatNumber(data.calendarTotal)}</strong> contributions on ${Number(date.slice(0, 4)) === pageYear ? caption.replace(/ \d{4}$/, "") : caption}</h3>${close}</header>
+  return html`<section id="day-breakdown" data-date="${date}" class="${CARD_LEDGER} font-mono text-[0.75rem] leading-[1.7] text-dim">
+    <header class="mb-3.5 flex items-baseline justify-between gap-4"><h3><strong class="mr-1.5 font-display text-xl leading-none font-extrabold tracking-[-0.03em] tabular-nums text-accent">${formatNumber(data.calendarTotal)}</strong> ${contributions(data.calendarTotal)} on ${Number(date.slice(0, 4)) === pageYear ? caption.replace(/ \d{4}$/, "") : caption}</h3>${close}</header>
     ${barHtml([...parts, ...hiddenSegments(data, true)], "h-[10px]")}
     ${splitHtml([...labels, ...hiddenSegments(data, true)])}${discrepancyHtml(data)}
     <div class="mt-3">${repositoriesHtml(data, 4)}</div>

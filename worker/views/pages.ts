@@ -728,8 +728,10 @@ export function userPageHtml(options: UserPageOptions): string {
   });
   /* The breakdown answers to the totals this page already shows: the board's
      year and, for a day in it, that day's heatmap cell. */
+  // The rendered grid, not the raw weeks: a date GitHub left out of the
+  // calendar is still drawn, as a zero.
   const shownDay = options.day
-    ? boardUser?.weeks.flatMap((week) => week.days).find((d) => d.date === options.day)
+    ? grid?.flat().find((cell) => cell.date === options.day && cell.state === "day")
     : undefined;
   const yearBreakdown =
     options.breakdown && boardUser
@@ -751,7 +753,7 @@ export function userPageHtml(options: UserPageOptions): string {
     year,
     leadsYear,
     selectedDate: options.day,
-    dayPanel: options.day ? dayBreakdownHtml(dayBreakdown, user.login, year) : null,
+    dayPanel: options.day ? dayBreakdownHtml(options.day, dayBreakdown, user.login, year) : null,
   });
 
   const main = html`${identityCard}${sectionRuleHtml(year)}${liveSection}${sectionRuleHtml("where contributions came from")}
