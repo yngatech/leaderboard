@@ -1,0 +1,36 @@
+name: Preview deployment
+
+# Workers Builds reports each `leaderboard-preview` upload only as a check run.
+# Mirror it as a GitHub deployment so the pull request links the preview.
+on:
+  check_run:
+    types: [completed]
+
+permissions:
+  deployments: write
+
+jobs:
+  deployment:
+    if: >-
+      github.event.check_run.app.slug == 'cloudflare-workers-and-pages' &&
+      github.event.check_run.name == 'Workers Builds: leaderboard-preview' &&
+      github.event.check_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.event.check_run.head_sha }}
+          SUMMARY: ${{ github.event.check_run.output.summary }}
+          BUILD_URL: ${{ github.event.check_run.details_url }}
+        run: |
+          url=$(grep -oP '^Preview Alias URL: \Khttps://\S+' <<< "$SUMMARY" ||
+            grep -oP '^Preview URL: \Khttps://\S+' <<< "$SUMMARY")
+          id=$(jq -n --arg ref "$SHA" '{ref: $ref, environment: "preview",
+            auto_merge: false, required_contexts: [],
+            transient_environment: true, production_environment: false}' |
+            gh api "repos/$GH_REPO/deployments" --input - --jq .id)
+          jq -n --arg url "$url" --arg log "$BUILD_URL" '{state: "success",
+            environment_url: $url, log_url: $log, auto_inactive: false}' |
+            gh api "repos/$GH_REPO/deployments/$id/statuses" --input - --silent
