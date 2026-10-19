@@ -105,7 +105,7 @@ is a record of that year rather than of the day it is read on.
 
 ## Discord notifications
 
-A scheduled Worker checks the current-year board every 30 minutes. When a new
+A scheduled Worker checks the current-year board every 10 minutes. When a new
 account takes the lead, someone overtakes another account for any board
 position, someone sets a daily contributions PB, someone beats the board's peak
 daily contributions record, or a user or the board reaches a contribution
@@ -145,7 +145,14 @@ to ping Discord users.
 
 ## Caching
 
-The year in progress caches for 30 minutes at the edge, 5 minutes in the browser.
+The same scheduled check stores the current-year board it fetched in the
+Durable Object, and the site renders the year in progress from that snapshot,
+so the board and Discord always show the same numbers. A check that gets a
+partial board from GitHub leaves the last full one in place. If no snapshot is
+newer than 30 minutes (local development, preview builds, a stopped cron), the
+site fetches the board from GitHub itself and caches it for 5 minutes.
+
+The year in progress caches for 1 minute at the edge and in the browser.
 Finished years cache for 30 days at the edge, 1 day in the browser — they only
 move if someone retoggles private-contribution visibility. Rendered-page cache
 keys include the deployed commit SHA, so a new commit renders fresh HTML at the

@@ -151,7 +151,7 @@ test("live year page carries goals, future legend, chart and nav targets", () =>
   // The live year gets the forward-looking furniture and chart data.
   assert.ok(page.includes(">next milestone</dt>"));
   assert.ok(page.includes('id="climb"'));
-  assert.ok(page.includes("Data is cached for about 30 minutes."));
+  assert.ok(page.includes("Data refreshes about every 10 minutes."));
   assert.ok(page.includes("Today's counts may lag GitHub activity."));
   // Nav: previous year is a link, next is the all-time board.
   assert.ok(page.includes('href="/2025"'));
