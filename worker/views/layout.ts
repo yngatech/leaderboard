@@ -142,7 +142,7 @@ export const COUNTING_RULES_URL =
   "https://docs.github.com/en/account-and-profile/reference/profile-contributions-reference";
 
 /** The disclosure trigger: a footer link that happens to unfold instead of navigate. */
-export const SOURCE_SUMMARY = `${FOOTER_LINK} inline-flex list-none cursor-pointer items-center gap-[0.35rem] decoration-dotted [&::-webkit-details-marker]:hidden`;
+const SOURCE_SUMMARY = `${FOOTER_LINK} inline-flex list-none cursor-pointer items-center gap-[0.35rem] decoration-dotted [&::-webkit-details-marker]:hidden`;
 
 /**
  * The note itself, lifted above the trigger so opening it never reflows the
@@ -167,7 +167,21 @@ function sourceNoteHtml(options: PageOptions): Html {
     : null;
 
   return html`<details class="group inline-block">
-    <summary class="${SOURCE_SUMMARY}">Data sourced from GitHub ${sourceChevronHtml()}</summary>
+    <summary class="${SOURCE_SUMMARY}">
+      Data sourced from GitHub
+      <svg
+        class="size-[0.6rem] shrink-0 transition-transform duration-200 group-open:rotate-180"
+        viewBox="0 0 10 6"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.6"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M1 1.4 5 4.6 9 1.4" />
+      </svg>
+    </summary>
     <div class="${SOURCE_PANEL}">
       <p>Contributions are read from public GitHub profile calendars. ${cadence}</p>
       ${provisional}
@@ -262,19 +276,4 @@ export function pageHtml(options: PageOptions): string {
   </body>
 </html>
 `.toString();
-}
-
-export function sourceChevronHtml(): Html {
-  return html`<svg
-    class="size-[0.6rem] shrink-0 transition-transform duration-200 group-open:rotate-180"
-    viewBox="0 0 10 6"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="1.6"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M1 1.4 5 4.6 9 1.4" />
-  </svg>`;
 }

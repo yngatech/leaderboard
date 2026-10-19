@@ -1,14 +1,15 @@
 import type { ContributionBreakdown, ContributionKind } from "../../shared/types.ts";
-import { formatDayYear, formatNumber } from "../../shared/format.ts";
+import { formatDayLong, formatNumber } from "../../shared/format.ts";
 import { html, type Html } from "../html.ts";
-import { COUNTING_RULES_URL, SOURCE_SUMMARY, sourceChevronHtml } from "./layout.ts";
+import { CARD, CARD_LEDGER, LEDGER_TERM, LEDGER_VALUE } from "./card-styles.ts";
+import { COUNTING_RULES_URL } from "./layout.ts";
 
 const LABELS: Record<ContributionKind, string> = {
-  commits: "Commits",
-  pullRequests: "Pull requests",
-  issues: "Issues",
-  reviews: "Reviews",
-  repositories: "Repositories created",
+  commits: "commits",
+  pullRequests: "pull requests",
+  issues: "issues",
+  reviews: "reviews",
+  repositories: "repos created",
 };
 const COLORS: Record<ContributionKind, string> = {
   commits: "bg-heat-4",
@@ -22,125 +23,120 @@ const UNITS: Record<ContributionKind, [string, string]> = {
   pullRequests: ["PR", "PRs"],
   issues: ["issue", "issues"],
   reviews: ["review", "reviews"],
-  repositories: ["repository", "repositories"],
+  repositories: ["repo created", "repos created"],
 };
-
-export function countingNoteHtml(): Html {
-  return html`<details
-    class="group open:basis-full text-[0.7rem] leading-[1.7] tracking-normal text-dim normal-case"
-  >
-    <summary class="${SOURCE_SUMMARY}">How GitHub counts these ${sourceChevronHtml()}</summary>
-    <div class="mt-3 max-w-[75ch] rounded-xl border border-line-soft bg-panel p-4">
-      <p>
-        Commits count only on a repository's default branch (or gh-pages), and only when made with
-        an email address linked to the account.
-      </p>
-      <p>A commit is dated by its author date, not when it was pushed or committed.</p>
-      <p>Issues, pull requests and reviews count when they are opened or submitted.</p>
-      <p>
-        Private contributions show only as a count, and only if the person has turned on private
-        contribution sharing.
-      </p>
-      <p>
-        GitHub's counting does not always match its documentation, so these are the numbers GitHub
-        reports.
-      </p>
-      <a
-        class="text-accent underline"
-        href="${COUNTING_RULES_URL}"
-        target="_blank"
-        rel="noreferrer noopener"
-        >GitHub contribution reference</a
-      >
-    </div>
-  </details>`;
+const CAPTIONS: Record<ContributionKind, string> = {
+  commits: "default branch, linked email, by author date",
+  pullRequests: "counted when opened",
+  issues: "counted when opened",
+  reviews: "counted when submitted",
+  repositories: "new repositories",
+};
+interface Segment {
+  label: string;
+  count: number;
+  color: string;
+  note?: string;
 }
 
-export function breakdownHtml(data: ContributionBreakdown): Html {
-  const day = data.window.kind === "day";
-  const caption =
-    data.window.kind === "day"
-      ? `on ${formatDayYear(data.window.date)}`
-      : `in ${data.window.year} so far`;
-  const segments = [
-    ...data.kinds.map((k) => ({
-      label: LABELS[k.kind],
-      count: k.total,
-      color: COLORS[k.kind],
-    })),
-    { label: "Private", count: data.private, color: "breakdown-private" },
-    {
-      label: "Other (not attributed by GitHub's API)",
-      count: Math.max(0, data.other),
-      color: "bg-faint",
-    },
+function publicSegments(data: ContributionBreakdown): Segment[] {
+  return data.kinds.filter((k) => k.total > 0).map((k) => ({
+    label: LABELS[k.kind], count: k.total, color: COLORS[k.kind],
+  }));
+}
+
+function hiddenSegments(data: ContributionBreakdown, day: boolean): Segment[] {
+  return [
+    { label: "private", count: data.private, color: "breakdown-private", note: day ? "count only" : "repositories hidden, count only" },
+    { label: "unattributed", count: data.other, color: "bg-faint", note: "on the calendar, not itemised by GitHub" },
   ].filter((s) => s.count > 0);
-  // When GitHub's type counts exceed its calendar, normalize the visual split
-  // to the reported type sum; preserve both exact counts and discrepancy in text.
-  const sum = segments.reduce((n, s) => n + s.count, 0);
-  const percentage = (count: number) => (sum ? (count / sum) * 100 : 0);
-  const repos = new Map<string, { name: string; url: string; count: number; split: string[] }>();
+}
+
+function barHtml(parts: Segment[], height: string): Html {
+  return html`<div role="img" aria-label="${parts.map((s) => `${s.label}: ${formatNumber(s.count)}`).join(", ") || "0 contributions"}"
+    class="flex ${height} gap-[2px] overflow-hidden rounded-[3px]">
+    ${parts.map((s) => html`<span class="${s.color} min-w-[2px]" style="flex:${s.count} 0 0" data-breakdown-count="${s.count}"></span>`)}
+  </div>`;
+}
+
+function splitHtml(parts: Segment[]): Html {
+  return html`<ul class="mt-2 flex flex-wrap gap-x-[22px] gap-y-1 text-[0.72rem]">
+    ${parts.map((s) => html`<li><strong class="${LEDGER_VALUE}">${formatNumber(s.count)}</strong> ${s.label}${s.note ? html` <span class="ml-1.5 text-faint">${s.note}</span>` : null}</li>`)}
+  </ul>`;
+}
+
+function discrepancyHtml(data: ContributionBreakdown): Html | null {
+  return data.other < 0 ? html`<p class="mt-2 text-[0.72rem] text-faint">GitHub's per-type counts come to ${formatNumber(-data.other)} more than its calendar total.</p>` : null;
+}
+
+/** Public repositories merge across kinds; a capped kind leaves the remainder's repository count unknown. */
+function repositoriesHtml(data: ContributionBreakdown, limit: number): Html {
+  const repos = new Map<string, { name: string; url: string; count: number; parts: Segment[] }>();
   for (const kind of data.kinds) {
     for (const repo of kind.repositories) {
+      if (repo.count <= 0) continue;
       const key = repo.nameWithOwner.toLowerCase();
-      const found = repos.get(key) ?? {
-        name: repo.nameWithOwner,
-        url: repo.url,
-        count: 0,
-        split: [],
-      };
+      const found = repos.get(key) ?? { name: repo.nameWithOwner, url: repo.url, count: 0, parts: [] };
       found.count += repo.count;
-      found.split.push(`${formatNumber(repo.count)} ${UNITS[kind.kind][repo.count === 1 ? 0 : 1]}`);
+      found.parts.push({ label: UNITS[kind.kind][repo.count === 1 ? 0 : 1], count: repo.count, color: COLORS[kind.kind] });
       repos.set(key, found);
     }
   }
-  const ordered = [...repos.values()].sort(
-    (a, b) => b.count - a.count || a.name.localeCompare(b.name),
-  );
-  const remainder =
-    ordered.slice(10).reduce((n, r) => n + r.count, 0) +
-    data.kinds.reduce((n, k) => n + k.unlisted, 0);
-  return html`<section
-    id="${day ? "day-breakdown" : "year-breakdown"}"
-    class="mt-4 rounded-2xl border border-line-soft bg-panel p-5 text-[0.75rem] leading-[1.7] text-dim"
-  >
-    ${day ? html`<a class="text-accent underline" href="/u/${data.login}">← whole year</a>` : null}
-    <h3 class="mb-4 font-display text-lg font-bold text-ink">
-      ${formatNumber(data.calendarTotal)} contributions ${caption}
-    </h3>
-    <div
-      role="img"
-      aria-label="${formatNumber(data.calendarTotal)} contributions ${caption}: ${segments.map((s) => `${s.label}: ${formatNumber(s.count)}`).join(", ")}${data.other < 0 ? "; split normalized to per-type counts" : ""}"
-      class="flex h-5 overflow-hidden rounded-sm bg-faint"
-    >
-      ${segments.map((s) => html`<div class="${s.color} shrink-0" style="width:${percentage(s.count)}%" data-breakdown-count="${s.count}"></div>`)}
-    </div>
-    <ul class="my-4 flex flex-wrap gap-x-6 gap-y-2">
-      ${segments.map((s) => html`<li class="flex items-center gap-2"><span aria-hidden="true" class="${s.color} inline-block size-3 rounded-xs"></span>${s.label}: ${formatNumber(s.count)} <span class="text-dimmer">(${percentage(s.count).toFixed(1)}%)</span></li>`)}
-    </ul>
-    ${data.other < 0 ? html`<p>GitHub's per-type counts come to ${formatNumber(-data.other)} more than its calendar total.</p>` : null}
-    ${
-      ordered.length
-        ? html`<h4 class="mt-5 mb-2 text-ink">Top public repositories</h4>
-            <ol class="divide-y divide-line-soft">
-              ${ordered.slice(0, 10).map(
-                (r) =>
-                  html`<li class="flex flex-wrap justify-between gap-x-4 py-2">
-                    <a
-                      class="break-all text-ink underline hover:text-accent"
-                      href="${r.url}"
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      >${r.name}</a
-                    ><span
-                      >${formatNumber(r.count)}
-                      <span class="text-dimmer">(${r.split.join(" · ")})</span></span
-                    >
-                  </li>`,
-              )}
-            </ol>`
-        : null
-    }
-    ${remainder > 0 ? html`<p class="mt-3">and ${formatNumber(remainder)} more contributions in other repositories</p>` : null}
+  const ordered = [...repos.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  const unlisted = data.kinds.reduce((n, k) => n + k.unlisted, 0);
+  const rest = ordered.slice(limit);
+  const remainder = rest.reduce((n, r) => n + r.count, 0) + unlisted;
+  return html`<ol>
+    ${ordered.slice(0, limit).map((r) => {
+      const split = [...r.parts].sort((a, b) => b.count - a.count).map((s) => `${formatNumber(s.count)} ${s.label}`).join(" · ");
+      return html`<li class="grid grid-cols-[minmax(0,15rem)_minmax(0,1fr)_3.5rem] items-center gap-3.5 py-[5px] max-phone:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_2.5rem] max-phone:gap-2">
+        <a class="truncate text-ink hover:text-accent hover:underline" href="${r.url}" target="_blank" rel="noreferrer noopener">${r.name}</a>
+        <div><div style="width:${(r.count / ordered[0].count) * 100}%">${barHtml(r.parts, "h-[6px]")}</div></div>
+        <span class="text-right tabular-nums" title="${split}">${formatNumber(r.count)}<span class="sr-only">: ${split}</span></span>
+      </li>`;
+    })}
+  </ol>
+  ${remainder > 0 ? html`<p class="mt-1.5 text-[0.72rem] text-faint">and ${formatNumber(remainder)} more in ${unlisted > 0 ? "other repositories" : `${formatNumber(rest.length)} other ${rest.length === 1 ? "repository" : "repositories"}`}</p>` : null}`;
+}
+
+export function breakdownHtml(data: ContributionBreakdown): Html {
+  const kinds = publicSegments(data);
+  const publicTotal = kinds.reduce((n, s) => n + s.count, 0);
+  const parts = [
+    ...(publicTotal > 0 ? [{ label: "public", count: publicTotal, color: "bg-public" }] : []),
+    ...hiddenSegments(data, false),
+  ];
+  const year = data.window.kind === "year" ? data.window.year : Number(data.window.date.slice(0, 4));
+  return html`<section id="year-breakdown" class="${CARD} border-line-soft px-[1.3rem] py-[1.15rem] font-mono text-[0.75rem] leading-[1.7] text-dim max-phone:px-4">
+    <header class="mb-3.5"><h3><strong class="mr-1.5 font-display text-[30px] leading-none font-extrabold tracking-[-0.03em] tabular-nums text-accent">${formatNumber(data.calendarTotal)}</strong> contributions in ${year} so far</h3></header>
+    ${barHtml(parts, "h-[10px]")}${splitHtml(parts)}${discrepancyHtml(data)}
+    <h4 class="${LEDGER_TERM} mt-[22px] mb-2.5">public, by type</h4>
+    ${barHtml(kinds, "h-[14px]")}
+    <dl class="mt-3 grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-[18px] gap-y-3">
+      ${data.kinds.filter((k) => k.total > 0).map((k) => html`<div>
+        <dt class="${LEDGER_TERM} flex items-center gap-1.5"><span aria-hidden="true" class="${COLORS[k.kind]} inline-block size-2 rounded-[2px]"></span>${LABELS[k.kind]}</dt>
+        <dd class="mt-0.5"><strong class="${LEDGER_VALUE} text-[15px]">${formatNumber(k.total)}</strong><span class="block text-[0.66rem] leading-[1.4] text-faint">${CAPTIONS[k.kind]}</span></dd>
+      </div>`)}
+    </dl>
+    <h4 class="${LEDGER_TERM} mt-[22px] mb-2.5">top repositories</h4>
+    ${repositoriesHtml(data, 5)}
+    <p class="mt-[18px] border-t border-line-soft pt-3 text-[0.69rem] text-faint">Numbers as GitHub reports them, which can differ from its <a class="text-dim underline hover:text-accent" href="${COUNTING_RULES_URL}" target="_blank" rel="noreferrer noopener">counting rules ↗</a></p>
+  </section>`;
+}
+
+export function dayBreakdownHtml(data: ContributionBreakdown | null, login: string, pageYear: number): Html {
+  const close = html`<a data-day-close class="shrink-0 text-[0.69rem] text-dim hover:text-accent" href="/u/${login}">close ×</a>`;
+  if (!data || data.window.kind !== "day") {
+    return html`<section id="day-breakdown" class="${CARD_LEDGER} flex items-baseline justify-between gap-4 text-[0.75rem] text-faint"><p>Breakdown unavailable for this day right now.</p>${close}</section>`;
+  }
+  const date = data.window.date;
+  const caption = formatDayLong(date).replace(",", "");
+  const parts = publicSegments(data);
+  const labels = parts.map((s) => ({ ...s, label: s.count === 1 ? (s.label === "pull requests" ? "pull request" : s.label === "repos created" ? "repo created" : s.label.slice(0, -1)) : s.label })).sort((a, b) => b.count - a.count);
+  return html`<section id="day-breakdown" class="${CARD_LEDGER} font-mono text-[0.75rem] leading-[1.7] text-dim">
+    <header class="mb-3.5 flex items-baseline justify-between gap-4"><h3><strong class="mr-1.5 font-display text-xl leading-none font-extrabold tracking-[-0.03em] tabular-nums text-accent">${formatNumber(data.calendarTotal)}</strong> contributions on ${Number(date.slice(0, 4)) === pageYear ? caption.replace(/ \d{4}$/, "") : caption}</h3>${close}</header>
+    ${barHtml([...parts, ...hiddenSegments(data, true)], "h-[10px]")}
+    ${splitHtml([...labels, ...hiddenSegments(data, true)])}${discrepancyHtml(data)}
+    <div class="mt-3">${repositoriesHtml(data, 4)}</div>
   </section>`;
 }

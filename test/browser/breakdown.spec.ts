@@ -90,7 +90,12 @@ test.describe("day links without JavaScript", () => {
     await expect(link).toHaveAttribute("href", href);
     await link.click();
     await expect(page).toHaveURL(`${ORIGIN}${href}`);
-    await expect(page.locator("#day-breakdown")).toContainText("3 contributions on 2 Mar 2026");
+    await expect(page.locator("[data-day-slot] + #day-breakdown")).toContainText("3 contributions on Mon 2 Mar");
+    await expect(page.locator('[aria-label="example in 2026"] #day-breakdown')).toHaveCount(1);
+    await page.locator("[data-day-close]").click();
+    await expect(page).toHaveURL(`${ORIGIN}/u/example`);
+    await expect(page.locator("#day-breakdown")).toHaveCount(0);
+    await page.locator('a[data-day="2026-03-02"]').click();
     await expect(page.locator('a[data-day="2026-03-02"] rect')).toHaveAttribute(
       "data-selected",
       "true",
@@ -110,15 +115,25 @@ test("day click swaps server markup, preserves the document and supports back", 
   );
   await page.goto(`${ORIGIN}/u/example`);
   await page.evaluate(() => document.body.setAttribute("data-test-document", "original"));
+  const originalYear = await page.locator("#year-breakdown").innerHTML();
   await page.locator('a[data-day="2026-03-02"]').click();
   await expect(page).toHaveURL(`${ORIGIN}${href}`);
-  await expect(page.locator("#day-breakdown")).toContainText("3 contributions on 2 Mar 2026");
+  await expect(page.locator("#day-breakdown")).toContainText("3 contributions on Mon 2 Mar");
   await expect(page.locator("body")).toHaveAttribute("data-test-document", "original");
   await expect(page.locator('a[data-day="2026-03-02"] rect')).toHaveAttribute(
     "data-selected",
     "true",
   );
-  await expect(page.locator("#year-breakdown")).toBeAttached();
+  await expect(page.locator("[data-day-slot] + #day-breakdown")).toHaveCount(1);
+  expect(await page.locator("#year-breakdown").innerHTML()).toBe(originalYear);
+  await page.locator("[data-day-close]").click();
+  await expect(page).toHaveURL(`${ORIGIN}/u/example`);
+  await expect(page.locator("#day-breakdown")).toHaveCount(0);
+  await expect(page.locator(".heat-cell[data-selected]")).toHaveCount(0);
+  await expect(page.locator("body")).toHaveAttribute("data-test-document", "original");
+  expect(await page.locator("#year-breakdown").innerHTML()).toBe(originalYear);
+  await page.locator('a[data-day="2026-03-02"]').click();
+  await expect(page.locator("#day-breakdown")).toBeAttached();
   await page.goBack();
   await expect(page).toHaveURL(`${ORIGIN}/u/example`);
   await expect(page.locator("#day-breakdown")).toHaveCount(0);
@@ -163,7 +178,57 @@ test("a day from a board that has since moved loads the whole page", async ({ pa
   await page.evaluate(() => document.body.setAttribute("data-test-document", "original"));
   await page.locator('a[data-day="2026-03-02"]').click();
   await expect(page).toHaveURL(`${ORIGIN}${href}`);
-  await expect(page.locator("#day-breakdown")).toContainText("5 contributions on 2 Mar 2026");
+  await expect(page.locator("#day-breakdown")).toContainText("5 contributions on Mon 2 Mar");
   await expect(page.locator('a[data-day="2026-03-02"]')).toHaveAttribute("aria-label", /^5 contributions/);
   await expect(page.locator("body")).not.toHaveAttribute("data-test-document", "original");
+});
+
+test("a changed year total navigates even when the selected day's count matches", async ({ page, context }) => {
+  const movedYearPage = userPageHtml({
+    ...options,
+    board: [{ ...boardUser, totalContributions: 5 }],
+    day: "2026-03-02",
+    dayBreakdown: { ...breakdown, window: { kind: "day", date: "2026-03-02", from: "2026-03-02T00:00:00Z", to: "2026-03-02T23:59:59Z" } },
+  });
+  await serveFixture(context, yearPage);
+  await context.route(`${ORIGIN}/u/example?day=*`, (route) =>
+    route.fulfill({ contentType: "text/html", body: movedYearPage }),
+  );
+  await page.goto(`${ORIGIN}/u/example`);
+  await page.evaluate(() => document.body.setAttribute("data-test-document", "original"));
+  await page.locator('a[data-day="2026-03-02"]').click();
+  await expect(page).toHaveURL(`${ORIGIN}${href}`);
+  await expect(page.locator("body")).not.toHaveAttribute("data-test-document", "original");
+  await expect(page.locator("#year-breakdown h3 strong")).toHaveText("5");
+});
+
+test("another day replaces the existing panel inside the heatmap card", async ({ page, context }) => {
+  const nextDayPage = userPageHtml({
+    ...options,
+    day: "2026-03-03",
+    dayBreakdown: { ...breakdown, window: { kind: "day", date: "2026-03-03", from: "2026-03-03T00:00:00Z", to: "2026-03-03T23:59:59Z" } },
+  });
+  await serveFixture(context, dayPage);
+  await context.route(`${ORIGIN}/u/example?day=*`, (route) =>
+    route.fulfill({ contentType: "text/html", body: nextDayPage }),
+  );
+  await page.goto(`${ORIGIN}${href}`);
+  await page.evaluate(() => document.body.setAttribute("data-test-document", "original"));
+  await page.locator('a[data-day="2026-03-03"]').click();
+  await expect(page).toHaveURL(`${ORIGIN}/u/example?day=2026-03-03#day-breakdown`);
+  await expect(page.locator("#day-breakdown")).toHaveCount(1);
+  await expect(page.locator("[data-day-slot] + #day-breakdown h3 strong")).toHaveText("1");
+  await expect(page.locator('a[data-day="2026-03-02"] rect')).not.toHaveAttribute("data-selected");
+  await expect(page.locator('a[data-day="2026-03-03"] rect')).toHaveAttribute("data-selected", "true");
+  await expect(page.locator("body")).toHaveAttribute("data-test-document", "original");
+});
+
+test("unavailable day detail stays in the heatmap card and can be closed", async ({ page, context }) => {
+  await serveFixture(context, userPageHtml({ ...options, day: "2026-03-02", dayBreakdown: null }));
+  await page.goto(`${ORIGIN}${href}`);
+  await expect(page.locator("[data-day-slot] + #day-breakdown")).toHaveCount(1);
+  await expect(page.locator("#day-breakdown [role=img]")).toHaveCount(0);
+  await page.locator("[data-day-close]").click();
+  await expect(page).toHaveURL(`${ORIGIN}/u/example`);
+  await expect(page.locator("#day-breakdown")).toHaveCount(0);
 });

@@ -190,19 +190,38 @@ let dayRequest = 0;
 /* Once a day has been swapped in, the history entries no longer match the
    markup, so going back or forward loads the page the URL names. */
 let swappedDay = false;
+function clearSelectedDay() {
+  for (const cell of document.querySelectorAll("a[data-day] .heat-cell[data-selected]"))
+    cell.removeAttribute("data-selected");
+}
+function closeDay(link) {
+  ++dayRequest;
+  document.getElementById("day-breakdown")?.remove();
+  clearSelectedDay();
+  history.pushState({}, "", link.getAttribute("href"));
+  swappedDay = true;
+}
+function plainDayClick(event) {
+  return (
+    !event.defaultPrevented &&
+    event.button === 0 &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.shiftKey &&
+    !event.altKey
+  );
+}
 document.addEventListener("click", async (event) => {
-  if (
-    event.defaultPrevented ||
-    event.button !== 0 ||
-    event.metaKey ||
-    event.ctrlKey ||
-    event.shiftKey ||
-    event.altKey
-  )
-    return;
+  if (!plainDayClick(event)) return;
   const link = event.target instanceof Element ? event.target.closest("a[data-day]") : null;
-  const blocks = document.getElementById("breakdown-blocks");
-  if (!link || !blocks) return;
+  const close = event.target instanceof Element ? event.target.closest("a[data-day-close]") : null;
+  if (close) {
+    event.preventDefault();
+    closeDay(close);
+    return;
+  }
+  const slot = document.querySelector("[data-day-slot]");
+  if (!link || !slot) return;
   event.preventDefault();
   const href = link.getAttribute("href");
   const request = ++dayRequest;
@@ -225,9 +244,8 @@ document.addEventListener("click", async (event) => {
     }
     const old = document.getElementById("day-breakdown");
     if (old) old.replaceWith(detail);
-    else blocks.prepend(detail);
-    for (const cell of document.querySelectorAll("a[data-day] .heat-cell[data-selected]"))
-      cell.removeAttribute("data-selected");
+    else slot.after(detail);
+    clearSelectedDay();
     link.querySelector(".heat-cell")?.setAttribute("data-selected", "true");
     history.pushState({ day: true }, "", href);
     swappedDay = true;

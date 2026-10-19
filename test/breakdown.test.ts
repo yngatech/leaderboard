@@ -10,7 +10,7 @@ import {
   type RawCollection,
 } from "../worker/breakdown.ts";
 import { fetchBreakdown, GitHubError } from "../worker/github.ts";
-import { breakdownHtml } from "../worker/views/breakdown.ts";
+import { breakdownHtml, dayBreakdownHtml } from "../worker/views/breakdown.ts";
 
 const now = new Date("2026-10-19T12:00:00Z");
 const window = dayWindow("2026-10-10");
@@ -63,9 +63,11 @@ test("116 example reconciles reported types and restricted work", () => {
     result.kinds.map((k) => k.total),
     [1, 51, 0, 0, 0],
   );
-  const markup = String(breakdownHtml(result));
-  const widths = [...markup.matchAll(/style="width:([\d.]+)%"/g)].map((m) => Number(m[1]));
-  assert.ok(Math.abs(widths.reduce((a, b) => a + b, 0) - 100) < 1e-9);
+  const markup = String(dayBreakdownHtml(result, "example", 2026));
+  const bar = markup.match(/<div role="img"[^>]*>([\s\S]*?)<\/div>/)?.[1] ?? "";
+  const counts = [...bar.matchAll(/data-breakdown-count="(\d+)"/g)].map((m) => Number(m[1]));
+  assert.deepEqual(counts, [1, 51, 64]);
+  assert.equal(counts.reduce((a, b) => a + b, 0), result.calendarTotal);
 });
 
 test("private repository counts fold into private without exposing names or URLs", () => {
@@ -262,7 +264,7 @@ test("all repository-bearing kinds hide private work; created repositories have 
   assert.equal(result.kinds[4].unlisted, 0);
 });
 
-test("top repositories merge kinds and limit to ten, with overflow and unlisted counts", () => {
+test("top repositories merge kinds and limit to five, with overflow and unlisted counts", () => {
   const result = map(
     collection({
       totalCommitContributions: 20,
@@ -274,10 +276,15 @@ test("top repositories merge kinds and limit to ten, with overflow and unlisted 
     }),
   );
   const markup = String(breakdownHtml(result));
-  assert.equal([...markup.matchAll(/rel="noreferrer noopener"/g)].length, 10);
+  assert.equal([...markup.matchAll(/href="https:\/\/github.com\//g)].length, 5);
   assert.ok(markup.includes("4 PRs"));
-  assert.ok(markup.includes("and 10 more contributions in other repositories"));
-  assert.ok(!markup.includes("example/repo-11"));
+  assert.ok(markup.includes("and 15 more in other repositories"));
+  assert.ok(!markup.includes("example/repo-05"));
+  const dayMarkup = String(dayBreakdownHtml(result, "example", 2026));
+  assert.equal([...dayMarkup.matchAll(/href="https:\/\/github.com\//g)].length, 4);
+  assert.ok(dayMarkup.includes("and 16 more in other repositories"));
+  const complete = { ...result, kinds: result.kinds.map((k) => ({ ...k, unlisted: 0 })) };
+  assert.ok(String(breakdownHtml(complete)).includes("and 7 more in 7 other repositories"));
   assert.ok(!String(breakdownHtml(map(collection()))).includes("NaN"));
 });
 
@@ -290,4 +297,21 @@ test("reconciling against the shown calendar total moves the gap into other", ()
   const behind = reconcileBreakdown(base, parts - 2);
   assert.equal(behind.other, -2);
   assert.equal(reconcileBreakdown(base, parts).other, 0);
+});
+
+test("year bars separate visibility from public types and omit negative gaps", () => {
+  const base = map(collection({
+    contributionCalendar: { totalContributions: 12 },
+    restrictedContributionsCount: 3,
+    totalCommitContributions: 5,
+    totalIssueContributions: 2,
+  }));
+  for (const [total, expected] of [[12, [7, 3, 2]], [8, [7, 3]]] as const) {
+    const markup = String(breakdownHtml(reconcileBreakdown(base, total)));
+    const bars = [...markup.matchAll(/<div role="img"[^>]*>([\s\S]*?)<\/div>/g)];
+    const counts = (bar: string) => [...bar.matchAll(/data-breakdown-count="(\d+)"/g)].map((m) => Number(m[1]));
+    assert.deepEqual(counts(bars[0][1]), expected);
+    assert.deepEqual(counts(bars[1][1]), [5, 2]);
+    assert.ok(!markup.includes("NaN"));
+  }
 });
