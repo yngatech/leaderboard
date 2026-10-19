@@ -1322,10 +1322,8 @@ async function refreshBoard(env: Env): Promise<void> {
     console.warn("board refresh skipped for incomplete board", { year, missing });
     return;
   }
-  const state = leaderState(env);
-  await state.saveBoard({ year, board, generatedAt });
-  if (!env.DISCORD_WEBHOOK_URL) return;
-  await state.update(year, todayIso(), board);
+  const notify = Boolean(env.DISCORD_WEBHOOK_URL);
+  await leaderState(env).publish({ year, board, generatedAt }, todayIso(), notify);
 }
 
 function count(value: number): string {
@@ -1512,26 +1510,33 @@ export class LeaderState extends DurableObject<Env> {
   }
 
   /**
-   * Outside the update queue on purpose: a slow Discord post must not hold the
-   * site's numbers back, and neither method reads what the other writes.
+   * Saves the board a scheduled check fetched, then sends its notifications.
+   * The save sits outside the update queue so a slow Discord post cannot hold
+   * the site's numbers back. A check that finished after a newer one is
+   * dropped whole: its board would roll the site back, and its notifications
+   * would announce an order the site no longer shows.
    */
-  async saveBoard(snapshot: BoardSnapshot): Promise<void> {
+  async publish(snapshot: BoardSnapshot, today: string, notify: boolean): Promise<void> {
     const current = await this.ctx.storage.get<BoardSnapshot>(BOARD_SNAPSHOT_KEY);
-    if (supersedes(snapshot, current)) await this.ctx.storage.put(BOARD_SNAPSHOT_KEY, snapshot);
-  }
+    if (!supersedes(snapshot, current)) return;
+    await this.ctx.storage.put(BOARD_SNAPSHOT_KEY, snapshot);
+    if (!notify) return;
 
-  async boardSnapshot(year: number): Promise<BoardSnapshot | null> {
-    const snapshot = await this.ctx.storage.get<BoardSnapshot>(BOARD_SNAPSHOT_KEY);
-    return usableSnapshot(snapshot, year, Date.now());
-  }
-
-  async update(year: number, today: string, board: Board): Promise<void> {
+    const { year, board } = snapshot;
     return this.updates.run(async () => {
+      // A newer check may have saved its board while this one waited.
+      const latest = await this.ctx.storage.get<BoardSnapshot>(BOARD_SNAPSHOT_KEY);
+      if (latest?.generatedAt !== snapshot.generatedAt) return;
       await this.updateStandings(year, board);
       await this.updateDailyRecords(year, board);
       await this.updateMilestones(year, board);
       await this.updateCakeDays(today, board);
     });
+  }
+
+  async boardSnapshot(year: number): Promise<BoardSnapshot | null> {
+    const snapshot = await this.ctx.storage.get<BoardSnapshot>(BOARD_SNAPSHOT_KEY);
+    return usableSnapshot(snapshot, year, Date.now());
   }
 }
 
