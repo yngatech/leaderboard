@@ -69,7 +69,10 @@ import {
   type BoardMilestoneEvent,
   type BoardRecordEvent,
   type CakeDayState,
+  type DailyRecordNotification,
   type DailyRecordState,
+  type DailyWrapUpEvent,
+  type LegacyDailyRecordState,
   type MilestoneState,
   type PersonalMilestoneEvent,
   type PersonalBestEvent,
@@ -1500,6 +1503,40 @@ function boardRecordEmbed(year: number, event: BoardRecordEvent): DiscordEmbed {
   };
 }
 
+/** A wrap-up links the year its day fell in, which differs on 1 January. */
+function personalBestWrapUpEmbed(event: DailyWrapUpEvent): DiscordEmbed {
+  return {
+    title: "Daily contributions PB wrap-up",
+    url: `${SITE}/${event.date.slice(0, 4)}`,
+    description: `[${event.login}](${event.url}) finished **${formatDayYear(event.date)}** on **${count(event.count)} contributions**, up from **${count(event.announcedCount)}** when the PB was announced.`,
+    color: 0x58a6ff,
+    thumbnail: { url: event.avatarUrl },
+  };
+}
+
+function boardRecordWrapUpEmbed(event: DailyWrapUpEvent): DiscordEmbed {
+  return {
+    title: "Peak daily contributions record wrap-up",
+    url: `${SITE}/${event.date.slice(0, 4)}`,
+    description: `[${event.login}](${event.url}) finished **${formatDayYear(event.date)}** on **${count(event.count)} contributions**, raising the board record from **${count(event.announcedCount)}** when it was announced.`,
+    color: 0xf0b429,
+    thumbnail: { url: event.avatarUrl },
+  };
+}
+
+function dailyRecordEmbed(year: number, notification: DailyRecordNotification): DiscordEmbed {
+  switch (notification.type) {
+    case "personal-best-wrap-up":
+      return personalBestWrapUpEmbed(notification.event);
+    case "board-record-wrap-up":
+      return boardRecordWrapUpEmbed(notification.event);
+    case "personal-best":
+      return personalBestEmbed(year, notification.event);
+    case "board-record":
+      return boardRecordEmbed(year, notification.event);
+  }
+}
+
 function personalMilestoneEmbed(year: number, event: PersonalMilestoneEvent): DiscordEmbed {
   return {
     title: "Contribution milestone",
@@ -1606,19 +1643,15 @@ export class LeaderState extends DurableObject<Env> {
     );
   }
 
-  private async updateDailyRecords(year: number, board: Board): Promise<void> {
-    const previous = await this.ctx.storage.get<DailyRecordState>("daily-records");
-    const plan = planDailyRecords(year, board, previous);
+  private async updateDailyRecords(year: number, today: string, board: Board): Promise<void> {
+    const previous = await this.ctx.storage.get<DailyRecordState | LegacyDailyRecordState>(
+      "daily-records",
+    );
+    const plan = planDailyRecords(year, today, board, previous);
     await deliverDailyRecords(
       plan,
       (notification) =>
-        this.notify({
-          kind: "embed",
-          embed:
-            notification.type === "personal-best"
-              ? personalBestEmbed(year, notification.event)
-              : boardRecordEmbed(year, notification.event),
-        }),
+        this.notify({ kind: "embed", embed: dailyRecordEmbed(year, notification) }),
       (state) => this.ctx.storage.put("daily-records", state),
     );
   }
@@ -1670,7 +1703,7 @@ export class LeaderState extends DurableObject<Env> {
       const latest = await this.ctx.storage.get<BoardSnapshot>(BOARD_SNAPSHOT_KEY);
       if (latest?.generatedAt !== snapshot.generatedAt) return;
       await this.updateStandings(year, board);
-      await this.updateDailyRecords(year, board);
+      await this.updateDailyRecords(year, today, board);
       await this.updateMilestones(year, board);
       await this.updateCakeDays(today, board);
     });

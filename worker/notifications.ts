@@ -10,8 +10,30 @@ export interface DailyPeak {
   count: number;
 }
 
+/**
+ * The day a record was last announced. Later rises that day are quiet; once
+ * the day is over, one wrap-up reports where it finished if that is higher.
+ */
+export interface AnnouncedDay {
+  /** The record as announced. */
+  peak: DailyPeak;
+  /** The highest count seen for that day since. */
+  latest: number;
+  wrapped: boolean;
+}
+
 /** Durable state for daily records in one leaderboard year. */
 export interface DailyRecordState {
+  year: number;
+  personalBests: Record<string, number>;
+  boardBest: number;
+  /** Kept across a year rollover so the last day of a year still wraps up. */
+  personalDays: Record<string, AnnouncedDay>;
+  boardDay: AnnouncedDay | null;
+}
+
+/** The shape written before announced days were tracked. */
+export interface LegacyDailyRecordState {
   year: number;
   personalBests: Record<string, number>;
   boardBest: number;
@@ -26,12 +48,19 @@ export interface BoardRecordEvent {
   previousCount: number;
 }
 
+/** Where an announced record's day finished: `count` is the final figure. */
+export interface DailyWrapUpEvent extends DailyPeak {
+  announcedCount: number;
+}
+
 export interface DailyRecordPlan {
   /** No alerts are sent when durable state is first introduced. */
   baseline: boolean;
   /** Persist before sending, so newly added accounts do not emit historic PBs. */
   stateBeforeEvents: DailyRecordState;
   needsPreparation: boolean;
+  personalWrapUps: DailyWrapUpEvent[];
+  boardWrapUp: DailyWrapUpEvent | null;
   personalBests: PersonalBestEvent[];
   boardRecord: BoardRecordEvent | null;
   /** The state reached after every planned alert succeeds. */
@@ -39,6 +68,8 @@ export interface DailyRecordPlan {
 }
 
 export type DailyRecordNotification =
+  | { type: "personal-best-wrap-up"; event: DailyWrapUpEvent }
+  | { type: "board-record-wrap-up"; event: DailyWrapUpEvent }
   | { type: "personal-best"; event: PersonalBestEvent }
   | { type: "board-record"; event: BoardRecordEvent };
 
@@ -138,14 +169,58 @@ function highestPeak(peaks: DailyPeak[]): DailyPeak | null {
   return highest;
 }
 
+function announcedDay(peak: DailyPeak): AnnouncedDay {
+  const { login, url, avatarUrl, date, count } = peak;
+  return { peak: { login, url, avatarUrl, date, count }, latest: count, wrapped: false };
+}
+
+function wrapUpFor(day: AnnouncedDay | null | undefined, today: string): DailyWrapUpEvent | null {
+  if (!day || day.wrapped || day.peak.date >= today || day.latest <= day.peak.count) return null;
+  return { ...day.peak, count: day.latest, announcedCount: day.peak.count };
+}
+
+/** Whether `peak` is a further rise on the day `day` already announced. */
+function sameDay(day: AnnouncedDay | null | undefined, peak: DailyPeak): day is AnnouncedDay {
+  return Boolean(day && day.peak.login === peak.login && day.peak.date === peak.date);
+}
+
 /**
- * Compares a fresh board with durable record state. A year rollover starts the
- * new year's records from zero; a brand-new Durable Object starts silently.
+ * Saves rises on days already announced into `state` without alerting, for
+ * the wrap-up. Returns whether anything changed.
+ */
+function followAnnouncedDays(state: DailyRecordState, peaks: DailyPeak[]): boolean {
+  let changed = false;
+  for (const peak of peaks) {
+    const day = state.personalDays[peak.login];
+    if (sameDay(day, peak) && peak.count > state.personalBests[peak.login]) {
+      state.personalBests[peak.login] = peak.count;
+      state.personalDays[peak.login] = { ...day, latest: peak.count };
+      changed = true;
+    }
+  }
+  // Followed even when someone else now tops the board, so the new record
+  // says what it really beat.
+  const holder = peaks.find((peak) => sameDay(state.boardDay, peak));
+  if (holder && state.boardDay && holder.count > state.boardBest) {
+    state.boardBest = holder.count;
+    state.boardDay = { ...state.boardDay, latest: holder.count };
+    changed = true;
+  }
+  return changed;
+}
+
+/**
+ * Compares a fresh board with durable record state. A record is announced
+ * once per day: further rises that day only update state, and the first check
+ * after the day ends (UTC, like the board's dates) wraps up where it finished.
+ * A year rollover starts the new year's records from zero; a brand-new
+ * Durable Object starts silently.
  */
 export function planDailyRecords(
   year: number,
+  today: string,
   board: Board,
-  previous?: DailyRecordState,
+  previous?: DailyRecordState | LegacyDailyRecordState,
 ): DailyRecordPlan {
   const peaks = dailyPeaks(board, year);
   const currentCounts = peakCounts(board, peaks);
@@ -156,11 +231,15 @@ export function planDailyRecords(
       year,
       personalBests: currentCounts,
       boardBest: boardPeak?.count ?? 0,
+      personalDays: {},
+      boardDay: null,
     };
     return {
       baseline: true,
       stateBeforeEvents: baseline,
       needsPreparation: true,
+      personalWrapUps: [],
+      boardWrapUp: null,
       personalBests: [],
       boardRecord: null,
       nextState: baseline,
@@ -168,16 +247,22 @@ export function planDailyRecords(
   }
 
   const rolledOver = previous.year !== year;
+  const personalDays = "personalDays" in previous ? { ...previous.personalDays } : {};
+  const boardDay = "boardDay" in previous ? previous.boardDay : null;
   const stateBeforeEvents: DailyRecordState = rolledOver
     ? {
         year,
         personalBests: Object.fromEntries(board.map((user) => [user.login, 0])),
         boardBest: 0,
+        personalDays,
+        boardDay,
       }
     : {
         year,
         personalBests: { ...previous.personalBests },
         boardBest: previous.boardBest,
+        personalDays,
+        boardDay,
       };
 
   let needsPreparation = rolledOver;
@@ -193,6 +278,8 @@ export function planDailyRecords(
     }
   }
 
+  if (followAnnouncedDays(stateBeforeEvents, peaks)) needsPreparation = true;
+
   const personalBests = peaks.flatMap<PersonalBestEvent>((peak) => {
     const previousCount = stateBeforeEvents.personalBests[peak.login];
     return peak.count > previousCount ? [{ ...peak, previousCount }] : [];
@@ -202,17 +289,37 @@ export function planDailyRecords(
       ? { peak: boardPeak, previousCount: stateBeforeEvents.boardBest }
       : null;
 
-  const nextState: DailyRecordState = {
-    year,
-    personalBests: { ...stateBeforeEvents.personalBests },
-    boardBest: boardRecord?.peak.count ?? stateBeforeEvents.boardBest,
-  };
-  for (const event of personalBests) nextState.personalBests[event.login] = event.count;
+  // A new record replacing an announced day says what it beat, so that day
+  // needs no wrap-up of its own.
+  const superseded = new Set(personalBests.map((event) => event.login));
+  const personalWrapUps = Object.entries(stateBeforeEvents.personalDays).flatMap(
+    ([login, day]) => {
+      const wrapUp = superseded.has(login) ? null : wrapUpFor(day, today);
+      return wrapUp ? [wrapUp] : [];
+    },
+  );
+  const boardWrapUp = boardRecord ? null : wrapUpFor(stateBeforeEvents.boardDay, today);
+
+  const nextState = stateSnapshot(stateBeforeEvents);
+  for (const event of personalWrapUps) {
+    nextState.personalDays[event.login] = { ...nextState.personalDays[event.login], wrapped: true };
+  }
+  if (boardWrapUp && nextState.boardDay) nextState.boardDay = { ...nextState.boardDay, wrapped: true };
+  for (const event of personalBests) {
+    nextState.personalBests[event.login] = event.count;
+    nextState.personalDays[event.login] = announcedDay(event);
+  }
+  if (boardRecord) {
+    nextState.boardBest = boardRecord.peak.count;
+    nextState.boardDay = announcedDay(boardRecord.peak);
+  }
 
   return {
     baseline: false,
     stateBeforeEvents,
     needsPreparation,
+    personalWrapUps,
+    boardWrapUp,
     personalBests,
     boardRecord,
     nextState,
@@ -223,6 +330,7 @@ function stateSnapshot(state: DailyRecordState): DailyRecordState {
   return {
     ...state,
     personalBests: { ...state.personalBests },
+    personalDays: { ...state.personalDays },
   };
 }
 
@@ -243,15 +351,29 @@ export async function deliverDailyRecords(
   const progress = stateSnapshot(plan.stateBeforeEvents);
   if (plan.needsPreparation) await save(stateSnapshot(progress));
 
+  for (const event of plan.personalWrapUps) {
+    await notify({ type: "personal-best-wrap-up", event });
+    progress.personalDays[event.login] = { ...progress.personalDays[event.login], wrapped: true };
+    await save(stateSnapshot(progress));
+  }
+
+  if (plan.boardWrapUp && progress.boardDay) {
+    await notify({ type: "board-record-wrap-up", event: plan.boardWrapUp });
+    progress.boardDay = { ...progress.boardDay, wrapped: true };
+    await save(stateSnapshot(progress));
+  }
+
   for (const event of plan.personalBests) {
     await notify({ type: "personal-best", event });
     progress.personalBests[event.login] = event.count;
+    progress.personalDays[event.login] = announcedDay(event);
     await save(stateSnapshot(progress));
   }
 
   if (plan.boardRecord) {
     await notify({ type: "board-record", event: plan.boardRecord });
     progress.boardBest = plan.boardRecord.peak.count;
+    progress.boardDay = announcedDay(plan.boardRecord.peak);
     await save(stateSnapshot(progress));
   }
 }

@@ -55,10 +55,25 @@ function totalUser(login: string, totalContributions: number): BoardUser {
   };
 }
 
+/** Dates in the daily-record boards below are on or before this day. */
+const TODAY = "2026-03-01";
+
 function notificationId(notification: DailyRecordNotification): string {
-  return notification.type === "personal-best"
-    ? `pb:${notification.event.login}`
-    : `record:${notification.event.peak.login}`;
+  switch (notification.type) {
+    case "personal-best":
+      return `pb:${notification.event.login}`;
+    case "board-record":
+      return `record:${notification.event.peak.login}`;
+    case "personal-best-wrap-up":
+      return `pb-wrap-up:${notification.event.login}:${notification.event.count}`;
+    case "board-record-wrap-up":
+      return `record-wrap-up:${notification.event.login}:${notification.event.count}`;
+  }
+}
+
+/** The bests alone, leaving out the announced days that keep later rises quiet. */
+function records({ year, personalBests, boardBest }: DailyRecordState) {
+  return { year, personalBests, boardBest };
 }
 
 function updatedBoard(): Board {
@@ -73,6 +88,8 @@ function priorState(): DailyRecordState {
     year: 2026,
     personalBests: { alice: 12, bob: 9 },
     boardBest: 12,
+    personalDays: {},
+    boardDay: null,
   };
 }
 
@@ -82,12 +99,12 @@ test("records a silent baseline when daily notification state is first created",
     user("bob", [["2026-01-01", 9]]),
   ];
 
-  const plan = planDailyRecords(2026, board);
+  const plan = planDailyRecords(2026, TODAY, board);
 
   assert.equal(plan.baseline, true);
   assert.deepEqual(plan.personalBests, []);
   assert.equal(plan.boardRecord, null);
-  assert.deepEqual(plan.nextState, {
+  assert.deepEqual(records(plan.nextState), {
     year: 2026,
     personalBests: { alice: 12, bob: 9 },
     boardBest: 12,
@@ -95,7 +112,7 @@ test("records a silent baseline when daily notification state is first created",
 });
 
 test("detects personal bests and the new peak daily board record", () => {
-  const plan = planDailyRecords(2026, updatedBoard(), priorState());
+  const plan = planDailyRecords(2026, TODAY, updatedBoard(), priorState());
 
   assert.deepEqual(
     plan.personalBests.map(({ login, date, count, previousCount }) => ({
@@ -120,7 +137,7 @@ test("detects personal bests and the new peak daily board record", () => {
     count: 15,
     previousCount: 12,
   });
-  assert.deepEqual(plan.nextState, {
+  assert.deepEqual(records(plan.nextState), {
     year: 2026,
     personalBests: { alice: 15, bob: 11 },
     boardBest: 15,
@@ -132,18 +149,20 @@ test("does not alert for ties, lower corrections, or a newly added account", () 
     year: 2026,
     personalBests: { alice: 12 },
     boardBest: 20,
+    personalDays: {},
+    boardDay: null,
   };
   const board: Board = [
     user("alice", [["2026-03-01", 12]]),
     user("new-person", [["2026-02-01", 28]]),
   ];
 
-  const plan = planDailyRecords(2026, board, previous);
+  const plan = planDailyRecords(2026, TODAY, board, previous);
 
   assert.equal(plan.needsPreparation, true);
   assert.deepEqual(plan.personalBests, []);
   assert.equal(plan.boardRecord, null);
-  assert.deepEqual(plan.nextState, {
+  assert.deepEqual(records(plan.nextState), {
     year: 2026,
     personalBests: { alice: 12, "new-person": 28 },
     boardBest: 28,
@@ -155,10 +174,12 @@ test("starts records from zero when the calendar year rolls over", () => {
     year: 2025,
     personalBests: { alice: 50 },
     boardBest: 50,
+    personalDays: {},
+    boardDay: null,
   };
   const board: Board = [user("alice", [["2026-01-01", 3]])];
 
-  const plan = planDailyRecords(2026, board, previous);
+  const plan = planDailyRecords(2026, TODAY, board, previous);
 
   assert.equal(plan.baseline, false);
   assert.equal(plan.needsPreparation, true);
@@ -188,18 +209,18 @@ test("resumes after a personal-best webhook fails without reposting prior succes
   };
 
   await assert.rejects(
-    deliverDailyRecords(planDailyRecords(2026, board, stored), notify, save),
+    deliverDailyRecords(planDailyRecords(2026, TODAY, board, stored), notify, save),
     /Discord unavailable/,
   );
-  assert.deepEqual(stored, {
+  assert.deepEqual(records(stored), {
     year: 2026,
     personalBests: { alice: 15, bob: 9 },
     boardBest: 12,
   });
 
-  await deliverDailyRecords(planDailyRecords(2026, board, stored), notify, save);
+  await deliverDailyRecords(planDailyRecords(2026, TODAY, board, stored), notify, save);
   assert.deepEqual(delivered, ["pb:alice", "pb:bob", "record:alice"]);
-  assert.deepEqual(stored, {
+  assert.deepEqual(records(stored), {
     year: 2026,
     personalBests: { alice: 15, bob: 11 },
     boardBest: 15,
@@ -223,16 +244,16 @@ test("retries only the board record when its webhook fails after the PBs", async
   };
 
   await assert.rejects(
-    deliverDailyRecords(planDailyRecords(2026, board, stored), notify, save),
+    deliverDailyRecords(planDailyRecords(2026, TODAY, board, stored), notify, save),
     /Discord unavailable/,
   );
-  assert.deepEqual(stored, {
+  assert.deepEqual(records(stored), {
     year: 2026,
     personalBests: { alice: 15, bob: 11 },
     boardBest: 12,
   });
 
-  await deliverDailyRecords(planDailyRecords(2026, board, stored), notify, save);
+  await deliverDailyRecords(planDailyRecords(2026, TODAY, board, stored), notify, save);
   assert.deepEqual(delivered, ["pb:alice", "pb:bob", "record:alice"]);
   assert.equal(stored.boardBest, 15);
 });
@@ -246,6 +267,8 @@ test("checkpoints a year rollover before sending and resumes mid-cycle", async (
     year: 2025,
     personalBests: { alice: 50, bob: 40 },
     boardBest: 50,
+    personalDays: {},
+    boardDay: null,
   };
   let failBob = true;
   const delivered: string[] = [];
@@ -261,16 +284,16 @@ test("checkpoints a year rollover before sending and resumes mid-cycle", async (
   };
 
   await assert.rejects(
-    deliverDailyRecords(planDailyRecords(2026, board, stored), notify, save),
+    deliverDailyRecords(planDailyRecords(2026, TODAY, board, stored), notify, save),
     /Discord unavailable/,
   );
-  assert.deepEqual(stored, {
+  assert.deepEqual(records(stored), {
     year: 2026,
     personalBests: { alice: 3, bob: 0 },
     boardBest: 0,
   });
 
-  await deliverDailyRecords(planDailyRecords(2026, board, stored), notify, save);
+  await deliverDailyRecords(planDailyRecords(2026, TODAY, board, stored), notify, save);
   assert.deepEqual(delivered, ["pb:alice", "pb:bob", "record:alice"]);
 });
 
@@ -287,7 +310,7 @@ test("serialises overlapping updates so they cannot post duplicate alerts", asyn
       active += 1;
       highestConcurrency = Math.max(highestConcurrency, active);
       try {
-        const plan = planDailyRecords(2026, board, stored);
+        const plan = planDailyRecords(2026, TODAY, board, stored);
         await deliverDailyRecords(
           plan,
           async (notification) => {
@@ -319,7 +342,7 @@ test("steady state sends no notifications and performs no storage writes", async
   ];
 
   await deliverDailyRecords(
-    planDailyRecords(2026, board, state),
+    planDailyRecords(2026, TODAY, board, state),
     async () => {
       notifications += 1;
     },
@@ -336,6 +359,7 @@ test("preserves a missing person's PB and compares against it when they return",
   const previous = priorState();
   const absent = planDailyRecords(
     2026,
+    TODAY,
     [user("alice", [["2026-01-01", 12]])],
     previous,
   );
@@ -343,6 +367,7 @@ test("preserves a missing person's PB and compares against it when they return",
 
   const returned = planDailyRecords(
     2026,
+    TODAY,
     [
       user("alice", [["2026-01-01", 12]]),
       user("bob", [["2026-01-01", 9], ["2026-03-01", 11]]),
@@ -357,6 +382,193 @@ test("preserves a missing person's PB and compares against it when they return",
     })),
     [{ login: "bob", count: 11, previousCount: 9 }],
   );
+});
+
+/** Runs scheduled checks in order, returning every post they made. */
+async function runChecks(
+  checks: Array<[today: string, board: Board]>,
+  start: DailyRecordState | undefined = priorState(),
+): Promise<{ posts: string[]; state: DailyRecordState | undefined }> {
+  let state = start;
+  const posts: string[] = [];
+  for (const [today, board] of checks) {
+    await deliverDailyRecords(
+      planDailyRecords(Number(today.slice(0, 4)), today, board, state),
+      async (notification) => {
+        posts.push(notificationId(notification));
+      },
+      async (next) => {
+        state = structuredClone(next);
+      },
+    );
+  }
+  return { posts, state };
+}
+
+function climb(aliceToday: number, date = "2026-03-01"): Board {
+  return [
+    user("alice", [["2026-01-01", 12], [date, aliceToday]]),
+    user("bob", [["2026-01-01", 9]]),
+  ];
+}
+
+test("a PB climbing all day is announced once, then wrapped up after midnight", async () => {
+  const { posts } = await runChecks([
+    ["2026-03-01", climb(14)],
+    ["2026-03-01", climb(18)],
+    ["2026-03-01", climb(25)],
+    ["2026-03-02", climb(27)],
+    ["2026-03-02", climb(27)],
+  ]);
+
+  assert.deepEqual(posts, [
+    "pb:alice",
+    "record:alice",
+    "pb-wrap-up:alice:27",
+    "record-wrap-up:alice:27",
+  ]);
+});
+
+test("a day that stops where it was announced needs no wrap-up", async () => {
+  const { posts } = await runChecks([
+    ["2026-03-01", climb(14)],
+    ["2026-03-01", climb(14)],
+    ["2026-03-02", climb(14)],
+  ]);
+
+  assert.deepEqual(posts, ["pb:alice", "record:alice"]);
+});
+
+test("contributions landing on a wrapped-up day stay quiet", async () => {
+  const { posts, state } = await runChecks([
+    ["2026-03-01", climb(14)],
+    ["2026-03-01", climb(16)],
+    ["2026-03-02", climb(16)],
+    ["2026-03-02", climb(20)],
+    ["2026-03-03", climb(20)],
+  ]);
+
+  assert.deepEqual(posts, [
+    "pb:alice",
+    "record:alice",
+    "pb-wrap-up:alice:16",
+    "record-wrap-up:alice:16",
+  ]);
+  assert.equal(state?.personalBests.alice, 20);
+});
+
+test("a PB on a new day replaces the pending wrap-up and beats the final figure", async () => {
+  const board: Board = [
+    user("alice", [["2026-01-01", 12], ["2026-03-01", 18], ["2026-03-02", 19]]),
+    user("bob", [["2026-01-01", 9]]),
+  ];
+  const { posts, state } = await runChecks([
+    ["2026-03-01", climb(14)],
+    ["2026-03-01", climb(18)],
+    ["2026-03-02", board],
+  ]);
+
+  assert.deepEqual(posts, ["pb:alice", "record:alice", "pb:alice", "record:alice"]);
+  assert.equal(state?.personalDays.alice.peak.date, "2026-03-02");
+});
+
+test("someone else beating the board record that day is announced at once", async () => {
+  const bobPassesAlice = (bob: number): Board => [
+    user("alice", [["2026-01-01", 12], ["2026-03-01", 18]]),
+    user("bob", [["2026-01-01", 9], ["2026-03-01", bob]]),
+  ];
+  const { posts, state } = await runChecks([
+    ["2026-03-01", climb(14)],
+    ["2026-03-01", bobPassesAlice(20)],
+    ["2026-03-01", bobPassesAlice(24)],
+    ["2026-03-02", bobPassesAlice(24)],
+  ]);
+
+  assert.deepEqual(posts, [
+    "pb:alice",
+    "record:alice",
+    "pb:bob",
+    "record:bob",
+    "pb-wrap-up:alice:18",
+    "pb-wrap-up:bob:24",
+    "record-wrap-up:bob:24",
+  ]);
+  assert.equal(state?.boardBest, 24);
+});
+
+test("a new board record beats where the holder's day had got to", () => {
+  const start = planDailyRecords(2026, TODAY, climb(14), priorState()).nextState;
+  const plan = planDailyRecords(2026, TODAY, [
+    user("alice", [["2026-01-01", 12], ["2026-03-01", 18]]),
+    user("bob", [["2026-01-01", 9], ["2026-03-01", 20]]),
+  ], start);
+
+  assert.equal(plan.boardRecord?.peak.login, "bob");
+  assert.equal(plan.boardRecord?.previousCount, 18);
+});
+
+test("the last day of a year still wraps up after the rollover", async () => {
+  const lastDay = (count: number): Board => [user("alice", [["2025-12-31", count]])];
+  const start: DailyRecordState = {
+    year: 2025,
+    personalBests: { alice: 10 },
+    boardBest: 10,
+    personalDays: {},
+    boardDay: null,
+  };
+  const { posts, state } = await runChecks(
+    [
+      ["2025-12-31", lastDay(11)],
+      ["2025-12-31", lastDay(15)],
+      ["2026-01-01", [user("alice", [])]],
+    ],
+    start,
+  );
+
+  assert.deepEqual(posts, [
+    "pb:alice",
+    "record:alice",
+    "pb-wrap-up:alice:15",
+    "record-wrap-up:alice:15",
+  ]);
+  assert.deepEqual(records(state!), { year: 2026, personalBests: { alice: 0 }, boardBest: 0 });
+});
+
+test("state saved before announced days were tracked announces the next PB", async () => {
+  const legacy = { year: 2026, personalBests: { alice: 12, bob: 9 }, boardBest: 12 };
+  const plan = planDailyRecords(2026, TODAY, climb(14), legacy);
+
+  assert.deepEqual(plan.personalBests.map(({ login }) => login), ["alice"]);
+  assert.equal(plan.nextState.personalDays.alice.peak.count, 14);
+});
+
+test("a failed wrap-up is retried on the next check and never doubled", async () => {
+  const { state } = await runChecks([
+    ["2026-03-01", climb(14)],
+    ["2026-03-01", climb(18)],
+  ]);
+  let stored = state!;
+  let fail = true;
+  const posts: string[] = [];
+  const notify = async (notification: DailyRecordNotification) => {
+    if (notification.type === "board-record-wrap-up" && fail) {
+      fail = false;
+      throw new Error("Discord unavailable");
+    }
+    posts.push(notificationId(notification));
+  };
+  const save = async (next: DailyRecordState) => {
+    stored = structuredClone(next);
+  };
+
+  await assert.rejects(
+    deliverDailyRecords(planDailyRecords(2026, "2026-03-02", climb(18), stored), notify, save),
+    /Discord unavailable/,
+  );
+  await deliverDailyRecords(planDailyRecords(2026, "2026-03-02", climb(18), stored), notify, save);
+  await deliverDailyRecords(planDailyRecords(2026, "2026-03-02", climb(18), stored), notify, save);
+
+  assert.deepEqual(posts, ["pb-wrap-up:alice:18", "record-wrap-up:alice:18"]);
 });
 
 function milestoneState(
