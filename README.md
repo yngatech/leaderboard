@@ -118,6 +118,16 @@ milestone, it posts a rich message to Discord. Daily records and milestones
 restart each calendar year. Durable state prevents duplicate messages; the
 first run records a baseline without sending one.
 
+A daily PB or board record is announced at most once per account and day. If
+that day keeps climbing, the rises are saved quietly, and the first check after
+the UTC day ends posts one wrap-up with where the day finished: one per account
+for PBs, and one for the board from whoever finished the day on top while it
+is still the record (a newer record already says what it beat). A day is never
+announced again, and contributions landing on it after its wrap-up stay quiet.
+For the first week of a new year the check also fetches the finished year's
+board, so 31 December is wrapped up, and a record set late that day announced,
+from that year's complete data.
+
 Cake days are the exception to that baseline. Their durable state only records
 which accounts have already been announced this calendar year, so a cake day
 falling on a fresh Durable Object is still posted, and the stored year is what

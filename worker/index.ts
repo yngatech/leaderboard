@@ -58,18 +58,18 @@ import enhanceUrl from "./enhance.js?url";
 import stylesUrl from "./styles.css?url";
 import {
   deliverCakeDays,
-  deliverDailyRecords,
   deliverMilestones,
   deliverStandings,
   ordinal,
   planCakeDays,
-  planDailyRecords,
   planMilestones,
   planStandings,
   type BoardMilestoneEvent,
   type BoardRecordEvent,
   type CakeDayState,
-  type DailyRecordState,
+  type DailyRecordNotification,
+  type DailyWrapUpEvent,
+  type StoredDailyRecords,
   type MilestoneState,
   type PersonalMilestoneEvent,
   type PersonalBestEvent,
@@ -77,6 +77,8 @@ import {
   type StandingState,
   SerialTaskQueue,
   shouldUpdateNotifications,
+  updateDailyRecordYears,
+  type YearBoard,
 } from "./notifications";
 
 export interface Env {
@@ -1468,6 +1470,25 @@ async function refreshBoard(env: Env): Promise<void> {
   await leaderState(env).publish({ year, board, generatedAt }, todayIso(), notify);
 }
 
+/**
+ * The finished year's board, re-fetched in the new year's first week so late
+ * pushes landing on 31 December are still seen. Null when the fetch fails or
+ * comes back incomplete: that year's records wait for the next check.
+ */
+async function finishedBoard(token: string, year: number): Promise<Board | null> {
+  try {
+    const { board, missing } = await fetchBoard(token, year);
+    if (shouldUpdateNotifications(missing)) return board;
+    console.warn("finished-year board skipped while incomplete", { year, missing });
+  } catch (error) {
+    console.warn("finished-year board fetch failed", {
+      year,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return null;
+}
+
 function count(value: number): string {
   return value.toLocaleString("en-GB");
 }
@@ -1498,6 +1519,40 @@ function boardRecordEmbed(year: number, event: BoardRecordEvent): DiscordEmbed {
     color: 0xf0b429,
     thumbnail: { url: event.peak.avatarUrl },
   };
+}
+
+/** A wrap-up links the year its day fell in, which differs on 1 January. */
+function personalBestWrapUpEmbed(event: DailyWrapUpEvent): DiscordEmbed {
+  return {
+    title: "Daily contributions PB wrap-up",
+    url: `${SITE}/${event.date.slice(0, 4)}`,
+    description: `[${event.login}](${event.url}) finished **${formatDayYear(event.date)}** on **${count(event.count)} contributions**, up from **${count(event.announcedCount)}** when the PB was announced.`,
+    color: 0x58a6ff,
+    thumbnail: { url: event.avatarUrl },
+  };
+}
+
+function boardRecordWrapUpEmbed(event: DailyWrapUpEvent): DiscordEmbed {
+  return {
+    title: "Peak daily contributions record wrap-up",
+    url: `${SITE}/${event.date.slice(0, 4)}`,
+    description: `[${event.login}](${event.url}) finished **${formatDayYear(event.date)}** on **${count(event.count)} contributions**, a board record up from **${count(event.announcedCount)}** when it was last announced.`,
+    color: 0xf0b429,
+    thumbnail: { url: event.avatarUrl },
+  };
+}
+
+function dailyRecordEmbed(year: number, notification: DailyRecordNotification): DiscordEmbed {
+  switch (notification.type) {
+    case "personal-best-wrap-up":
+      return personalBestWrapUpEmbed(notification.event);
+    case "board-record-wrap-up":
+      return boardRecordWrapUpEmbed(notification.event);
+    case "personal-best":
+      return personalBestEmbed(year, notification.event);
+    case "board-record":
+      return boardRecordEmbed(year, notification.event);
+  }
 }
 
 function personalMilestoneEmbed(year: number, event: PersonalMilestoneEvent): DiscordEmbed {
@@ -1606,20 +1661,20 @@ export class LeaderState extends DurableObject<Env> {
     );
   }
 
-  private async updateDailyRecords(year: number, board: Board): Promise<void> {
-    const previous = await this.ctx.storage.get<DailyRecordState>("daily-records");
-    const plan = planDailyRecords(year, board, previous);
-    await deliverDailyRecords(
-      plan,
-      (notification) =>
-        this.notify({
-          kind: "embed",
-          embed:
-            notification.type === "personal-best"
-              ? personalBestEmbed(year, notification.event)
-              : boardRecordEmbed(year, notification.event),
-        }),
-      (state) => this.ctx.storage.put("daily-records", state),
+  private async updateDailyRecords(live: YearBoard, today: string): Promise<void> {
+    await updateDailyRecordYears(
+      live,
+      today,
+      {
+        get: (key) => this.ctx.storage.get<StoredDailyRecords>(key),
+        put: (key, state) => this.ctx.storage.put(key, state),
+        delete: (key) => this.ctx.storage.delete(key),
+      },
+      // Fetched here, inside the queued notification work, so the live board
+      // is already saved for the site and never waits on the finished year.
+      (year) => finishedBoard(this.env.GITHUB_TOKEN, year),
+      (year, notification) =>
+        this.notify({ kind: "embed", embed: dailyRecordEmbed(year, notification) }),
     );
   }
 
@@ -1670,7 +1725,7 @@ export class LeaderState extends DurableObject<Env> {
       const latest = await this.ctx.storage.get<BoardSnapshot>(BOARD_SNAPSHOT_KEY);
       if (latest?.generatedAt !== snapshot.generatedAt) return;
       await this.updateStandings(year, board);
-      await this.updateDailyRecords(year, board);
+      await this.updateDailyRecords({ year, board }, today);
       await this.updateMilestones(year, board);
       await this.updateCakeDays(today, board);
     });
