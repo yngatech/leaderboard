@@ -1,5 +1,5 @@
 import type { ContributionBreakdown, ContributionKind } from "../../shared/types.ts";
-import { formatDayLong, formatNumber } from "../../shared/format.ts";
+import { formatAgo, formatDayLong, formatNumber } from "../../shared/format.ts";
 import { html, type Html } from "../html.ts";
 import { CARD, CARD_LEDGER, LEDGER_TERM, LEDGER_VALUE } from "./card-styles.ts";
 import { COUNTING_RULES_URL } from "./layout.ts";
@@ -48,7 +48,7 @@ function publicSegments(data: ContributionBreakdown): Segment[] {
 function hiddenSegments(data: ContributionBreakdown, day: boolean): Segment[] {
   return [
     { label: "private", count: data.private, color: "breakdown-private", note: day ? "count only" : "repositories hidden, count only" },
-    { label: "unattributed", count: data.other, color: "bg-faint", note: "on the calendar, not itemised by GitHub" },
+    { label: "not itemised", count: data.other, color: "bg-faint", note: "on the calendar only" },
   ].filter((s) => s.count > 0);
 }
 
@@ -124,7 +124,7 @@ export function breakdownHtml(data: ContributionBreakdown): Html {
     </dl>
     <h4 class="${LEDGER_TERM} mt-[22px] mb-2.5">top repositories</h4>
     ${repositoriesHtml(data, 5)}
-    <p class="mt-[18px] border-t border-line-soft pt-3 text-[0.69rem] text-faint">Numbers as GitHub reports them, which can differ from its <a class="text-dim underline hover:text-accent" href="${COUNTING_RULES_URL}" target="_blank" rel="noreferrer noopener">counting rules ↗</a></p>
+    <p class="mt-[18px] border-t border-line-soft pt-3 text-[0.69rem] text-faint">Broken down <time datetime="${data.generatedAt}" data-ago>${formatAgo(data.generatedAt)}</time>; newer contributions count as not itemised until it refreshes. Numbers as GitHub reports them, which can differ from its <a class="text-dim underline hover:text-accent" href="${COUNTING_RULES_URL}" target="_blank" rel="noreferrer noopener">counting rules ↗</a></p>
   </section>`;
 }
 
