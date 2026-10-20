@@ -121,9 +121,10 @@ first run records a baseline without sending one.
 A daily PB or board record is announced at most once per account and day. If
 that day keeps climbing, the rises are saved quietly, and the first check after
 the UTC day ends posts one wrap-up with where the day finished: one per account
-for PBs, and one for the board from whoever finished the day on top. A day is
-never announced again after that, and contributions landing on it after its
-wrap-up stay quiet.
+for PBs, and one for the board from whoever finished the day on top while it
+is still the record (a newer record already says what it beat). A day is never
+announced again, and contributions landing on it after its wrap-up stay quiet.
+Late December days are followed through the new year's first week.
 
 Cake days are the exception to that baseline. Their durable state only records
 which accounts have already been announced this calendar year, so a cake day
