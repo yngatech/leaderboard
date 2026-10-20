@@ -42,6 +42,7 @@ document.addEventListener("keydown", (event) => {
   if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
 
   const target = event.target;
+  if (target instanceof Element && target.closest("a[data-day]")) return;
   if (
     target instanceof HTMLElement &&
     (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
@@ -183,3 +184,83 @@ if (navigator.clipboard) {
     });
   }
 }
+
+/* Day detail is rendered on the destination page; only transplant that markup. */
+let dayRequest = 0;
+function clearSelectedDay() {
+  for (const cell of document.querySelectorAll("a[data-day] .heat-cell[data-selected]"))
+    cell.removeAttribute("data-selected");
+}
+function closeDay(link) {
+  ++dayRequest;
+  document.getElementById("day-breakdown")?.remove();
+  clearSelectedDay();
+  history.pushState({}, "", link.getAttribute("href"));
+}
+function plainDayClick(event) {
+  return (
+    !event.defaultPrevented &&
+    event.button === 0 &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.shiftKey &&
+    !event.altKey
+  );
+}
+document.addEventListener("click", async (event) => {
+  if (!plainDayClick(event)) return;
+  const link = event.target instanceof Element ? event.target.closest("a[data-day]") : null;
+  const close = event.target instanceof Element ? event.target.closest("a[data-day-close]") : null;
+  if (close) {
+    event.preventDefault();
+    closeDay(close);
+    return;
+  }
+  const slot = document.querySelector("[data-day-slot]");
+  if (!link || !slot) return;
+  event.preventDefault();
+  const href = link.getAttribute("href");
+  const request = ++dayRequest;
+  // GitHub takes a moment to answer for a day, so acknowledge the click now:
+  // the cell lights up and any open panel dims until the new one lands.
+  clearSelectedDay();
+  link.querySelector(".heat-cell")?.setAttribute("data-selected", "true");
+  document.getElementById("day-breakdown")?.setAttribute("aria-busy", "true");
+  try {
+    const response = await fetch(href);
+    if (!response.ok) throw new Error("Day unavailable");
+    const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+    const detail = doc.getElementById("day-breakdown");
+    if (!detail) throw new Error("Missing day detail");
+    if (request !== dayRequest) return;
+    /* The day detail is reconciled against the fetched page's heatmap. If the
+       board has moved on since this page was drawn, transplanting it would
+       put two different counts side by side, so load the whole page. */
+    const day = link.getAttribute("data-day");
+    const cellLabel = (root) => root.querySelector(`a[data-day="${day}"]`)?.getAttribute("aria-label");
+    // The heatmap's own label carries the year total, and is drawn even when
+    // the year breakdown is not.
+    const yearTotal = (root) =>
+      root.querySelector(`a[data-day="${day}"]`)?.closest("svg")?.getAttribute("aria-label");
+    if (cellLabel(doc) !== cellLabel(document) || yearTotal(doc) !== yearTotal(document)) {
+      location.assign(href);
+      return;
+    }
+    const old = document.getElementById("day-breakdown");
+    if (old) old.replaceWith(detail);
+    else slot.after(detail);
+    clearSelectedDay();
+    link.querySelector(".heat-cell")?.setAttribute("data-selected", "true");
+    history.pushState({ day: true }, "", href);
+      detail.scrollIntoView({ block: "nearest" });
+  } catch {
+    if (request === dayRequest) location.assign(href);
+  }
+});
+/* History entries made here share one document, so whenever the day in the
+   URL and the day on screen part ways, load the page the URL names. */
+window.addEventListener("popstate", () => {
+  const wanted = new URLSearchParams(location.search).get("day");
+  const shown = document.getElementById("day-breakdown")?.getAttribute("data-date") ?? null;
+  if (wanted !== shown) location.reload();
+});

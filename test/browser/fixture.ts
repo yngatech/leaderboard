@@ -45,7 +45,10 @@ export async function serveFixture(
     }
 
     if (url.pathname === "/assets/styles.css") {
-      await route.fulfill({ contentType: "text/css", body: "" });
+      await route.fulfill({
+        contentType: "text/css",
+        body: ".pointer-events-none { pointer-events: none; }",
+      });
       return;
     }
 

@@ -138,7 +138,7 @@ const FOOTER_LINK =
   "text-dim underline decoration-current/40 underline-offset-[3px] transition-colors hover:text-accent";
 
 /** The reference page, not the troubleshooting page: only this one lists what counts. */
-const COUNTING_RULES_URL =
+export const COUNTING_RULES_URL =
   "https://docs.github.com/en/account-and-profile/reference/profile-contributions-reference";
 
 /** The disclosure trigger: a footer link that happens to unfold instead of navigate. */

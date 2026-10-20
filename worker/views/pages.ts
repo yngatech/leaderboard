@@ -1,4 +1,13 @@
-import type { AllTime, AllTimeUser, Board, BoardUser } from "../../shared/types.ts";
+import { CARD, CARD_LEDGER, LEDGER_TERM, LEDGER_VALUE } from "./card-styles.ts";
+import type {
+  AllTime,
+  AllTimeUser,
+  Board,
+  BoardUser,
+  ContributionBreakdown,
+} from "../../shared/types.ts";
+import { breakdownHtml, dayBreakdownHtml } from "./breakdown.ts";
+import { reconcileBreakdown } from "../breakdown.ts";
 import {
   boardGoal,
   boardYearRanks,
@@ -306,10 +315,6 @@ export function allPageHtml(options: AllPageOptions): string {
    furniture rather than a dashboard.
 --------------------------------------------------------------------------- */
 
-/** The card shell. Border colour is chosen per chapter: gold marks a leader,
- *  exactly as it does on a rank-1 row. */
-const CARD = "animate-rise overflow-hidden rounded-2xl border bg-panel";
-
 /** Register one: who this is, and the number the whole card is about. */
 const CARD_HEAD =
   "flex flex-wrap items-center gap-x-5 gap-y-4 px-[1.3rem] py-[1.25rem] max-phone:gap-x-4 max-phone:px-4 max-phone:py-4";
@@ -319,12 +324,6 @@ const CARD_HEAD =
 const CARD_WELL =
   "overflow-x-auto bg-[linear-gradient(180deg,#12162b_0%,#0d1122_100%)] px-[1.3rem] pt-4 pb-[0.9rem] max-phone:px-4";
 
-/** Register three: the ledger, a shade under the well like a row's goals band. */
-const CARD_LEDGER =
-  "border-t border-line-soft bg-[rgba(10,12,24,0.32)] px-[1.3rem] py-[1rem] max-phone:px-4 max-phone:py-[0.85rem]";
-
-/** Same term type as the row goals band, so the two are one idiom. */
-const LEDGER_TERM = "text-[0.6rem] tracking-[0.16em] text-dimmer uppercase";
 
 /** The hairline between fields: vertical while they sit side by side, and
  *  horizontal once a phone stacks them. */
@@ -338,9 +337,6 @@ const LEDGER_FIGURE =
   "font-display text-[1.5rem] leading-none font-extrabold tracking-[-0.03em] tabular-nums text-ink max-phone:text-[1.35rem]";
 const LEDGER_FIGURE_LEAD =
   "font-display text-[1.5rem] leading-none font-extrabold tracking-[-0.03em] tabular-nums text-accent max-phone:text-[1.35rem]";
-
-/** A number that qualifies another number: milestone, margin, peak. */
-const LEDGER_VALUE = "font-medium tabular-nums text-ink";
 
 /** Wide first column, because only that field carries a rail. */
 function ledgerColumns(count: number): string {
@@ -374,6 +370,9 @@ function ledgerHtml(fields: LedgerField[]): Html | null {
 }
 
 export interface UserPageOptions {
+  breakdown?: ContributionBreakdown | null;
+  dayBreakdown?: ContributionBreakdown | null;
+  day?: string;
   chrome: SiteChrome;
   /** The account's all-time record; the page's source of truth. */
   user: AllTimeUser;
@@ -613,6 +612,8 @@ function rankGapHtml(goals: UserGoals | null): Html | null {
 }
 
 interface LiveYearSectionOptions {
+  dayPanel?: Html | null;
+  selectedDate?: string;
   user: AllTimeUser;
   boardUser: BoardUser | null;
   grid: Grid | null;
@@ -633,6 +634,7 @@ function liveYearSectionHtml(options: LiveYearSectionOptions): Html {
       <p class="text-[0.78rem] leading-[1.6] text-dim">
         No GitHub data came back for ${user.login} in ${year}.
       </p>
+      ${options.dayPanel}
     </section>`;
   }
 
@@ -671,13 +673,18 @@ function liveYearSectionHtml(options: LiveYearSectionOptions): Html {
     class="${CARD} [animation-delay:90ms] ${leadsYear ? "border-accent/32" : "border-line-soft"}"
     aria-label="${user.login} in ${year}"
   >
-    <div class="${CARD_WELL}">${heatmapSvg(grid, {
-    cell: 17,
-    gap: 3,
-    months: true,
-    peakDate: peak?.date,
-    label: `${user.login} made ${formatNumber(boardUser.totalContributions)} contributions in ${year}`,
-  })}</div>
+    <div class="${CARD_WELL}" data-day-slot>
+      ${heatmapSvg(grid, {
+        dayHref: (date) => `/u/${user.login}?day=${date}#day-breakdown`,
+        selectedDate: options.selectedDate,
+        cell: 17,
+        gap: 3,
+        months: true,
+        peakDate: peak?.date,
+        label: `${user.login} made ${formatNumber(boardUser.totalContributions)} contributions in ${year}`,
+      })}
+    </div>
+    ${options.dayPanel}
     ${ledgerHtml(fields)}
   </section>`;
 }
@@ -719,6 +726,22 @@ export function userPageHtml(options: UserPageOptions): string {
     leadsAllTime,
     sinceCaption,
   });
+  /* The breakdown answers to the totals this page already shows: the board's
+     year and, for a day in it, that day's heatmap cell. */
+  // The rendered grid, not the raw weeks: a date GitHub left out of the
+  // calendar is still drawn, as a zero.
+  const shownDay = options.day
+    ? grid?.flat().find((cell) => cell.date === options.day && cell.state === "day")
+    : undefined;
+  const yearBreakdown =
+    options.breakdown && boardUser
+      ? reconcileBreakdown(options.breakdown, boardUser.totalContributions)
+      : (options.breakdown ?? null);
+  const dayBreakdown =
+    options.dayBreakdown && shownDay
+      ? reconcileBreakdown(options.dayBreakdown, shownDay.count)
+      : (options.dayBreakdown ?? null);
+
   /* ---- the year ledger: the running total and what it is chasing ---- */
   const liveSection = liveYearSectionHtml({
     user,
@@ -729,11 +752,13 @@ export function userPageHtml(options: UserPageOptions): string {
     boardRank,
     year,
     leadsYear,
+    selectedDate: options.day,
+    dayPanel: options.day ? dayBreakdownHtml(options.day, dayBreakdown, user.login, year) : null,
   });
 
-  const main = html`${identityCard}${sectionRuleHtml(year)}${liveSection}${cardSectionHtml(
-    user.login,
-  )}`;
+  const main = html`${identityCard}${sectionRuleHtml(year)}${liveSection}${sectionRuleHtml("where contributions came from")}
+    ${yearBreakdown ? breakdownHtml(yearBreakdown) : html`<p class="text-[0.75rem] text-faint">Breakdown unavailable right now.</p>`}
+    ${cardSectionHtml(user.login)}`;
 
   return pageHtml({
     chrome,

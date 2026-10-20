@@ -1,4 +1,12 @@
-import type { AllTime, AllTimeUser, Board } from "../shared/types";
+import {
+  breakdownTtl,
+  dayWindow,
+  isLiveWindow,
+  parseBreakdownDate,
+  yearWindow,
+  type BreakdownWindow,
+} from "./breakdown";
+import type { AllTime, AllTimeUser, Board, ContributionBreakdown } from "../shared/types";
 import { DurableObject } from "cloudflare:workers";
 import { featuredYear, todayIso, userGrid, userProfile, yearShape } from "../shared/board";
 import { formatDayYear } from "../shared/format";
@@ -26,7 +34,15 @@ import {
   staleCopy,
 } from "./cache-policy";
 import type { ArchiveTotals } from "./github";
-import { PEOPLE, currentYear, fetchArchiveTotals, fetchBoard, GitHubError, MIN_YEAR } from "./github";
+import {
+  PEOPLE,
+  currentYear,
+  fetchBreakdown,
+  fetchArchiveTotals,
+  fetchBoard,
+  GitHubError,
+  MIN_YEAR,
+} from "./github";
 import { SITE, type SiteChrome } from "./views/layout";
 import {
   allPageHtml,
@@ -78,6 +94,11 @@ export interface Env {
 /** Synthetic key prefixes — edge cache entries are not tied to the public URL. */
 const JSON_CACHE_PREFIX = buildCachePrefix(
   "https://ynga-git-board.internal/board/v4/",
+  __IS_PREVIEW_BUILD__,
+  __BUILD_COMMIT_SHA__,
+);
+const BREAKDOWN_CACHE_PREFIX = buildCachePrefix(
+  "https://ynga-git-board.internal/breakdown/v1/",
   __IS_PREVIEW_BUILD__,
   __BUILD_COMMIT_SHA__,
 );
@@ -947,23 +968,131 @@ async function handleAllPage(env: Env, ctx: ExecutionContext): Promise<Response>
   return withBrowserHeaders(fresh, state);
 }
 
+async function handleBreakdownApi(
+  requested: string,
+  url: URL,
+  readOnly: boolean,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  if (!readOnly)
+    return json(
+      { error: "Use GET for user APIs.", status: 405 },
+      {
+        status: 405,
+        headers: { Allow: "GET, HEAD", "Cache-Control": "no-store" },
+      },
+    );
+  const login = rosterLogin(requested);
+  if (!login)
+    return json(
+      { error: `No leaderboard account named ${requested}.`, status: 404 },
+      { status: 404, headers: { "Cache-Control": "no-store" } },
+    );
+  if (url.pathname !== `/api/users/${login}/breakdown`)
+    return Response.redirect(`${url.origin}/api/users/${login}/breakdown${url.search}`, 308);
+  const now = new Date();
+  const date = parseBreakdownDate(url.searchParams.get("date"), now);
+  if (date === "invalid")
+    return json(
+      { error: "Date must be a real day from 2008-01-01 to today (UTC), as YYYY-MM-DD.", status: 400 },
+      { status: 400, headers: { "Cache-Control": "no-store" } },
+    );
+  const window = date ? dayWindow(date) : yearWindow(currentYear(now), now);
+  return breakdownBrowserResponse(await breakdownJson(login, window, env, ctx), window);
+}
+
+async function breakdownJson(
+  login: string,
+  window: BreakdownWindow,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const suffix = window.kind === "day" ? `day/${window.date}` : `year/${window.year}`;
+  const key = new Request(`${BREAKDOWN_CACHE_PREFIX}${login}/${suffix}`);
+  try {
+    const hit = !__DEV__ ? await caches.default.match(key) : undefined;
+    if (hit) return hit;
+    if (!env.GITHUB_TOKEN)
+      return json(
+        { error: TOKEN_MISSING, status: 500 },
+        { status: 500, headers: { "Cache-Control": "no-store" } },
+      );
+    const accounts = PEOPLE.find((person) => person.accounts[0] === login)!.accounts;
+    const data = await fetchBreakdown(env.GITHUB_TOKEN, login, accounts, window);
+    const response = json(data, {
+      headers: {
+        "Cache-Control": `public, max-age=${breakdownTtl(window, new Date())}`,
+      },
+    });
+    if (!__DEV__) ctx.waitUntil(caches.default.put(key, response.clone()));
+    return response;
+  } catch (error) {
+    const status = error instanceof GitHubError ? error.status : 502;
+    console.error("breakdown failed", {
+      login,
+      window: suffix,
+      status,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return json(
+      {
+        error: error instanceof GitHubError ? error.message : "Contribution breakdown unavailable.",
+        status,
+      },
+      { status, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+}
+
+function breakdownBrowserResponse(
+  response: Response,
+  window: BreakdownWindow,
+  state: CacheState = "MISS",
+): Response {
+  if (!response.ok) return response;
+  const live = isLiveWindow(window, new Date());
+  const wrapped = withBrowserHeaders(response, state);
+  const headers = new Headers(wrapped.headers);
+  if (!__DEV__)
+    headers.set(
+      "Cache-Control",
+      browserCacheControl(
+        __IS_PREVIEW_BUILD__,
+        live ? 60 : BROWSER_ARCHIVE_TTL_SECONDS,
+        live ? 60 : ARCHIVE_TTL_SECONDS,
+      ),
+    );
+  return new Response(wrapped.body, { status: wrapped.status, headers });
+}
+
 /** A user page draws on both feeds: the live year for the day grid, all time
  *  for the year strip. `login` is a canonical entry from PEOPLE, never raw
  *  visitor input, so the cache key set stays enumerable. */
-async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): Promise<Response> {
-  const cacheKey = new Request(`${HTML_CACHE_PREFIX}${currentYear()}/u/${login}`, {
-    method: "GET",
-  });
+async function handleUserPage(
+  login: string,
+  env: Env,
+  ctx: ExecutionContext,
+  day?: string,
+): Promise<Response> {
+  const cacheKey = new Request(
+    `${HTML_CACHE_PREFIX}${currentYear()}/u/${login}${day ? `/day/${day}` : ""}`,
+    {
+      method: "GET",
+    },
+  );
 
   const hit = await renderedPageHit(cacheKey);
-  if (hit) return withBrowserHeaders(hit, "HIT");
+  if (hit) return breakdownBrowserResponse(hit, yearWindow(currentYear(), new Date()), "HIT");
 
   // One fetch of the year in progress, awaited by both feeds. Starting it
   // before the all-time feed keeps the two running side by side.
   const boardFetch = boardJson(currentYear(), env, ctx);
-  const [boardResult, allResult] = await Promise.all([
+  const [boardResult, allResult, yearBreakdownResponse, dayBreakdownResponse] = await Promise.all([
     boardFetch,
     allTimeJson(env, ctx, boardFetch),
+    breakdownJson(login, yearWindow(currentYear(), new Date()), env, ctx),
+    day ? breakdownJson(login, dayWindow(day), env, ctx) : Promise.resolve(null),
   ]);
   if (!boardResult.response.ok) return pageFromFailure(boardResult.response);
   if (!allResult.response.ok) return pageFromFailure(allResult.response);
@@ -982,7 +1111,16 @@ async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): P
     });
   }
 
+  const breakdownOk =
+    yearBreakdownResponse.ok && (!dayBreakdownResponse || dayBreakdownResponse.ok);
   const page = userPageHtml({
+    day,
+    breakdown: yearBreakdownResponse.ok
+      ? ((await yearBreakdownResponse.json()) as ContributionBreakdown)
+      : null,
+    dayBreakdown: dayBreakdownResponse?.ok
+      ? ((await dayBreakdownResponse.json()) as ContributionBreakdown)
+      : null,
     chrome: siteChrome(),
     user,
     board,
@@ -995,7 +1133,7 @@ async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): P
 
   const fresh = html(page, {
     headers: {
-      "Cache-Control": `public, max-age=${LIVE_TTL_SECONDS}`,
+      "Cache-Control": `public, max-age=${breakdownOk ? LIVE_TTL_SECONDS : 0}`,
       Link: pageLinks(`/api/users/${login}`),
       "X-Board-Generated": generatedAt,
       "X-Board-Year": String(currentYear()),
@@ -1003,8 +1141,12 @@ async function handleUserPage(login: string, env: Env, ctx: ExecutionContext): P
   });
 
   const state = renderedState(boardResult.cache, allResult.cache);
-  cacheRenderedPage(ctx, cacheKey, fresh.clone(), state);
-  return withBrowserHeaders(fresh, state);
+  if (breakdownOk) cacheRenderedPage(ctx, cacheKey, fresh.clone(), state);
+  if (!breakdownOk) {
+    fresh.headers.set("Cache-Control", "no-store");
+    return fresh;
+  }
+  return breakdownBrowserResponse(fresh, yearWindow(currentYear(), new Date()), state);
 }
 
 /**
@@ -1576,6 +1718,11 @@ async function routeApi(
     }
   }
 
+  const breakdownMatch = /^\/api\/users\/([A-Za-z0-9][A-Za-z0-9-]*)\/breakdown\/?$/.exec(
+    url.pathname,
+  );
+  if (breakdownMatch) return handleBreakdownApi(breakdownMatch[1], url, readOnly, env, ctx);
+
   const userApiMatch = /^\/api\/users\/([A-Za-z0-9][A-Za-z0-9-]*)\/?$/.exec(url.pathname);
   if (userApiMatch) {
     if (!readOnly) {
@@ -1783,9 +1930,12 @@ async function routePage(
     }
     // One casing, no trailing slash: one page, one cache entry.
     if (url.pathname !== `/u/${canonical}`) {
-      return Response.redirect(`${url.origin}/u/${canonical}`, 308);
+      return Response.redirect(`${url.origin}/u/${canonical}${url.search}`, 308);
     }
-    return servePage(url, () => handleUserPage(canonical, env, ctx));
+    const day = parseBreakdownDate(url.searchParams.get("day"), new Date());
+    return servePage(url, () =>
+      handleUserPage(canonical, env, ctx, day && day !== "invalid" ? day : undefined),
+    );
   }
 
   // Static assets keep their own router; anything it doesn't know is a

@@ -8,12 +8,16 @@ the chart hover, and every page works without it.
 
 ## Routes
 
+`GET /api/users/{login}/breakdown` returns the current year contribution split;
+`?date=YYYY-MM-DD` selects a single UTC day. User pages accept `?day=YYYY-MM-DD`
+and link each heatmap day to its breakdown.
+
 | Path | What it serves |
 | --- | --- |
 | `/` | The year in progress: ranked heatmaps |
 | `/{year}` | An archived year, 2008 through the current one |
 | `/all` | All-time: one year-strip per account, ranked by career total |
-| `/u/{login}` | One account across every year |
+| `/u/{login}` | One account across every year; `?day=YYYY-MM-DD` selects day detail |
 | `/u/{login}.svg` | That account's year as a card, for a profile README |
 | `/u/{login}/year.svg` | Badge: that account's contributions this year |
 | `/u/{login}/all.svg` | Badge: that account's contributions all time |
@@ -23,6 +27,7 @@ the chart hover, and every page works without it.
 | `/api/board?year=` | Board JSON for a year (`year` defaults to the current one) |
 | `/api/all` | All-time JSON |
 | `/api/users/{login}` | One account's all-time totals and current-year daily JSON |
+| `/api/users/{login}/breakdown` | Contribution types and public repositories; optional `?date=YYYY-MM-DD` |
 | `/.well-known/api-catalog` | RFC 9727 API catalogue as a JSON Linkset |
 
 ## Layout
@@ -153,10 +158,17 @@ newer than 30 minutes (local development, preview builds, a stopped cron), the
 site fetches the board from GitHub itself and caches it for 5 minutes.
 
 The year in progress caches for 1 minute at the edge and in the browser.
+
 Finished years cache for 30 days at the edge, 1 day in the browser — they only
 move if someone retoggles private-contribution visibility. Rendered-page cache
 keys include the deployed commit SHA, so a new commit renders fresh HTML at the
 edge while keeping the underlying contribution-data caches warm.
+
+Contribution breakdowns cache for 30 days once their window has finished. While
+it is live (it includes today, or ended less than a day ago), a day caches for
+about a minute and the year so far for 30 minutes, since GitHub takes a couple
+of seconds to answer it. Private repositories are never named; private work
+appears only as a count.
 
 ## Development
 
