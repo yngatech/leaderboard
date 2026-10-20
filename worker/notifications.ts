@@ -286,10 +286,15 @@ function dropFinishedYears(state: DailyRecordState, today: string): boolean {
     }
     if (Object.keys(days).length === 0) delete state.personalDays[login];
   }
+  // Board days go by date: one wrapped holder settles the whole date.
   const pending = new Set(boardWrapUps(state, today).map((event) => event.date));
+  const wrapped = new Set(
+    Object.values(state.boardDays).flatMap((day) => (day.wrapped ? [day.peak.date] : [])),
+  );
   for (const [key, day] of Object.entries(state.boardDays)) {
-    const finished = day.wrapped || (graceOver && !pending.has(day.peak.date));
-    if (!inYear(day.peak.date, state.year) && finished) {
+    const { date } = day.peak;
+    const finished = wrapped.has(date) || (graceOver && !pending.has(date));
+    if (!inYear(date, state.year) && finished) {
       delete state.boardDays[key];
       changed = true;
     }
@@ -321,20 +326,38 @@ function applyBoardRecord(state: DailyRecordState, event: BoardRecordEvent): voi
   state.boardDays[dayKey(event.peak.login, event.peak.date)] = announcedDay(event.peak);
 }
 
+function keptDays<T>(days: Record<string, T>, keep: (key: string, value: T) => boolean) {
+  return Object.fromEntries(Object.entries(days).filter(([key, value]) => keep(key, value)));
+}
+
 function startingState(
   year: number,
   board: Board,
   previous: DailyRecordState | LegacyDailyRecordState,
 ): DailyRecordState {
   const rolledOver = previous.year !== year;
+  // A rollover keeps only the year just finished: a day from before it would
+  // be compared with a record this state no longer holds.
+  const current = rolledOver ? previous.year : year;
+  const personalDays = "personalDays" in previous ? structuredClone(previous.personalDays) : {};
+  const boardDays = "boardDays" in previous ? structuredClone(previous.boardDays) : {};
   return {
     year,
     personalBests: rolledOver
       ? Object.fromEntries(board.map((user) => [user.login, 0]))
       : { ...previous.personalBests },
     boardBest: rolledOver ? 0 : previous.boardBest,
-    personalDays: "personalDays" in previous ? structuredClone(previous.personalDays) : {},
-    boardDays: "boardDays" in previous ? structuredClone(previous.boardDays) : {},
+    personalDays: rolledOver
+      ? Object.fromEntries(
+          Object.entries(personalDays).map(([login, days]) => [
+            login,
+            keptDays(days, (date) => inYear(date, current)),
+          ]),
+        )
+      : personalDays,
+    boardDays: rolledOver
+      ? keptDays(boardDays, (_, day) => inYear(day.peak.date, current))
+      : boardDays,
     previousYearBoardBest: rolledOver
       ? previous.boardBest
       : "previousYearBoardBest" in previous

@@ -795,6 +795,57 @@ test("late December contributions seen in the new year's first week still wrap u
   assert.deepEqual(state?.boardDays, {});
 });
 
+test("a finished year's date wrapped up once is not wrapped up again by its next holder", async () => {
+  const board = (alice: number, bob: number): Board => [
+    user("alice", [["2025-01-01", 10], ["2025-12-30", alice]]),
+    user("bob", [["2025-01-01", 10], ["2025-12-30", bob]]),
+  ];
+  const start = { ...aliceStart(2025), personalBests: { alice: 10, bob: 10 } };
+  const { posts } = await runChecks(
+    [
+      ["2025-12-30", board(11, 0)],
+      ["2025-12-30", board(12, 0)],
+      ["2025-12-31", board(12, 0)],
+      ["2025-12-31", board(12, 13)],
+      ["2025-12-31", board(12, 14)],
+      ["2026-01-01", board(12, 14)],
+    ],
+    start,
+  );
+
+  assert.deepEqual(posts.filter((post) => post.startsWith("record")), [
+    "record:alice",
+    "record-wrap-up:alice:12",
+    "record:bob",
+  ]);
+});
+
+test("days from before the year just finished are dropped at a rollover", () => {
+  // 2025's 1 March climbed past its announcement but was not the record, and
+  // checks then stopped until 2027.
+  const peak = {
+    login: "alice",
+    url: "https://github.com/alice",
+    avatarUrl: "https://avatars.example/alice",
+    date: "2025-03-01",
+    count: 11,
+  };
+  const day = { peak, latest: 15, wrapped: false };
+  const plan = planDailyRecords(2027, "2027-01-01", [user("alice", [])], {
+    year: 2026,
+    personalBests: { alice: 5 },
+    boardBest: 5,
+    personalDays: { alice: { "2025-03-01": day } },
+    boardDays: { "alice 2025-03-01": day },
+    previousYearBoardBest: 25,
+  });
+
+  assert.deepEqual(plan.personalWrapUps, []);
+  assert.deepEqual(plan.boardWrapUps, []);
+  assert.deepEqual(plan.nextState.personalDays, {});
+  assert.deepEqual(plan.nextState.boardDays, {});
+});
+
 function milestoneState(
   personalTotals: Record<string, number>,
   personalMilestones: Record<string, number>,
