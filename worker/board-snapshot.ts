@@ -34,9 +34,11 @@ export function usableSnapshot(
 
 /**
  * Whether `next` may overwrite `current`. A check that overran its slot must
- * not land on top of the one that started after it.
+ * not land on top of the one that started after it. Strictly newer, so the
+ * stored timestamp names one board: the notification queue relies on that to
+ * tell whether the board it was handed is still the latest.
  */
 export function supersedes(next: BoardSnapshot, current: BoardSnapshot | undefined): boolean {
   if (!current) return true;
-  return Date.parse(next.generatedAt) >= Date.parse(current.generatedAt);
+  return Date.parse(next.generatedAt) > Date.parse(current.generatedAt);
 }
