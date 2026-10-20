@@ -159,15 +159,16 @@ site fetches the board from GitHub itself and caches it for 5 minutes.
 
 The year in progress caches for 1 minute at the edge and in the browser.
 
-Contribution breakdowns cache for 30 days once their window has finished. While
-it is live (it includes today, or ended less than a day ago), a day caches for
-about a minute and the year so far for 30 minutes, like the board.
-Private repositories are never named; private work appears only as a count.
-
 Finished years cache for 30 days at the edge, 1 day in the browser — they only
 move if someone retoggles private-contribution visibility. Rendered-page cache
 keys include the deployed commit SHA, so a new commit renders fresh HTML at the
 edge while keeping the underlying contribution-data caches warm.
+
+Contribution breakdowns cache for 30 days once their window has finished. While
+it is live (it includes today, or ended less than a day ago), a day caches for
+about a minute and the year so far for 30 minutes, since GitHub takes a couple
+of seconds to answer it. Private repositories are never named; private work
+appears only as a count.
 
 ## Development
 

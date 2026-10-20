@@ -1133,7 +1133,7 @@ async function handleUserPage(
 
   const fresh = html(page, {
     headers: {
-      "Cache-Control": `public, max-age=${breakdownOk ? 60 : 0}`,
+      "Cache-Control": `public, max-age=${breakdownOk ? LIVE_TTL_SECONDS : 0}`,
       Link: pageLinks(`/api/users/${login}`),
       "X-Board-Generated": generatedAt,
       "X-Board-Year": String(currentYear()),
