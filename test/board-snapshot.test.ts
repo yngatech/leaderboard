@@ -42,3 +42,10 @@ test("a check that overran cannot overwrite a newer snapshot", () => {
   assert.equal(supersedes(older, undefined), true);
   assert.equal(supersedes(snapshot(2027, "2027-01-01T00:00:00Z"), newer), true);
 });
+
+test("a second board stamped with the same moment is not saved over the first", () => {
+  const first = snapshot(2026, "2026-10-19T13:00:00.000Z");
+  const second = { ...snapshot(2026, "2026-10-19T13:00:00.000Z"), board: first.board.slice() };
+
+  assert.equal(supersedes(second, first), false);
+});
