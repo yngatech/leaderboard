@@ -60,7 +60,6 @@ import {
   deliverCakeDays,
   deliverMilestones,
   deliverStandings,
-  finishedYearToFollow,
   ordinal,
   planCakeDays,
   planMilestones,
@@ -1459,32 +1458,34 @@ async function refreshBoard(env: Env): Promise<void> {
   if (!env.GITHUB_TOKEN) throw new Error(TOKEN_MISSING);
 
   const year = currentYear();
-  const today = todayIso();
   const generatedAt = new Date().toISOString();
-  const notify = Boolean(env.DISCORD_WEBHOOK_URL);
-  const finishedYear = notify ? finishedYearToFollow(today) : null;
-  const [{ board, missing }, finished] = await Promise.all([
-    fetchBoard(env.GITHUB_TOKEN, year),
-    finishedYear === null ? null : finishedBoard(env.GITHUB_TOKEN, finishedYear),
-  ]);
+  const { board, missing } = await fetchBoard(env.GITHUB_TOKEN, year);
   // A partial board would drop people from the site; the last full one stands
   // in until it ages out, and notifications wait for the same full board.
   if (!shouldUpdateNotifications(missing)) {
     console.warn("board refresh skipped for incomplete board", { year, missing });
     return;
   }
-  await leaderState(env).publish({ year, board, generatedAt }, today, notify, finished);
+  const notify = Boolean(env.DISCORD_WEBHOOK_URL);
+  await leaderState(env).publish({ year, board, generatedAt }, todayIso(), notify);
 }
 
 /**
- * The finished year's board, re-fetched for its first week so late pushes
- * landing on 31 December are still seen. Null when incomplete: that year's
- * records wait for a full board, like the live year's.
+ * The finished year's board, re-fetched in the new year's first week so late
+ * pushes landing on 31 December are still seen. Null when the fetch fails or
+ * comes back incomplete: that year's records wait for the next check.
  */
-async function finishedBoard(token: string, year: number): Promise<YearBoard | null> {
-  const { board, missing } = await fetchBoard(token, year);
-  if (shouldUpdateNotifications(missing)) return { year, board };
-  console.warn("finished-year board skipped while incomplete", { year, missing });
+async function finishedBoard(token: string, year: number): Promise<Board | null> {
+  try {
+    const { board, missing } = await fetchBoard(token, year);
+    if (shouldUpdateNotifications(missing)) return board;
+    console.warn("finished-year board skipped while incomplete", { year, missing });
+  } catch (error) {
+    console.warn("finished-year board fetch failed", {
+      year,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   return null;
 }
 
@@ -1660,20 +1661,18 @@ export class LeaderState extends DurableObject<Env> {
     );
   }
 
-  private async updateDailyRecords(
-    live: YearBoard,
-    today: string,
-    finished: YearBoard | null,
-  ): Promise<void> {
+  private async updateDailyRecords(live: YearBoard, today: string): Promise<void> {
     await updateDailyRecordYears(
       live,
-      finished,
       today,
       {
         get: (key) => this.ctx.storage.get<StoredDailyRecords>(key),
         put: (key, state) => this.ctx.storage.put(key, state),
         delete: (key) => this.ctx.storage.delete(key),
       },
+      // Fetched here, inside the queued notification work, so the live board
+      // is already saved for the site and never waits on the finished year.
+      (year) => finishedBoard(this.env.GITHUB_TOKEN, year),
       (year, notification) =>
         this.notify({ kind: "embed", embed: dailyRecordEmbed(year, notification) }),
     );
@@ -1714,12 +1713,7 @@ export class LeaderState extends DurableObject<Env> {
    * dropped whole: its board would roll the site back, and its notifications
    * would announce an order the site no longer shows.
    */
-  async publish(
-    snapshot: BoardSnapshot,
-    today: string,
-    notify: boolean,
-    finished: YearBoard | null = null,
-  ): Promise<void> {
+  async publish(snapshot: BoardSnapshot, today: string, notify: boolean): Promise<void> {
     const current = await this.ctx.storage.get<BoardSnapshot>(BOARD_SNAPSHOT_KEY);
     if (!supersedes(snapshot, current)) return;
     await this.ctx.storage.put(BOARD_SNAPSHOT_KEY, snapshot);
@@ -1731,7 +1725,7 @@ export class LeaderState extends DurableObject<Env> {
       const latest = await this.ctx.storage.get<BoardSnapshot>(BOARD_SNAPSHOT_KEY);
       if (latest?.generatedAt !== snapshot.generatedAt) return;
       await this.updateStandings(year, board);
-      await this.updateDailyRecords({ year, board }, today, finished);
+      await this.updateDailyRecords({ year, board }, today);
       await this.updateMilestones(year, board);
       await this.updateCakeDays(today, board);
     });

@@ -701,14 +701,19 @@ function memoryStorage(entries: Record<string, StoredDailyRecords> = {}) {
   return { map, storage };
 }
 
-/** Runs scheduled checks across a year end, returning `year:post` for each post. */
+/**
+ * Runs scheduled checks across a year end, returning `year:post` for each
+ * post and the years the finished board was loaded for. A check's finished
+ * board of null stands for a failed or incomplete fetch.
+ */
 async function runYears(
-  checks: Array<[today: string, live: Board, finished?: Board]>,
+  checks: Array<[today: string, live: Board, finished?: Board | null]>,
   entries: Record<string, StoredDailyRecords>,
   fail?: (post: string) => boolean,
 ) {
   const { map, storage } = memoryStorage(entries);
   const posts: string[] = [];
+  const loaded: number[] = [];
   for (const [today, live, finished] of checks) {
     const year = Number(today.slice(0, 4));
     const notify = async (postYear: number, notification: DailyRecordNotification) => {
@@ -716,15 +721,14 @@ async function runYears(
       if (fail?.(post)) throw new Error("Discord unavailable");
       posts.push(post);
     };
-    await updateDailyRecordYears(
-      { year, board: live },
-      finished ? { year: year - 1, board: finished } : null,
-      today,
-      storage,
-      notify,
-    ).catch(() => undefined);
+    const loadFinished = async (finishedYear: number) => {
+      loaded.push(finishedYear);
+      return finished ?? null;
+    };
+    await updateDailyRecordYears({ year, board: live }, today, storage, loadFinished, notify)
+      .catch(() => undefined);
   }
-  return { posts, map };
+  return { posts, map, loaded };
 }
 
 const lastDay = (...counts: Array<[login: string, count: number]>): Board =>
@@ -838,7 +842,7 @@ test("a failed finished-year post is retried without the hand-over undoing its p
 });
 
 test("the finished year's state is dropped once its week is over", async () => {
-  const { posts, map } = await runYears(
+  const { posts, map, loaded } = await runYears(
     [
       ["2025-12-31", lastDay(["alice", 11], ["bob", 0])],
       ["2026-01-02", [user("alice", []), user("bob", [])], lastDay(["alice", 11], ["bob", 0])],
@@ -849,6 +853,39 @@ test("the finished year's state is dropped once its week is over", async () => {
 
   assert.deepEqual(posts, ["2025:pb:alice", "2025:record:alice"]);
   assert.equal(map.has(FINISHED_DAILY_RECORDS_KEY), false);
+  assert.deepEqual(loaded, [2025]);
+});
+
+test("an unavailable finished-year board is retried on the next check", async () => {
+  const empty = () => [user("alice", []), user("bob", [])];
+  const { posts, loaded } = await runYears(
+    [
+      ["2025-12-31", lastDay(["alice", 11], ["bob", 0])],
+      ["2026-01-01", empty(), null],
+      ["2026-01-01", empty(), lastDay(["alice", 15], ["bob", 0])],
+    ],
+    twentyFive(),
+  );
+
+  assert.deepEqual(posts, [
+    "2025:pb:alice",
+    "2025:record:alice",
+    "2025:pb-wrap-up:alice:15",
+    "2025:record-wrap-up:alice:15",
+  ]);
+  assert.deepEqual(loaded, [2025, 2025]);
+});
+
+test("no finished-year board is fetched outside a rollover", async () => {
+  const { loaded } = await runYears(
+    [
+      ["2026-01-03", [user("alice", [["2026-01-01", 2]])], lastDay(["alice", 15])],
+      ["2026-03-01", [user("alice", [["2026-01-01", 2]])], lastDay(["alice", 15])],
+    ],
+    { [DAILY_RECORDS_KEY]: { ...aliceStart(2026) } },
+  );
+
+  assert.deepEqual(loaded, []);
 });
 
 test("state from before the year just finished is not followed", async () => {

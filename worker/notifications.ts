@@ -474,15 +474,17 @@ export interface DailyRecordStorage {
 /**
  * Runs the year in progress, then the finished one. At a rollover the old
  * year's state moves to its own key and the new year starts from zero; for
- * the finished year's first week its own board is checked against that
- * state, so late pushes on 31 December are wrapped up or announced with
- * complete data. Afterwards the finished state is dropped.
+ * the new year's first week the finished year's board is loaded and checked
+ * against that state, so late pushes on 31 December are wrapped up or
+ * announced with complete data. Afterwards the finished state is dropped.
+ * `loadFinished` is only called while there is a finished year to follow,
+ * and returns null when its board is unavailable or incomplete.
  */
 export async function updateDailyRecordYears(
   live: YearBoard,
-  finished: YearBoard | null,
   today: string,
   storage: DailyRecordStorage,
+  loadFinished: (year: number) => Promise<Board | null>,
   notify: (year: number, notification: DailyRecordNotification) => Promise<void>,
 ): Promise<void> {
   const deliverYear = async (key: string, { year, board }: YearBoard, previous?: StoredDailyRecords) =>
@@ -506,7 +508,8 @@ export async function updateDailyRecordYears(
     await storage.delete(FINISHED_DAILY_RECORDS_KEY);
     return;
   }
-  if (finished?.year === held.year) await deliverYear(FINISHED_DAILY_RECORDS_KEY, finished, held);
+  const board = await loadFinished(held.year);
+  if (board) await deliverYear(FINISHED_DAILY_RECORDS_KEY, { year: held.year, board }, held);
 }
 
 function milestoneStateSnapshot(state: MilestoneState): MilestoneState {
