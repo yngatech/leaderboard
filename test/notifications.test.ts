@@ -6,6 +6,9 @@ import {
   deliverDailyRecords,
   deliverMilestones,
   deliverStandings,
+  DAILY_RECORDS_KEY,
+  FINISHED_DAILY_RECORDS_KEY,
+  finishedYearToFollow,
   ordinal,
   planCakeDays,
   planDailyRecords,
@@ -13,14 +16,17 @@ import {
   planStandings,
   SerialTaskQueue,
   shouldUpdateNotifications,
+  updateDailyRecordYears,
   type CakeDayEvent,
   type CakeDayState,
   type DailyRecordNotification,
   type DailyRecordState,
+  type DailyRecordStorage,
   type MilestoneNotification,
   type MilestoneState,
   type StandingNotification,
   type StandingState,
+  type StoredDailyRecords,
 } from "../worker/notifications.ts";
 
 function user(login: string, days: Array<[date: string, count: number]>): BoardUser {
@@ -90,7 +96,6 @@ function priorState(): DailyRecordState {
     boardBest: 12,
     personalDays: {},
     boardDays: {},
-    previousYearBoardBest: 0,
   };
 }
 
@@ -152,7 +157,6 @@ test("does not alert for ties, lower corrections, or a newly added account", () 
     boardBest: 20,
     personalDays: {},
     boardDays: {},
-    previousYearBoardBest: 0,
   };
   const board: Board = [
     user("alice", [["2026-03-01", 12]]),
@@ -178,7 +182,6 @@ test("starts records from zero when the calendar year rolls over", () => {
     boardBest: 50,
     personalDays: {},
     boardDays: {},
-    previousYearBoardBest: 0,
   };
   const board: Board = [user("alice", [["2026-01-01", 3]])];
 
@@ -272,7 +275,6 @@ test("checkpoints a year rollover before sending and resumes mid-cycle", async (
     boardBest: 50,
     personalDays: {},
     boardDays: {},
-    previousYearBoardBest: 0,
   };
   let failBob = true;
   const delivered: string[] = [];
@@ -518,34 +520,6 @@ test("a new board record beats where the holder's day had got to", () => {
   assert.equal(plan.boardRecord?.previousCount, 18);
 });
 
-test("the last day of a year still wraps up after the rollover", async () => {
-  const lastDay = (count: number): Board => [user("alice", [["2025-12-31", count]])];
-  const start: DailyRecordState = {
-    year: 2025,
-    personalBests: { alice: 10 },
-    boardBest: 10,
-    personalDays: {},
-    boardDays: {},
-    previousYearBoardBest: 0,
-  };
-  const { posts, state } = await runChecks(
-    [
-      ["2025-12-31", lastDay(11)],
-      ["2025-12-31", lastDay(15)],
-      ["2026-01-01", [user("alice", [])]],
-    ],
-    start,
-  );
-
-  assert.deepEqual(posts, [
-    "pb:alice",
-    "record:alice",
-    "pb-wrap-up:alice:15",
-    "record-wrap-up:alice:15",
-  ]);
-  assert.deepEqual(records(state!), { year: 2026, personalBests: { alice: 0 }, boardBest: 0 });
-});
-
 test("state saved before announced days were tracked announces the next PB", async () => {
   const legacy = { year: 2026, personalBests: { alice: 12, bob: 9 }, boardBest: 12 };
   const plan = planDailyRecords(2026, TODAY, climb(14), legacy);
@@ -598,7 +572,6 @@ const aliceStart = (year: number): DailyRecordState => ({
   boardBest: 10,
   personalDays: {},
   boardDays: {},
-  previousYearBoardBest: 0,
 });
 
 const evenStart = (): DailyRecordState => ({
@@ -607,7 +580,6 @@ const evenStart = (): DailyRecordState => ({
   boardBest: 10,
   personalDays: {},
   boardDays: {},
-  previousYearBoardBest: 0,
 });
 
 test("two accounts trading the board record all day each announce it once", async () => {
@@ -646,37 +618,6 @@ test("a rise on an earlier day is counted when a later day becomes the PB", () =
   assert.deepEqual(plan.personalWrapUps.map(({ date, count }) => ({ date, count })), [
     { date: "2026-03-01", count: 18 },
   ]);
-});
-
-test("new-year records do not swallow the last day of the old year's wrap-up", async () => {
-  const start: DailyRecordState = {
-    year: 2025,
-    personalBests: { alice: 10 },
-    boardBest: 10,
-    personalDays: {},
-    boardDays: {},
-    previousYearBoardBest: 0,
-  };
-  const { posts, state } = await runChecks(
-    [
-      ["2025-12-31", [user("alice", [["2025-12-31", 11]])]],
-      ["2025-12-31", [user("alice", [["2025-12-31", 15]])]],
-      ["2026-01-01", [user("alice", [["2025-12-31", 15], ["2026-01-01", 1]])]],
-      ["2026-01-01", [user("alice", [["2025-12-31", 15], ["2026-01-01", 1]])]],
-    ],
-    start,
-  );
-
-  assert.deepEqual(posts, [
-    "pb:alice",
-    "record:alice",
-    "pb-wrap-up:alice:15",
-    "pb:alice",
-    "record:alice",
-    "record-wrap-up:alice:15",
-  ]);
-  assert.deepEqual(Object.keys(state?.personalDays.alice ?? {}), ["2026-01-01"]);
-  assert.deepEqual(Object.keys(state?.boardDays ?? {}), ["alice 2026-01-01"]);
 });
 
 test("a wrapped-up day is never announced again after another day was the PB", async () => {
@@ -747,103 +688,178 @@ test("a record set on a day that has ended takes over that day's wrap-up", async
   ]);
 });
 
-test("a day that stopped being the record stays quiet through the rollover", async () => {
-  const board = (alice: number, carol = false): Board => [
-    user("alice", [["2025-01-01", 10], ["2025-03-01", alice]]),
-    ...(carol ? [user("carol", [["2025-02-01", 25]])] : []),
-  ];
-  const { posts } = await runChecks(
-    [
-      ["2025-03-01", board(11)],
-      ["2025-03-01", board(12, true)],
-      ["2025-03-01", board(15, true)],
-      ["2025-03-02", board(15, true)],
-      ["2026-01-01", [user("alice", []), user("carol", [])]],
-    ],
-    aliceStart(2025),
-  );
+/** Durable Object storage for the daily-record keys, kept in memory. */
+function memoryStorage(entries: Record<string, StoredDailyRecords> = {}) {
+  const map = new Map(Object.entries(entries).map(([key, value]) => [key, structuredClone(value)]));
+  const storage: DailyRecordStorage = {
+    get: async (key) => structuredClone(map.get(key)),
+    put: async (key, state) => {
+      map.set(key, structuredClone(state));
+    },
+    delete: async (key) => map.delete(key),
+  };
+  return { map, storage };
+}
 
-  assert.deepEqual(posts, ["pb:alice", "record:alice", "pb-wrap-up:alice:15"]);
-});
+/** Runs scheduled checks across a year end, returning `year:post` for each post. */
+async function runYears(
+  checks: Array<[today: string, live: Board, finished?: Board]>,
+  entries: Record<string, StoredDailyRecords>,
+  fail?: (post: string) => boolean,
+) {
+  const { map, storage } = memoryStorage(entries);
+  const posts: string[] = [];
+  for (const [today, live, finished] of checks) {
+    const year = Number(today.slice(0, 4));
+    const notify = async (postYear: number, notification: DailyRecordNotification) => {
+      const post = `${postYear}:${notificationId(notification)}`;
+      if (fail?.(post)) throw new Error("Discord unavailable");
+      posts.push(post);
+    };
+    await updateDailyRecordYears(
+      { year, board: live },
+      finished ? { year: year - 1, board: finished } : null,
+      today,
+      storage,
+      notify,
+    ).catch(() => undefined);
+  }
+  return { posts, map };
+}
 
-test("late December contributions seen in the new year's first week still wrap up", async () => {
-  const start: DailyRecordState = {
+const lastDay = (...counts: Array<[login: string, count: number]>): Board =>
+  counts.map(([login, count]) => user(login, [["2025-01-01", 10], ["2025-12-31", count]]));
+
+const twentyFive = (): Record<string, StoredDailyRecords> => ({
+  [DAILY_RECORDS_KEY]: {
     year: 2025,
-    personalBests: { alice: 10 },
+    personalBests: { alice: 10, bob: 10 },
     boardBest: 10,
     personalDays: {},
     boardDays: {},
-    previousYearBoardBest: 0,
-  };
-  const { posts, state } = await runChecks(
+  },
+});
+
+test("the finished year's board is checked only in the new year's first week", () => {
+  assert.equal(finishedYearToFollow("2026-01-01"), 2025);
+  assert.equal(finishedYearToFollow("2026-01-07"), 2025);
+  assert.equal(finishedYearToFollow("2026-01-08"), null);
+  assert.equal(finishedYearToFollow("2026-06-01"), null);
+});
+
+test("pushes landing on 31 December after midnight are wrapped up from that year's board", async () => {
+  const { posts } = await runYears(
     [
-      ["2025-12-31", [user("alice", [["2025-12-31", 11]])]],
-      ["2026-01-01", [user("alice", [["2025-12-31", 11]])]],
-      ["2026-01-01", [user("alice", [["2025-12-31", 15]])]],
-      ["2026-01-08", [user("alice", [])]],
+      ["2025-12-31", lastDay(["alice", 11], ["bob", 0])],
+      ["2026-01-01", [user("alice", []), user("bob", [])], lastDay(["alice", 13], ["bob", 0])],
+      ["2026-01-01", [user("alice", []), user("bob", [])], lastDay(["alice", 15], ["bob", 0])],
     ],
-    start,
+    twentyFive(),
+  );
+
+  // The first January check wraps up at 13; 15 lands on a wrapped-up day.
+  assert.deepEqual(posts, [
+    "2025:pb:alice",
+    "2025:record:alice",
+    "2025:pb-wrap-up:alice:13",
+    "2025:record-wrap-up:alice:13",
+  ]);
+});
+
+test("a record set late on 31 December is announced in January and names the real holder", async () => {
+  const { posts } = await runYears(
+    [
+      ["2025-12-31", lastDay(["alice", 11], ["bob", 0])],
+      ["2026-01-01", [user("alice", []), user("bob", [])], lastDay(["alice", 13], ["bob", 14])],
+      ["2026-01-01", [user("alice", []), user("bob", [])], lastDay(["alice", 13], ["bob", 16])],
+    ],
+    twentyFive(),
   );
 
   assert.deepEqual(posts, [
-    "pb:alice",
-    "record:alice",
-    "pb-wrap-up:alice:15",
-    "record-wrap-up:alice:15",
+    "2025:pb:alice",
+    "2025:record:alice",
+    "2025:pb-wrap-up:alice:13",
+    "2025:pb:bob",
+    "2025:record:bob",
+    "2025:pb-wrap-up:bob:16",
+    "2025:record-wrap-up:bob:16",
   ]);
-  assert.deepEqual(state?.personalDays, {});
-  assert.deepEqual(state?.boardDays, {});
 });
 
-test("a finished year's date wrapped up once is not wrapped up again by its next holder", async () => {
-  const board = (alice: number, bob: number): Board => [
-    user("alice", [["2025-01-01", 10], ["2025-12-30", alice]]),
-    user("bob", [["2025-01-01", 10], ["2025-12-30", bob]]),
-  ];
-  const start = { ...aliceStart(2025), personalBests: { alice: 10, bob: 10 } };
-  const { posts } = await runChecks(
+test("the new year's first records and December's wrap-ups both go out", async () => {
+  const { posts, map } = await runYears(
     [
-      ["2025-12-30", board(11, 0)],
-      ["2025-12-30", board(12, 0)],
-      ["2025-12-31", board(12, 0)],
-      ["2025-12-31", board(12, 13)],
-      ["2025-12-31", board(12, 14)],
-      ["2026-01-01", board(12, 14)],
+      ["2025-12-31", lastDay(["alice", 11], ["bob", 0])],
+      [
+        "2026-01-01",
+        [user("alice", [["2026-01-01", 2]]), user("bob", [])],
+        lastDay(["alice", 15], ["bob", 0]),
+      ],
     ],
-    start,
+    twentyFive(),
   );
 
-  assert.deepEqual(posts.filter((post) => post.startsWith("record")), [
-    "record:alice",
-    "record-wrap-up:alice:12",
-    "record:bob",
+  assert.deepEqual(posts, [
+    "2025:pb:alice",
+    "2025:record:alice",
+    "2026:pb:alice",
+    "2026:record:alice",
+    "2025:pb-wrap-up:alice:15",
+    "2025:record-wrap-up:alice:15",
+  ]);
+  assert.equal(map.get(DAILY_RECORDS_KEY)?.year, 2026);
+  assert.equal(map.get(FINISHED_DAILY_RECORDS_KEY)?.year, 2025);
+});
+
+test("a failed finished-year post is retried without the hand-over undoing its progress", async () => {
+  let failOnce = true;
+  const { posts } = await runYears(
+    [
+      ["2025-12-31", lastDay(["alice", 11], ["bob", 0])],
+      ["2026-01-01", [user("alice", []), user("bob", [])], lastDay(["alice", 15], ["bob", 0])],
+      ["2026-01-01", [user("alice", []), user("bob", [])], lastDay(["alice", 15], ["bob", 0])],
+      ["2026-01-01", [user("alice", []), user("bob", [])], lastDay(["alice", 15], ["bob", 0])],
+    ],
+    twentyFive(),
+    (post) => {
+      if (post !== "2025:record-wrap-up:alice:15" || !failOnce) return false;
+      failOnce = false;
+      return true;
+    },
+  );
+
+  assert.deepEqual(posts, [
+    "2025:pb:alice",
+    "2025:record:alice",
+    "2025:pb-wrap-up:alice:15",
+    "2025:record-wrap-up:alice:15",
   ]);
 });
 
-test("days from before the year just finished are dropped at a rollover", () => {
-  // 2025's 1 March climbed past its announcement but was not the record, and
-  // checks then stopped until 2027.
-  const peak = {
-    login: "alice",
-    url: "https://github.com/alice",
-    avatarUrl: "https://avatars.example/alice",
-    date: "2025-03-01",
-    count: 11,
-  };
-  const day = { peak, latest: 15, wrapped: false };
-  const plan = planDailyRecords(2027, "2027-01-01", [user("alice", [])], {
-    year: 2026,
-    personalBests: { alice: 5 },
-    boardBest: 5,
-    personalDays: { alice: { "2025-03-01": day } },
-    boardDays: { "alice 2025-03-01": day },
-    previousYearBoardBest: 25,
-  });
+test("the finished year's state is dropped once its week is over", async () => {
+  const { posts, map } = await runYears(
+    [
+      ["2025-12-31", lastDay(["alice", 11], ["bob", 0])],
+      ["2026-01-02", [user("alice", []), user("bob", [])], lastDay(["alice", 11], ["bob", 0])],
+      ["2026-01-08", [user("alice", []), user("bob", [])]],
+    ],
+    twentyFive(),
+  );
 
-  assert.deepEqual(plan.personalWrapUps, []);
-  assert.deepEqual(plan.boardWrapUps, []);
-  assert.deepEqual(plan.nextState.personalDays, {});
-  assert.deepEqual(plan.nextState.boardDays, {});
+  assert.deepEqual(posts, ["2025:pb:alice", "2025:record:alice"]);
+  assert.equal(map.has(FINISHED_DAILY_RECORDS_KEY), false);
+});
+
+test("state from before the year just finished is not followed", async () => {
+  const { posts, map } = await runYears(
+    [["2027-01-01", [user("alice", [])], lastDay(["alice", 15])]],
+    twentyFive(),
+  );
+
+  assert.deepEqual(posts, []);
+  assert.equal(map.has(FINISHED_DAILY_RECORDS_KEY), false);
+  assert.equal(map.get(DAILY_RECORDS_KEY)?.year, 2027);
 });
 
 function milestoneState(

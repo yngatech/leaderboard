@@ -28,15 +28,12 @@ export interface DailyRecordState {
   personalBests: Record<string, number>;
   boardBest: number;
   /**
-   * Every day announced as a PB, by login then date. Kept for the whole year
-   * so a day is never announced twice; an earlier year's days stay only until
-   * their wrap-up is sent.
+   * Every day announced as a PB this year, by login then date, kept so a day
+   * is never announced twice.
    */
   personalDays: Record<string, Record<string, AnnouncedDay>>;
-  /** Every day announced as a board record, by `dayKey`, kept the same way. */
+  /** Every day announced as a board record this year, by `dayKey`. */
   boardDays: Record<string, AnnouncedDay>;
-  /** The finished year's board record, which that year's days are compared with. */
-  previousYearBoardBest: number;
 }
 
 /** The shape written before announced days were tracked. */
@@ -176,6 +173,20 @@ function highestPeak(peaks: DailyPeak[]): DailyPeak | null {
   return highest;
 }
 
+/**
+ * How long into a new year the finished year's board is still checked: late
+ * pushes can land on 31 December after midnight, and a record set late that
+ * day still needs announcing or wrapping up.
+ */
+export const FINISHED_YEAR_DAYS = 7;
+
+/** The finished year to keep checking on `today`, or null once its week is over. */
+export function finishedYearToFollow(today: string): number | null {
+  const year = Number(today.slice(0, 4));
+  const day = Date.parse(`${today}T00:00:00Z`) - Date.UTC(year, 0, 1);
+  return day < FINISHED_YEAR_DAYS * 24 * 60 * 60 * 1000 ? year - 1 : null;
+}
+
 function announcedDay(peak: DailyPeak): AnnouncedDay {
   const { login, url, avatarUrl, date, count } = peak;
   return { peak: { login, url, avatarUrl, date, count }, latest: count, wrapped: false };
@@ -183,10 +194,6 @@ function announcedDay(peak: DailyPeak): AnnouncedDay {
 
 function dayKey(login: string, date: string): string {
   return `${login} ${date}`;
-}
-
-function inYear(date: string, year: number): boolean {
-  return date.startsWith(`${year}-`);
 }
 
 function dayCounts(user: BoardUser): Map<string, number> {
@@ -209,8 +216,7 @@ function personalWrapUps(state: DailyRecordState, today: string): DailyWrapUpEve
 
 /**
  * At most one per finished date: the day's highest board record, when it
- * rose past every record announced that day and still is the record. A day
- * from the finished year is compared with that year's record.
+ * rose past every record announced that day and still is the record.
  */
 function boardWrapUps(state: DailyRecordState, today: string): DailyWrapUpEvent[] {
   const byDate = new Map<string, AnnouncedDay[]>();
@@ -220,13 +226,11 @@ function boardWrapUps(state: DailyRecordState, today: string): DailyWrapUpEvent[
   }
   return [...byDate.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .flatMap(([date, days]) => {
+    .flatMap(([, days]) => {
       if (days.some((day) => day.wrapped)) return [];
       const announcedCount = Math.max(...days.map((day) => day.peak.count));
       const top = days.reduce((best, day) => (day.latest > best.latest ? day : best));
-      const record = inYear(date, state.year) ? state.boardBest : state.previousYearBoardBest;
-      const stillRecord = top.latest >= record;
-      return top.latest > announcedCount && stillRecord
+      return top.latest > announcedCount && top.latest >= state.boardBest
         ? [{ ...top.peak, count: top.latest, announcedCount }]
         : [];
     });
@@ -252,7 +256,7 @@ function followAnnouncedDays(state: DailyRecordState, board: Board): boolean {
     if (!counts) continue;
     for (const [date, day] of Object.entries(days)) {
       days[date] = follow(day, counts);
-      if (inYear(date, state.year) && days[date].latest > state.personalBests[login]) {
+      if (days[date].latest > state.personalBests[login]) {
         state.personalBests[login] = days[date].latest;
       }
     }
@@ -261,43 +265,7 @@ function followAnnouncedDays(state: DailyRecordState, board: Board): boolean {
     const counts = users.get(day.peak.login);
     if (!counts) continue;
     state.boardDays[key] = follow(day, counts);
-    const { latest } = state.boardDays[key];
-    if (inYear(day.peak.date, state.year)) state.boardBest = Math.max(state.boardBest, latest);
-    else state.previousYearBoardBest = Math.max(state.previousYearBoardBest, latest);
-  }
-  return changed;
-}
-
-/**
- * Drops the finished year's announced days once they are wrapped up, or once
- * its first week is over and nothing is left to send: until then the board's
- * first week can still show late contributions landing on late December.
- */
-function dropFinishedYears(state: DailyRecordState, today: string): boolean {
-  const graceOver = today >= `${state.year}-01-08`;
-  let changed = false;
-  for (const [login, days] of Object.entries(state.personalDays)) {
-    for (const [date, day] of Object.entries(days)) {
-      const finished = day.wrapped || (graceOver && !personalWrapUp(day, today));
-      if (!inYear(date, state.year) && finished) {
-        delete days[date];
-        changed = true;
-      }
-    }
-    if (Object.keys(days).length === 0) delete state.personalDays[login];
-  }
-  // Board days go by date: one wrapped holder settles the whole date.
-  const pending = new Set(boardWrapUps(state, today).map((event) => event.date));
-  const wrapped = new Set(
-    Object.values(state.boardDays).flatMap((day) => (day.wrapped ? [day.peak.date] : [])),
-  );
-  for (const [key, day] of Object.entries(state.boardDays)) {
-    const { date } = day.peak;
-    const finished = wrapped.has(date) || (graceOver && !pending.has(date));
-    if (!inYear(date, state.year) && finished) {
-      delete state.boardDays[key];
-      changed = true;
-    }
+    state.boardBest = Math.max(state.boardBest, state.boardDays[key].latest);
   }
   return changed;
 }
@@ -326,43 +294,30 @@ function applyBoardRecord(state: DailyRecordState, event: BoardRecordEvent): voi
   state.boardDays[dayKey(event.peak.login, event.peak.date)] = announcedDay(event.peak);
 }
 
-function keptDays<T>(days: Record<string, T>, keep: (key: string, value: T) => boolean) {
-  return Object.fromEntries(Object.entries(days).filter(([key, value]) => keep(key, value)));
-}
-
+/**
+ * A new year starts from zero with nothing announced. The finished year's
+ * state is not lost: the caller follows it on its own for a week.
+ */
 function startingState(
   year: number,
   board: Board,
   previous: DailyRecordState | LegacyDailyRecordState,
 ): DailyRecordState {
-  const rolledOver = previous.year !== year;
-  // A rollover keeps only the year just finished: a day from before it would
-  // be compared with a record this state no longer holds.
-  const current = rolledOver ? previous.year : year;
-  const personalDays = "personalDays" in previous ? structuredClone(previous.personalDays) : {};
-  const boardDays = "boardDays" in previous ? structuredClone(previous.boardDays) : {};
+  if (previous.year !== year) {
+    return {
+      year,
+      personalBests: Object.fromEntries(board.map((user) => [user.login, 0])),
+      boardBest: 0,
+      personalDays: {},
+      boardDays: {},
+    };
+  }
   return {
     year,
-    personalBests: rolledOver
-      ? Object.fromEntries(board.map((user) => [user.login, 0]))
-      : { ...previous.personalBests },
-    boardBest: rolledOver ? 0 : previous.boardBest,
-    personalDays: rolledOver
-      ? Object.fromEntries(
-          Object.entries(personalDays).map(([login, days]) => [
-            login,
-            keptDays(days, (date) => inYear(date, current)),
-          ]),
-        )
-      : personalDays,
-    boardDays: rolledOver
-      ? keptDays(boardDays, (_, day) => inYear(day.peak.date, current))
-      : boardDays,
-    previousYearBoardBest: rolledOver
-      ? previous.boardBest
-      : "previousYearBoardBest" in previous
-        ? previous.previousYearBoardBest
-        : 0,
+    personalBests: { ...previous.personalBests },
+    boardBest: previous.boardBest,
+    personalDays: "personalDays" in previous ? structuredClone(previous.personalDays) : {},
+    boardDays: "boardDays" in previous ? structuredClone(previous.boardDays) : {},
   };
 }
 
@@ -370,8 +325,9 @@ function startingState(
  * Compares a fresh board with durable record state. Each day is announced
  * as a record at most once per account: further rises only update state, and
  * the first check after the day ends (UTC, like the board's dates) wraps up
- * where it finished. A year rollover starts the new year's records from zero;
- * a brand-new Durable Object starts silently.
+ * where it finished. A year rollover starts the new year's records from zero
+ * (the caller follows the finished year separately); a brand-new Durable
+ * Object starts silently.
  */
 export function planDailyRecords(
   year: number,
@@ -390,7 +346,6 @@ export function planDailyRecords(
       boardBest: boardPeak?.count ?? 0,
       personalDays: {},
       boardDays: {},
-      previousYearBoardBest: 0,
     };
     return {
       baseline: true,
@@ -419,7 +374,6 @@ export function planDailyRecords(
     }
   }
   if (followAnnouncedDays(stateBeforeEvents, board)) needsPreparation = true;
-  if (dropFinishedYears(stateBeforeEvents, today)) needsPreparation = true;
 
   // Announced days are already counted in the bests, so only a day not yet
   // announced can beat them.
@@ -498,6 +452,61 @@ export async function deliverDailyRecords(
     applyBoardWrapUp(progress, event);
     await save(stateSnapshot(progress));
   }
+}
+
+export const DAILY_RECORDS_KEY = "daily-records";
+export const FINISHED_DAILY_RECORDS_KEY = "daily-records-finished";
+
+export type StoredDailyRecords = DailyRecordState | LegacyDailyRecordState;
+
+/** A complete board for one leaderboard year. */
+export interface YearBoard {
+  year: number;
+  board: Board;
+}
+
+export interface DailyRecordStorage {
+  get(key: string): Promise<StoredDailyRecords | undefined>;
+  put(key: string, state: StoredDailyRecords): Promise<void>;
+  delete(key: string): Promise<unknown>;
+}
+
+/**
+ * Runs the year in progress, then the finished one. At a rollover the old
+ * year's state moves to its own key and the new year starts from zero; for
+ * the finished year's first week its own board is checked against that
+ * state, so late pushes on 31 December are wrapped up or announced with
+ * complete data. Afterwards the finished state is dropped.
+ */
+export async function updateDailyRecordYears(
+  live: YearBoard,
+  finished: YearBoard | null,
+  today: string,
+  storage: DailyRecordStorage,
+  notify: (year: number, notification: DailyRecordNotification) => Promise<void>,
+): Promise<void> {
+  const deliverYear = async (key: string, { year, board }: YearBoard, previous?: StoredDailyRecords) =>
+    deliverDailyRecords(
+      planDailyRecords(year, today, board, previous),
+      (notification) => notify(year, notification),
+      (state) => storage.put(key, state),
+    );
+
+  const previous = await storage.get(DAILY_RECORDS_KEY);
+  if (previous && previous.year < live.year) {
+    // Already handed over when a retry finds it there: keep its progress.
+    const held = await storage.get(FINISHED_DAILY_RECORDS_KEY);
+    if (held?.year !== previous.year) await storage.put(FINISHED_DAILY_RECORDS_KEY, previous);
+  }
+  await deliverYear(DAILY_RECORDS_KEY, live, previous);
+
+  const held = await storage.get(FINISHED_DAILY_RECORDS_KEY);
+  if (!held) return;
+  if (held.year !== finishedYearToFollow(today)) {
+    await storage.delete(FINISHED_DAILY_RECORDS_KEY);
+    return;
+  }
+  if (finished?.year === held.year) await deliverYear(FINISHED_DAILY_RECORDS_KEY, finished, held);
 }
 
 function milestoneStateSnapshot(state: MilestoneState): MilestoneState {

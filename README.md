@@ -124,7 +124,9 @@ the UTC day ends posts one wrap-up with where the day finished: one per account
 for PBs, and one for the board from whoever finished the day on top while it
 is still the record (a newer record already says what it beat). A day is never
 announced again, and contributions landing on it after its wrap-up stay quiet.
-Late December days are followed through the new year's first week.
+For the first week of a new year the check also fetches the finished year's
+board, so 31 December is wrapped up, and a record set late that day announced,
+from that year's complete data.
 
 Cake days are the exception to that baseline. Their durable state only records
 which accounts have already been announced this calendar year, so a cake day
