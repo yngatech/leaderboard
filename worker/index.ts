@@ -1518,7 +1518,7 @@ function boardRecordWrapUpEmbed(event: DailyWrapUpEvent): DiscordEmbed {
   return {
     title: "Peak daily contributions record wrap-up",
     url: `${SITE}/${event.date.slice(0, 4)}`,
-    description: `[${event.login}](${event.url}) finished **${formatDayYear(event.date)}** on **${count(event.count)} contributions**, raising the board record from **${count(event.announcedCount)}** when it was announced.`,
+    description: `[${event.login}](${event.url}) finished **${formatDayYear(event.date)}** on **${count(event.count)} contributions**, a board record up from **${count(event.announcedCount)}** when it was last announced.`,
     color: 0xf0b429,
     thumbnail: { url: event.avatarUrl },
   };
