@@ -669,13 +669,15 @@ function liveYearSectionHtml(options: LiveYearSectionOptions): Html {
       : html`<p class="text-dimmer">no activity yet</p>`,
   });
 
+  // Day links land on the card, not the panel, so the grid stays in view.
   return html`<section
-    class="${CARD} [animation-delay:90ms] ${leadsYear ? "border-accent/32" : "border-line-soft"}"
+    id="heatmap"
+    class="${CARD} scroll-mt-3 [animation-delay:90ms] ${leadsYear ? "border-accent/32" : "border-line-soft"}"
     aria-label="${user.login} in ${year}"
   >
     <div class="${CARD_WELL}" data-day-slot>
       ${heatmapSvg(grid, {
-        dayHref: (date) => `/u/${user.login}?day=${date}#day-breakdown`,
+        dayHref: (date) => `/u/${user.login}?day=${date}#heatmap`,
         selectedDate: options.selectedDate,
         cell: 17,
         gap: 3,

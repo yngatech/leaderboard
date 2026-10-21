@@ -168,7 +168,7 @@ function userRowBody(options: UserRowOptions): Html {
     </div>
     <div class="min-w-0 [grid-area:plot]">${heatmapSvg(grid, {
     // Each day opens that day's breakdown on the account page.
-    dayHref: (date) => `${profileHref}?day=${date}#day-breakdown`,
+    dayHref: (date) => `${profileHref}?day=${date}#heatmap`,
     cell: 8,
     gap: 2,
     // Stars the busiest day. An all-zero year has no peak, so no star.
