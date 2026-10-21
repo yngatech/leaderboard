@@ -1,7 +1,7 @@
 import type { AllTimeUser, BoardUser } from "../../shared/types.ts";
-import type { BoardGoal, Thresholds, UserGoals, YearRanks } from "../../shared/board.ts";
+import type { BoardGoal, Thresholds, YearRanks } from "../../shared/board.ts";
 import { peakDay, peakYear, userGrid, userYearStrip } from "../../shared/board.ts";
-import { formatDayShort, formatNumber, formatOrdinal, formatRank } from "../../shared/format.ts";
+import { formatDayShort, formatNumber, formatRank } from "../../shared/format.ts";
 import { html, type Html } from "../html.ts";
 import { heatmapSvg, yearStripSvg } from "./svg.ts";
 
@@ -62,89 +62,6 @@ export function boardGoalLineHtml(goal: BoardGoal): Html | null {
   </div>`;
 }
 
-/**
- * Whether a set of goals has anything to unfold. An account past the top of
- * the milestone ladder, alone on the board, has nothing forward-looking to
- * say — better no affordance at all than an empty band.
- */
-export function hasGoals(goals: UserGoals): boolean {
-  return goals.nextMilestone !== null || goals.above !== null || goals.leadMargin !== null;
-}
-
-/** Shared by both facts, so the two labels can never drift apart. */
-const TERM = "text-[0.6rem] tracking-[0.16em] text-dimmer uppercase";
-
-/**
- * The sub-strip under a row: what this account is walking towards, and how far
- * it is from the account above. It sits a shade darker than the card so it
- * reads as part of the row rather than a second card inside it.
- */
-export function userGoalsBandHtml(goals: UserGoals): Html {
-  const parts: Html[] = [];
-
-  if (goals.nextMilestone !== null) {
-    /** The total itself, recovered from the gap — no extra prop to keep in step. */
-    const reached = goals.nextMilestone - (goals.toMilestone ?? 0);
-    parts.push(
-      html`<div class="flex items-center gap-[0.6rem]">
-        <dt class="${TERM}">next milestone</dt>
-        <dd class="flex items-center gap-[0.6rem] text-dim">
-          <span
-            ><strong class="font-medium tabular-nums text-ink"
-              >${formatNumber(goals.toMilestone ?? 0)}</strong
-            >
-            to <span class="tabular-nums">${formatNumber(goals.nextMilestone)}</span></span
-          >${goalRailHtml(reached, goals.nextMilestone, true)}
-        </dd>
-      </div>`,
-    );
-  }
-
-  if (goals.above) {
-    const above = goals.above;
-    // A 39-character login is legal, so let it break rather than push the
-    // card past the viewport on a narrow phone.
-    const gap =
-      above.behind > 0
-        ? html`<strong class="font-medium tabular-nums text-ink"
-              >${formatNumber(above.behind)}</strong
-            >
-            behind <span class="text-ink">${above.login}</span>`
-        : html`level with <span class="text-ink">${above.login}</span>`;
-    parts.push(
-      html`<div class="flex min-w-0 items-center gap-[0.6rem]">
-        <dt class="${TERM}">rank gap</dt>
-        <dd class="min-w-0 break-words text-dim">
-          ${gap} <span class="text-dimmer">(${formatOrdinal(above.rank)})</span>
-        </dd>
-      </div>`,
-    );
-  } else if (goals.leadMargin !== null) {
-    // The leader has nobody above, so the same slot measures downwards.
-    parts.push(
-      html`<div class="flex items-center gap-[0.6rem]">
-        <dt class="${TERM}">rank gap</dt>
-        <dd class="text-dim">
-          leads by
-          <strong class="font-medium tabular-nums text-ink"
-            >${formatNumber(goals.leadMargin)}</strong
-          >
-        </dd>
-      </div>`,
-    );
-  }
-
-  return html`<div
-    class="border-t border-line-soft bg-[rgba(10,12,24,0.32)] px-[1.3rem] py-[0.72rem] max-phone:px-4 max-phone:py-[0.65rem]"
-  >
-    <dl
-      class="flex flex-wrap items-center gap-x-6 gap-y-[0.55rem] font-mono text-[0.72rem] leading-tight max-phone:gap-x-[1.1rem]"
-    >
-      ${parts}
-    </dl>
-  </div>`;
-}
-
 export interface UserRowOptions {
   user: BoardUser;
   rank: number;
@@ -152,12 +69,6 @@ export interface UserRowOptions {
   today: string;
   highestTotal: number;
   highestDailyTotal: number;
-  /**
-   * Forward-looking goals, which only the year in progress has. A finished
-   * year passes nothing and the row renders exactly as it always did: no
-   * chevron, no disclosure, no band.
-   */
-  goals?: UserGoals | null;
   /** Years on GitHub when today is the anniversary; live years only, like the goals. */
   cakeDay?: number | null;
   /** Consecutive contributing days still alive; live years only. A finished
@@ -166,8 +77,8 @@ export interface UserRowOptions {
   currentStreak?: number | null;
 }
 
-/** The identity, plot and score cells shared by open and plain rows. */
-function userRowBody(options: UserRowOptions, withChevron: boolean): Html {
+/** The identity, plot and score cells of one row. */
+function userRowBody(options: UserRowOptions): Html {
   const { user, rank, year, today } = options;
   const profileHref = `/u/${encodeURIComponent(user.login)}`;
   const grid = userGrid(user.weeks, year, today);
@@ -183,23 +94,6 @@ function userRowBody(options: UserRowOptions, withChevron: boolean): Html {
     !!peak && options.highestDailyTotal > 0 && peak.count === options.highestDailyTotal;
 
   const lead = rank === 1;
-
-  // The affordance lives in the rank column's spare height, so it costs the
-  // row nothing. Never gold: it is not a leader mark.
-  const chevron = withChevron
-    ? html`<svg
-        class="block h-auto w-[9px] text-dimmer transition-[color,rotate] duration-200 group-hover:text-dim group-open:rotate-180"
-        viewBox="0 0 10 6"
-        fill="none"
-        ><path
-          d="M1 1.25 5 4.75 9 1.25"
-          stroke="currentColor"
-          stroke-width="1.4"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        ></path
-      ></svg>`
-    : null;
 
   const cakeYears = options.cakeDay
     ? `${formatNumber(options.cakeDay)} ${options.cakeDay === 1 ? "year" : "years"}`
@@ -227,14 +121,14 @@ function userRowBody(options: UserRowOptions, withChevron: boolean): Html {
     : html`<span class="mt-[0.4rem] text-[0.68rem] text-dim">no activity</span>`;
 
   return html`<div
-      class="flex flex-col items-start gap-[0.3rem] text-[0.78rem] tracking-[0.06em] [grid-area:rank] ${lead
+      class="text-[0.78rem] tracking-[0.06em] [grid-area:rank] ${lead
         ? "text-accent"
         : "text-dimmer"}"
       aria-hidden="true"
     >
-      <span>${formatRank(rank)}</span>${chevron}
+      ${formatRank(rank)}
     </div>
-    <a class="relative [grid-area:avatar]" href="${profileHref}" tabindex="-1"
+    <a class="[grid-area:avatar]" href="${profileHref}" tabindex="-1"
       ><img
         class="size-[52px] rounded-[13px] border border-line bg-heat-0 saturate-[0.85] transition-[filter,border-color] duration-200 group-hover:border-accent/40 group-hover:saturate-100 max-phone:size-[42px] max-phone:rounded-[11px]"
         src="${user.avatarUrl}"
@@ -246,7 +140,7 @@ function userRowBody(options: UserRowOptions, withChevron: boolean): Html {
     <div class="min-w-0 [grid-area:id]">
       <div class="flex min-w-0 items-center gap-[0.7rem]">
         <a
-          class="relative font-display text-[1.08rem] font-semibold tracking-[-0.015em] text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[3px]"
+          class="font-display text-[1.08rem] font-semibold tracking-[-0.015em] text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[3px]"
           href="${profileHref}"
           >${user.login}</a
         >${cakeDay}
@@ -260,7 +154,9 @@ function userRowBody(options: UserRowOptions, withChevron: boolean): Html {
           : null}
       </p>
     </div>
-    <div class="min-w-0 phone:relative [grid-area:plot]">${heatmapSvg(grid, {
+    <div class="min-w-0 [grid-area:plot]">${heatmapSvg(grid, {
+    // Each day opens that day's breakdown on the account page.
+    dayHref: (date) => `${profileHref}?day=${date}#day-breakdown`,
     cell: 8,
     gap: 2,
     // Stars the busiest day. An all-zero year has no peak, so no star.
@@ -281,7 +177,7 @@ function userRowBody(options: UserRowOptions, withChevron: boolean): Html {
     </div>`;
 }
 
-/** The grid layout the row's cells sit in; shared by both row variants. */
+/** The grid layout the row's cells sit in; shared by the year and all-time rows. */
 const ROW_GRID =
   "grid grid-cols-[2rem_52px_minmax(150px,1fr)_auto_8rem] items-center gap-5 px-[1.3rem] py-4 [grid-template-areas:'rank_avatar_id_plot_score'] max-wide:grid-cols-[2rem_52px_minmax(0,1fr)_auto] max-wide:gap-y-4 max-wide:[grid-template-areas:'rank_avatar_id_score'_'plot_plot_plot_plot'] max-phone:grid-cols-[1.6rem_42px_minmax(0,1fr)_auto] max-phone:gap-x-[0.9rem] max-phone:gap-y-[0.9rem] max-phone:px-4 max-phone:py-[0.9rem]";
 
@@ -290,30 +186,10 @@ const ROW_CARD =
   "group animate-rise-row rounded-2xl border bg-panel transition-colors duration-200 [animation-delay:calc(var(--i,0)*45ms)] hover:border-line hover:bg-panel-hover";
 
 export function userRowHtml(options: UserRowOptions): Html {
-  const lead = options.rank === 1;
-  const border = lead ? "border-accent/32" : "border-line-soft";
-
-  /** Null whenever there is nothing to unfold, which is what gates the whole
-   *  disclosure: the summary, the chevron and the band all key off it. */
-  const goals = options.goals && hasGoals(options.goals) ? options.goals : null;
-
-  if (!goals) {
-    return html`<article class="${ROW_CARD} ${border}" style="--i:${options.rank}">
-      <div class="relative ${ROW_GRID}">${userRowBody(options, false)}</div>
-    </article>`;
-  }
-
-  // The whole row is the toggle: it is the <summary>, so the target is as big
-  // as the card and needs no script. Links and the plot carry `relative` (or
-  // `phone:relative`) so they paint above it and keep their own pointer.
-  return html`<details class="${ROW_CARD} ${border}" style="--i:${options.rank}">
-    <summary
-      class="relative list-none cursor-pointer [&::-webkit-details-marker]:hidden focus-visible:rounded-2xl ${ROW_GRID}"
-    >
-      ${userRowBody(options, true)}
-    </summary>
-    <div class="overflow-hidden rounded-b-[15px]">${userGoalsBandHtml(goals)}</div>
-  </details>`;
+  const border = options.rank === 1 ? "border-accent/32" : "border-line-soft";
+  return html`<article class="${ROW_CARD} ${border} ${ROW_GRID}" style="--i:${options.rank}">
+    ${userRowBody(options)}
+  </article>`;
 }
 
 export interface AllTimeRowOptions {

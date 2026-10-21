@@ -145,12 +145,13 @@ test("inline JSON cannot close its own script element", () => {
   assert.deepEqual(JSON.parse(json), { evil: "</script><script>alert(1)" });
 });
 
-test("live year page carries goals, future legend, chart and nav targets", () => {
+test("live year page carries chart, day links and nav targets", () => {
   const page = liveYearPage();
 
-  // The live year gets the forward-looking furniture and chart data.
-  assert.ok(page.includes(">next milestone</dt>"));
+  // The live year gets the chart data.
   assert.ok(page.includes('id="climb"'));
+  // Each day square on a row opens that day on the account page.
+  assert.match(page, /<a\s+data-day="2026-\d{2}-\d{2}"\s+href="\/u\/alice\?day=2026-\d{2}-\d{2}#day-breakdown"/);
   assert.ok(page.includes("Data refreshes about every 10 minutes."));
   assert.ok(page.includes("Today's counts may lag GitHub activity."));
   // Nav: previous year is a link, next is the all-time board.
@@ -176,7 +177,7 @@ test("free-form GitHub names are escaped everywhere they appear", () => {
   assert.ok(page.includes("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;"));
 });
 
-test("archived year page is plain rows with no goals or chart", () => {
+test("archived year page has no chart, and its days still open on the account page", () => {
   const page = yearPageHtml({
     chrome,
     board: makeBoard(),
@@ -186,8 +187,8 @@ test("archived year page is plain rows with no goals or chart", () => {
     missing: ["carol"],
   });
 
-  assert.ok(!page.includes(">next milestone</dt>"));
   assert.ok(!page.includes('id="climb"'));
+  assert.match(page, /href="\/u\/alice\?day=2020-\d{2}-\d{2}#day-breakdown"/);
   assert.ok(page.includes("2020 is final, so data is cached for 7 days."));
   assert.ok(!page.includes("Today's counts may lag GitHub activity."));
   // Missing accounts are reported rather than silently omitted.
