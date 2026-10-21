@@ -62,6 +62,27 @@ export function boardGoalLineHtml(goal: BoardGoal): Html | null {
   </div>`;
 }
 
+/**
+ * The margin between two neighbouring rows, centred on a hairline in the gap
+ * between them: it belongs to the pair rather than to either row. Live years
+ * only, like the rest of the board's forward-looking furniture. Neighbours on
+ * the same total get no line: the matching totals already say so.
+ */
+export function rowGapHtml(above: BoardUser, below: BoardUser): Html | null {
+  const margin = above.totalContributions - below.totalContributions;
+  if (margin === 0) return null;
+  const label = `${formatNumber(margin)} ahead`;
+  const spoken = `${above.login} leads ${below.login} by ${formatNumber(margin)}`;
+  return html`<div
+    class="-my-[0.1rem] flex items-center gap-3 px-[1.3rem] font-mono text-[0.66rem] text-dimmer max-phone:px-4"
+  >
+    <span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span
+    ><span class="tabular-nums" aria-hidden="true">${label}</span
+    ><span class="sr-only">${spoken}</span
+    ><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span>
+  </div>`;
+}
+
 export interface UserRowOptions {
   user: BoardUser;
   rank: number;
