@@ -160,12 +160,6 @@
     stroke-width: 1px;
   }
 
-  @media (hover: hover) {
-    &[data-state="day"]:hover {
-      stroke: rgba(255, 255, 255, 0.7);
-      stroke-width: 1px;
-    }
-  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -203,6 +197,14 @@
   }
 }
 
+/* Only a square that is a link outlines on hover, so a plot that goes
+   nowhere does not invite a click. */
+@media (hover: hover) {
+  a:hover > .heat-cell[data-state="day"] {
+    stroke: rgba(255, 255, 255, 0.7);
+    stroke-width: 1px;
+  }
+}
 .heat-cell[data-selected="true"], a[data-day]:focus-visible .heat-cell {
   stroke: var(--color-ink);
   stroke-width: 2px;

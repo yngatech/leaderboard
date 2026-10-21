@@ -32,7 +32,7 @@ import { formatDayShort, formatDayYear, formatNumber, formatOrdinal } from "../.
 import { html, type Html } from "../html.ts";
 import { cumulativeChartHtml } from "./chart.ts";
 import { MIN_PAGE_YEAR, SITE, hrefForYear, pageHtml, type SiteChrome } from "./layout.ts";
-import { allTimeRowHtml, boardGoalLineHtml, goalRailHtml, userRowHtml } from "./rows.ts";
+import { allTimeRowHtml, boardGoalLineHtml, goalRailHtml, rowGapHtml, userRowHtml } from "./rows.ts";
 import { heatmapSvg, yearStripSvg } from "./svg.ts";
 
 const SITE_DESCRIPTION =
@@ -164,7 +164,8 @@ export function yearPageHtml(options: YearPageOptions): string {
     : null;
 
   const rowsHtml = board
-    .map((user, index) =>
+    .flatMap((user, index) => [
+      live && index > 0 ? rowGapHtml(board[index - 1], user) : null,
       userRowHtml({
         user,
         rank: index + 1,
@@ -172,11 +173,10 @@ export function yearPageHtml(options: YearPageOptions): string {
         today,
         highestTotal: highestUserTotal,
         highestDailyTotal,
-        goals: live ? userGoals(board, index) : null,
         cakeDay: live ? cakeDayYears(user.createdAt, today) : null,
         currentStreak: live ? yearShape(userGrid(user.weeks, year, today), today).currentStreak : null,
       }),
-    );
+    ]);
 
   /** Only the year in progress has a "so far" worth drawing. */
   const climb = live ? cumulativeSeries(board, year, today) : [];
@@ -310,8 +310,8 @@ export function allPageHtml(options: AllPageOptions): string {
    career total on top, the plot in its recessed well, and a ledger welded
    along the bottom edge where every number that qualifies the plot above it
    lives. Because the ledger is part of the card rather than loose text beside
-   it, no statistic can drift off on its own — and because it borrows the row
-   goals band's tint, hairline and term type, the page still reads as board
+   it, no statistic can drift off on its own — and because it keeps the
+   board's tint, hairline and term type, the page still reads as board
    furniture rather than a dashboard.
 --------------------------------------------------------------------------- */
 
