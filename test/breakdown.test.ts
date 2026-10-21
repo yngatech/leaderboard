@@ -317,6 +317,35 @@ test("a day missing from the calendar reconciles against the zero the heatmap dr
   assert.match(panel, /come to 2 more than/);
 });
 
+test("the day panel served alone is the panel the full page draws", async () => {
+  const { dayPanelFragmentHtml, userPageHtml } = await import("../worker/views/pages.ts");
+  const boardUser = {
+    login: "example", name: null, avatarUrl: "https://avatars.example/u", url: "https://github.com/example",
+    followers: 0, following: 0, totalContributions: 4,
+    weeks: [{ days: [{ date: "2026-03-02", count: 3, level: 3 as const }, { date: "2026-03-03", count: 1, level: 1 as const }] }],
+  };
+  const user = { ...boardUser, total: 4, byYear: { "2026": 4 } };
+  const commits = map(collection({ totalCommitContributions: 2, commitContributionsByRepository: [repo("example/app", 2)] }));
+  for (const day of ["2026-03-02", "2026-03-04"]) {
+    for (const dayBreakdown of [{ ...commits, window: dayWindow(day) }, null]) {
+      const page = userPageHtml({
+        chrome: { thisYear: 2026, stylesUrl: "/s.css", enhanceUrl: "/e.js", buildSha: "0".repeat(40) },
+        user, board: [boardUser], allUsers: [user], years: [2026], year: 2026, today: "2026-08-10",
+        generatedAt: "2026-08-10T12:00:00Z", breakdown: null, day, dayBreakdown,
+      });
+      const fragment = dayPanelFragmentHtml({
+        login: "example", board: [boardUser], day, dayBreakdown, year: 2026, today: "2026-08-10",
+      });
+      const start = page.indexOf("<section id=\"day-breakdown\"");
+      assert.equal(page.slice(start, start + fragment.length), fragment);
+      // Tagged with what it was measured against, as the page labels them.
+      const cellLabel = /data-cell-label="([^"]+)"/.exec(fragment)?.[1];
+      assert.ok(cellLabel && page.includes(`aria-label="${cellLabel}"`));
+      assert.ok(page.includes(`aria-label="${/data-year-label="([^"]+)"/.exec(fragment)?.[1]}"`));
+    }
+  }
+});
+
 test("a single contribution reads in the singular", () => {
   const one = map(collection({ contributionCalendar: { totalContributions: 1 }, restrictedContributionsCount: 1 }));
   assert.match(String(dayBreakdownHtml("2026-10-10", one, "example", 2026)), /<\/strong> contribution on/);

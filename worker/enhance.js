@@ -207,7 +207,53 @@ function plainDayClick(event) {
     !event.altKey
   );
 }
-document.addEventListener("click", async (event) => {
+/* `/u/{login}?day=…` → `/u/{login}/day/…`: the same panel without the rest
+   of the page, which would wait on the slow year breakdown. */
+function panelUrl(href) {
+  const url = new URL(href, location.href);
+  return `${url.pathname}/day/${url.searchParams.get("day")}`;
+}
+async function showDay(link, href, push) {
+  const slot = document.querySelector("[data-day-slot]");
+  const request = ++dayRequest;
+  // From history the URL is already the day's, and assigning it again would
+  // only scroll to the hash.
+  const load = () => (push ? location.assign(href) : location.reload());
+  // GitHub takes a moment to answer for a day, so acknowledge the click now:
+  // the cell lights up and any open panel dims until the new one lands.
+  clearSelectedDay();
+  link.querySelector(".heat-cell")?.setAttribute("data-selected", "true");
+  document.getElementById("day-breakdown")?.setAttribute("aria-busy", "true");
+  try {
+    const response = await fetch(panelUrl(href));
+    if (!response.ok) throw new Error("Day unavailable");
+    const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+    const detail = doc.getElementById("day-breakdown");
+    if (!detail) throw new Error("Missing day detail");
+    if (request !== dayRequest) return;
+    /* The panel is reconciled against the board as it is now. If that has
+       moved on since this page was drawn, transplanting it would put two
+       different counts side by side, so load the whole page. */
+    const heatmap = link.closest("svg");
+    if (
+      detail.dataset.cellLabel !== link.getAttribute("aria-label") ||
+      detail.dataset.yearLabel !== heatmap?.getAttribute("aria-label")
+    ) {
+      load();
+      return;
+    }
+    const old = document.getElementById("day-breakdown");
+    if (old) old.replaceWith(detail);
+    else slot.after(detail);
+    clearSelectedDay();
+    link.querySelector(".heat-cell")?.setAttribute("data-selected", "true");
+    if (push) history.pushState({ day: true }, "", href);
+    detail.scrollIntoView({ block: "nearest" });
+  } catch {
+    if (request === dayRequest) load();
+  }
+}
+document.addEventListener("click", (event) => {
   if (!plainDayClick(event)) return;
   const link = event.target instanceof Element ? event.target.closest("a[data-day]") : null;
   const close = event.target instanceof Element ? event.target.closest("a[data-day-close]") : null;
@@ -216,51 +262,23 @@ document.addEventListener("click", async (event) => {
     closeDay(close);
     return;
   }
-  const slot = document.querySelector("[data-day-slot]");
-  if (!link || !slot) return;
+  if (!link || !document.querySelector("[data-day-slot]")) return;
   event.preventDefault();
-  const href = link.getAttribute("href");
-  const request = ++dayRequest;
-  // GitHub takes a moment to answer for a day, so acknowledge the click now:
-  // the cell lights up and any open panel dims until the new one lands.
-  clearSelectedDay();
-  link.querySelector(".heat-cell")?.setAttribute("data-selected", "true");
-  document.getElementById("day-breakdown")?.setAttribute("aria-busy", "true");
-  try {
-    const response = await fetch(href);
-    if (!response.ok) throw new Error("Day unavailable");
-    const doc = new DOMParser().parseFromString(await response.text(), "text/html");
-    const detail = doc.getElementById("day-breakdown");
-    if (!detail) throw new Error("Missing day detail");
-    if (request !== dayRequest) return;
-    /* The day detail is reconciled against the fetched page's heatmap. If the
-       board has moved on since this page was drawn, transplanting it would
-       put two different counts side by side, so load the whole page. */
-    const day = link.getAttribute("data-day");
-    const cellLabel = (root) => root.querySelector(`a[data-day="${day}"]`)?.getAttribute("aria-label");
-    // The heatmap's own label carries the year total, and is drawn even when
-    // the year breakdown is not.
-    const yearTotal = (root) =>
-      root.querySelector(`a[data-day="${day}"]`)?.closest("svg")?.getAttribute("aria-label");
-    if (cellLabel(doc) !== cellLabel(document) || yearTotal(doc) !== yearTotal(document)) {
-      location.assign(href);
-      return;
-    }
-    const old = document.getElementById("day-breakdown");
-    if (old) old.replaceWith(detail);
-    else slot.after(detail);
-    clearSelectedDay();
-    link.querySelector(".heat-cell")?.setAttribute("data-selected", "true");
-    history.pushState({ day: true }, "", href);
-      detail.scrollIntoView({ block: "nearest" });
-  } catch {
-    if (request === dayRequest) location.assign(href);
-  }
+  showDay(link, link.getAttribute("href"), true);
 });
 /* History entries made here share one document, so whenever the day in the
-   URL and the day on screen part ways, load the page the URL names. */
+   URL and the day on screen part ways, show the day the URL names. */
 window.addEventListener("popstate", () => {
   const wanted = new URLSearchParams(location.search).get("day");
   const shown = document.getElementById("day-breakdown")?.getAttribute("data-date") ?? null;
-  if (wanted !== shown) location.reload();
+  if (wanted === shown) return;
+  if (wanted === null) {
+    ++dayRequest;
+    document.getElementById("day-breakdown")?.remove();
+    clearSelectedDay();
+    return;
+  }
+  const link = document.querySelector(`[data-day-slot] a[data-day="${CSS.escape(wanted)}"]`);
+  if (link) showDay(link, location.href, false);
+  else location.reload();
 });

@@ -133,15 +133,20 @@ export function dayBreakdownHtml(
   data: ContributionBreakdown | null,
   login: string,
   pageYear: number,
+  /** The heatmap cell and year labels the panel was measured against. */
+  measured?: { cell: string; year: string },
 ): Html {
-  const close = html`<a data-day-close class="shrink-0 text-[0.69rem] text-dim hover:text-accent" href="/u/${login}">close ×</a>`;
+  const tags = measured
+    ? html` data-cell-label="${measured.cell}" data-year-label="${measured.year}"`
+    : null;
+  const close = html`<a data-day-close class="shrink-0 text-[0.69rem] text-dim hover:text-accent" href="/u/${login}#year">close ×</a>`;
   if (!data || data.window.kind !== "day") {
-    return html`<section id="day-breakdown" data-date="${date}" class="${CARD_LEDGER} flex items-baseline justify-between gap-4 text-[0.75rem] text-faint"><p>Breakdown unavailable for this day right now.</p>${close}</section>`;
+    return html`<section id="day-breakdown" data-date="${date}"${tags} class="${CARD_LEDGER} flex items-baseline justify-between gap-4 text-[0.75rem] text-faint"><p>Breakdown unavailable for this day right now.</p>${close}</section>`;
   }
   const caption = formatDayLong(date).replace(",", "");
   const parts = publicSegments(data);
   const labels = parts.map((s) => ({ ...s, label: s.count === 1 ? (s.label === "pull requests" ? "pull request" : s.label === "repos created" ? "repo created" : s.label.slice(0, -1)) : s.label })).sort((a, b) => b.count - a.count);
-  return html`<section id="day-breakdown" data-date="${date}" class="${CARD_LEDGER} font-mono text-[0.75rem] leading-[1.7] text-dim">
+  return html`<section id="day-breakdown" data-date="${date}"${tags} class="${CARD_LEDGER} font-mono text-[0.75rem] leading-[1.7] text-dim">
     <header class="mb-3.5 flex items-baseline justify-between gap-4"><h3><strong class="mr-1.5 font-display text-xl leading-none font-extrabold tracking-[-0.03em] tabular-nums text-accent">${formatNumber(data.calendarTotal)}</strong> ${contributions(data.calendarTotal)} on ${Number(date.slice(0, 4)) === pageYear ? caption.replace(/ \d{4}$/, "") : caption}</h3>${close}</header>
     ${barHtml([...parts, ...hiddenSegments(data, true)], "h-[10px]")}
     ${splitHtml([...labels, ...hiddenSegments(data, true)])}${discrepancyHtml(data)}

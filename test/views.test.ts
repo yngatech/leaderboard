@@ -155,7 +155,7 @@ test("live year page carries chart, day links and nav targets", () => {
   assert.ok(page.includes(">280 ahead<"));
   assert.ok(page.includes("alice leads bob by 280"));
   // Each day square on a row opens that day on the account page.
-  assert.match(page, /<a\s+data-day="2026-\d{2}-\d{2}"\s+href="\/u\/alice\?day=2026-\d{2}-\d{2}#day-breakdown"/);
+  assert.match(page, /<a\s+data-day="2026-\d{2}-\d{2}"\s+href="\/u\/alice\?day=2026-\d{2}-\d{2}#year"/);
   assert.ok(page.includes("Data refreshes about every 10 minutes."));
   assert.ok(page.includes("Today's counts may lag GitHub activity."));
   // Nav: previous year is a link, next is the all-time board.
@@ -198,7 +198,7 @@ test("archived year page has no chart, and its days still open on the account pa
 
   assert.ok(!page.includes('id="climb"'));
   assert.ok(!page.includes("leads bob by"));
-  assert.match(page, /href="\/u\/alice\?day=2020-\d{2}-\d{2}#day-breakdown"/);
+  assert.match(page, /href="\/u\/alice\?day=2020-\d{2}-\d{2}#year"/);
   assert.ok(page.includes("2020 is final, so data is cached for 7 days."));
   assert.ok(!page.includes("Today's counts may lag GitHub activity."));
   // Missing accounts are reported rather than silently omitted.
