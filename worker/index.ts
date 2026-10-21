@@ -46,6 +46,7 @@ import {
 import { SITE, type SiteChrome } from "./views/layout";
 import {
   allPageHtml,
+  dayPanelFragmentHtml,
   errorPageHtml,
   notFoundPageHtml,
   unknownUserPageHtml,
@@ -1151,6 +1152,43 @@ async function handleUserPage(
   return breakdownBrowserResponse(fresh, yearWindow(currentYear(), new Date()), state);
 }
 
+/** The day panel alone, for the profile's in-place day swap. A day click
+ *  needs only that day's breakdown and the board it is measured against;
+ *  rendering the whole page also waits on the year breakdown, the slowest
+ *  query the site makes, and the all-time feed. */
+async function handleDayPanel(
+  login: string,
+  day: string,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const [boardResult, dayResponse] = await Promise.all([
+    boardJson(currentYear(), env, ctx),
+    breakdownJson(login, dayWindow(day), env, ctx),
+  ]);
+  if (!boardResult.response.ok) return pageFromFailure(boardResult.response);
+  const panel = dayPanelFragmentHtml({
+    login,
+    board: (await boardResult.response.json()) as Board,
+    day,
+    dayBreakdown: dayResponse.ok ? ((await dayResponse.json()) as ContributionBreakdown) : null,
+    year: currentYear(),
+    today: todayIso(),
+  });
+  const fresh = html(panel, { headers: { "X-Robots-Tag": "noindex" } });
+  if (!dayResponse.ok) {
+    fresh.headers.set("Cache-Control", "no-store");
+    return fresh;
+  }
+  // Tagged with the board's totals, so it keeps to the board's minute even
+  // for a finished day.
+  return breakdownBrowserResponse(
+    fresh,
+    yearWindow(currentYear(), new Date()),
+    renderedState(boardResult.cache),
+  );
+}
+
 /**
  * The roster entry a requested login names, whatever its casing. Every image
  * and page route is keyed on the canonical spelling, so the set of URLs that
@@ -1967,6 +2005,15 @@ async function routePage(
       );
     }
     return servePage(url, () => handleYearPage(year, env, ctx));
+  }
+
+  const panelMatch = /^\/u\/([A-Za-z0-9][A-Za-z0-9-]*)\/day\/([^/]+)$/.exec(url.pathname);
+  if (panelMatch) {
+    const login = rosterLogin(panelMatch[1]);
+    const day = parseBreakdownDate(panelMatch[2], new Date());
+    if (login === panelMatch[1] && day && day !== "invalid" && day === panelMatch[2]) {
+      return servePage(url, () => handleDayPanel(login, day, env, ctx));
+    }
   }
 
   const userMatch = /^\/u\/([A-Za-z0-9][A-Za-z0-9-]*)\/?$/.exec(url.pathname);

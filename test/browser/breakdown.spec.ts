@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import type { BrowserContext, Page } from "@playwright/test";
 import type { AllTimeUser, BoardUser, ContributionBreakdown } from "../../shared/types.ts";
 import { dayWindow } from "../../worker/breakdown.ts";
-import { userPageHtml } from "../../worker/views/pages.ts";
+import { dayPanelFragmentHtml, userPageHtml } from "../../worker/views/pages.ts";
 import { chrome, ORIGIN, serveFixture } from "./fixture.ts";
 
 const boardUser: BoardUser = {
@@ -65,11 +65,32 @@ const second = "2026-03-03";
 const url = (day?: string) => `${ORIGIN}/u/example${day ? `?day=${day}#day-breakdown` : ""}`;
 const cell = (page: Page, day = first) => page.locator(`a[data-day="${day}"]`);
 const panel = (page: Page) => page.locator('[aria-label="example in 2026"] [data-day-slot] + #day-breakdown');
+function buildPanel(day: string, overrides: Partial<Parameters<typeof dayPanelFragmentHtml>[0]> = {}) {
+  return dayPanelFragmentHtml({
+    login: "example",
+    board: [boardUser],
+    day,
+    dayBreakdown: { ...breakdown, window: dayWindow(day) },
+    year: 2026,
+    today: "2026-08-10",
+    ...overrides,
+  });
+}
+const panelDay = (requested: string) => new URL(requested).pathname.split("/").pop()!;
+/** Counts full-page fetches: an in-place swap should only ask for the panel. */
 async function serveDays(context: BrowserContext, initial = buildPage()) {
+  const pages: string[] = [];
   await serveFixture(context, initial);
-  await context.route(`${ORIGIN}/u/example?day=*`, (route) => route.fulfill({
-    contentType: "text/html", body: buildPage(new URL(route.request().url()).searchParams.get("day")!),
+  await context.route(`${ORIGIN}/u/example?day=*`, (route) => {
+    pages.push(route.request().url());
+    return route.fulfill({
+      contentType: "text/html", body: buildPage(new URL(route.request().url()).searchParams.get("day")!),
+    });
+  });
+  await context.route(`${ORIGIN}/u/example/day/*`, (route) => route.fulfill({
+    contentType: "text/html", body: buildPanel(panelDay(route.request().url())),
   }));
+  return pages;
 }
 const markDocument = (page: Page) =>
   page.evaluate(() => document.body.setAttribute("data-test-document", "original"));
@@ -93,7 +114,7 @@ test.describe("day links without JavaScript", () => {
 test("swaps days in place, acknowledges pending clicks, closes and follows history", async ({ page, context }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await serveDays(context);
+  const pages = await serveDays(context);
   await page.goto(url());
   await markDocument(page);
   const originalYear = await page.locator("#year-breakdown").innerHTML();
@@ -105,9 +126,9 @@ test("swaps days in place, acknowledges pending clicks, closes and follows histo
 
   let release!: () => void;
   const answered = new Promise<void>((resolve) => (release = resolve));
-  await context.route(`${ORIGIN}/u/example?day=${second}*`, async (route) => {
+  await context.route(`${ORIGIN}/u/example/day/${second}`, async (route) => {
     await answered;
-    await route.fulfill({ contentType: "text/html", body: buildPage(second) });
+    await route.fulfill({ contentType: "text/html", body: buildPanel(second) });
   });
   await cell(page, second).click();
   await expect(cell(page, second).locator("rect")).toHaveAttribute("data-selected", "true");
@@ -130,10 +151,18 @@ test("swaps days in place, acknowledges pending clicks, closes and follows histo
   await page.goBack();
   await expect(page).toHaveURL(url(second));
   await expect(panel(page)).toHaveAttribute("data-date", second);
+  await page.goBack();
+  await expect(page).toHaveURL(url(first));
+  await expect(panel(page)).toHaveAttribute("data-date", first);
+  await expect(cell(page).locator("rect")).toHaveAttribute("data-selected", "true");
+  await page.goForward();
   await page.goForward();
   await expect(page).toHaveURL(url());
   await expect(page.locator("#day-breakdown")).toHaveCount(0);
   await expect(page.locator(".heat-cell[data-selected]")).toHaveCount(0);
+  // History moves stayed in this document too.
+  await expect(page.locator("body")).toHaveAttribute("data-test-document", "original");
+  expect(pages).toEqual([]);
   expect(errors).toEqual([]);
 });
 
@@ -150,12 +179,13 @@ for (const scenario of ["fetch failure", "moved day", "moved year", "moved year 
       ] }] } : {}),
     };
     await serveFixture(context, buildPage(undefined, yearOptions));
-    await context.route(`${ORIGIN}/u/example?day=*`, (route) =>
-      scenario === "fetch failure" && route.request().resourceType() !== "document"
+    await context.route(`${ORIGIN}/u/example?day=*`, (route) => route.fulfill({
+      contentType: "text/html", body: buildPage(first, { ...yearOptions, board: [movedUser] }),
+    }));
+    await context.route(`${ORIGIN}/u/example/day/*`, (route) =>
+      scenario === "fetch failure"
         ? route.fulfill({ status: 503, body: "unavailable" })
-        : route.fulfill({
-          contentType: "text/html", body: buildPage(first, { ...yearOptions, board: [movedUser] }),
-        }),
+        : route.fulfill({ contentType: "text/html", body: buildPanel(first, { board: [movedUser] }) }),
     );
     await page.goto(url());
     await markDocument(page);

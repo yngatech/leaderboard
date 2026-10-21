@@ -33,7 +33,7 @@ import { html, type Html } from "../html.ts";
 import { cumulativeChartHtml } from "./chart.ts";
 import { MIN_PAGE_YEAR, SITE, hrefForYear, pageHtml, type SiteChrome } from "./layout.ts";
 import { allTimeRowHtml, boardGoalLineHtml, goalRailHtml, rowGapHtml, userRowHtml } from "./rows.ts";
-import { heatmapSvg, yearStripSvg } from "./svg.ts";
+import { dayTitle, heatmapSvg, yearStripSvg } from "./svg.ts";
 
 const SITE_DESCRIPTION =
   "GitHub contribution leaderboard and heatmaps for the ynga.tech friends.";
@@ -681,12 +681,64 @@ function liveYearSectionHtml(options: LiveYearSectionOptions): Html {
         gap: 3,
         months: true,
         peakDate: peak?.date,
-        label: `${user.login} made ${formatNumber(boardUser.totalContributions)} contributions in ${year}`,
+        label: heatmapLabel(user.login, boardUser.totalContributions, year),
       })}
     </div>
     ${options.dayPanel}
     ${ledgerHtml(fields)}
   </section>`;
+}
+
+function heatmapLabel(login: string, total: number, year: number): string {
+  return `${login} made ${formatNumber(total)} contributions in ${year}`;
+}
+
+/** The day panel, measured against the heatmap cell and year total it sits
+ *  beside, and tagged with both so a panel fetched on its own can tell
+ *  whether it still agrees with the page it lands on. */
+function dayPanelHtml(
+  login: string,
+  boardUser: BoardUser | null,
+  grid: Grid | null,
+  day: string,
+  breakdown: ContributionBreakdown | null,
+  year: number,
+): Html {
+  // The rendered grid, not the raw weeks: a date GitHub left out of the
+  // calendar is still drawn, as a zero.
+  const shown = grid?.flat().find((cell) => cell.date === day && cell.state === "day");
+  const reconciled = breakdown && shown ? reconcileBreakdown(breakdown, shown.count) : breakdown;
+  return dayBreakdownHtml(
+    day,
+    reconciled,
+    login,
+    year,
+    shown && boardUser
+      ? {
+          cell: dayTitle(shown.count, day, "contributions"),
+          year: heatmapLabel(login, boardUser.totalContributions, year),
+        }
+      : undefined,
+  );
+}
+
+export interface DayPanelOptions {
+  login: string;
+  board: Board;
+  day: string;
+  dayBreakdown: ContributionBreakdown | null;
+  /** The year in progress. */
+  year: number;
+  today: string;
+}
+
+/** Just the day panel of `/u/{login}?day=…`, for swapping in place: it needs
+ *  the day and the board, not the year breakdown or all-time feed. */
+export function dayPanelFragmentHtml(options: DayPanelOptions): string {
+  const { login, board, day, year, today } = options;
+  const boardUser = board.find((other) => other.login.toLowerCase() === login.toLowerCase()) ?? null;
+  const grid = boardUser ? userGrid(boardUser.weeks, year, today) : null;
+  return String(dayPanelHtml(login, boardUser, grid, day, options.dayBreakdown, year));
 }
 
 export function userPageHtml(options: UserPageOptions): string {
@@ -728,19 +780,10 @@ export function userPageHtml(options: UserPageOptions): string {
   });
   /* The breakdown answers to the totals this page already shows: the board's
      year and, for a day in it, that day's heatmap cell. */
-  // The rendered grid, not the raw weeks: a date GitHub left out of the
-  // calendar is still drawn, as a zero.
-  const shownDay = options.day
-    ? grid?.flat().find((cell) => cell.date === options.day && cell.state === "day")
-    : undefined;
   const yearBreakdown =
     options.breakdown && boardUser
       ? reconcileBreakdown(options.breakdown, boardUser.totalContributions)
       : (options.breakdown ?? null);
-  const dayBreakdown =
-    options.dayBreakdown && shownDay
-      ? reconcileBreakdown(options.dayBreakdown, shownDay.count)
-      : (options.dayBreakdown ?? null);
 
   /* ---- the year ledger: the running total and what it is chasing ---- */
   const liveSection = liveYearSectionHtml({
@@ -753,7 +796,9 @@ export function userPageHtml(options: UserPageOptions): string {
     year,
     leadsYear,
     selectedDate: options.day,
-    dayPanel: options.day ? dayBreakdownHtml(options.day, dayBreakdown, user.login, year) : null,
+    dayPanel: options.day
+      ? dayPanelHtml(user.login, boardUser, grid, options.day, options.dayBreakdown ?? null, year)
+      : null,
   });
 
   const main = html`${identityCard}${sectionRuleHtml(year)}${liveSection}${sectionRuleHtml("where contributions came from")}

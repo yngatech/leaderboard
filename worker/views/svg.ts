@@ -57,7 +57,7 @@ function starPoints(cx: number, cy: number, radius: number): string {
   return points.join(" ");
 }
 
-function dayTitle(count: number, date: string, unit: string): string {
+export function dayTitle(count: number, date: string, unit: string): string {
   if (count === 0) return `No ${unit} on ${formatDayLong(date)}`;
   return `${count} ${count === 1 ? unit.replace(/s$/, "") : unit} on ${formatDayLong(date)}`;
 }
