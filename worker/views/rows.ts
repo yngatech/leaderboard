@@ -93,8 +93,6 @@ function userRowBody(options: UserRowOptions): Html {
   const leadsPeak =
     !!peak && options.highestDailyTotal > 0 && peak.count === options.highestDailyTotal;
 
-  const lead = rank === 1;
-
   const cakeYears = options.cakeDay
     ? `${formatNumber(options.cakeDay)} ${options.cakeDay === 1 ? "year" : "years"}`
     : null;
@@ -120,14 +118,7 @@ function userRowBody(options: UserRowOptions): Html {
       >`
     : html`<span class="mt-[0.4rem] text-[0.68rem] text-dim">no activity</span>`;
 
-  return html`<div
-      class="text-[0.78rem] tracking-[0.06em] [grid-area:rank] ${lead
-        ? "text-accent"
-        : "text-dimmer"}"
-      aria-hidden="true"
-    >
-      ${formatRank(rank)}
-    </div>
+  return html`${rankHtml(rank)}
     <a class="[grid-area:avatar]" href="${profileHref}" tabindex="-1"
       ><img
         class="size-[52px] rounded-[13px] border border-line bg-heat-0 saturate-[0.85] transition-[filter,border-color] duration-200 group-hover:border-accent/40 group-hover:saturate-100 max-phone:size-[42px] max-phone:rounded-[11px]"
@@ -177,9 +168,20 @@ function userRowBody(options: UserRowOptions): Html {
     </div>`;
 }
 
+/** The rank in the display face: gold for the leader, bright for the podium. */
+function rankHtml(rank: number): Html {
+  const tone = rank === 1 ? "text-accent" : rank <= 3 ? "text-ink" : "text-dimmer";
+  return html`<div
+    class="font-display text-[1.15rem] font-extrabold tracking-[-0.03em] tabular-nums [grid-area:rank] max-phone:text-[0.95rem] ${tone}"
+    aria-hidden="true"
+  >
+    ${formatRank(rank)}
+  </div>`;
+}
+
 /** The grid layout the row's cells sit in; shared by the year and all-time rows. */
 const ROW_GRID =
-  "grid grid-cols-[2rem_52px_minmax(150px,1fr)_auto_8rem] items-center gap-5 px-[1.3rem] py-4 [grid-template-areas:'rank_avatar_id_plot_score'] max-wide:grid-cols-[2rem_52px_minmax(0,1fr)_auto] max-wide:gap-y-4 max-wide:[grid-template-areas:'rank_avatar_id_score'_'plot_plot_plot_plot'] max-phone:grid-cols-[1.6rem_42px_minmax(0,1fr)_auto] max-phone:gap-x-[0.9rem] max-phone:gap-y-[0.9rem] max-phone:px-4 max-phone:py-[0.9rem]";
+  "grid grid-cols-[2.5rem_52px_minmax(150px,1fr)_auto_8rem] items-center gap-5 px-[1.3rem] py-4 [grid-template-areas:'rank_avatar_id_plot_score'] max-wide:grid-cols-[2.5rem_52px_minmax(0,1fr)_auto] max-wide:gap-y-4 max-wide:[grid-template-areas:'rank_avatar_id_score'_'plot_plot_plot_plot'] max-phone:grid-cols-[2rem_42px_minmax(0,1fr)_auto] max-phone:gap-x-[0.9rem] max-phone:gap-y-[0.9rem] max-phone:px-4 max-phone:py-[0.9rem]";
 
 /** The card shell: border, background and the staggered entrance. */
 const ROW_CARD =
@@ -238,14 +240,7 @@ export function allTimeRowHtml(options: AllTimeRowOptions): Html {
     class="${ROW_CARD} ${lead ? "border-accent/32" : "border-line-soft"} ${ROW_GRID}"
     style="--i:${rank}"
   >
-    <div
-      class="text-[0.78rem] tracking-[0.06em] [grid-area:rank] ${lead
-        ? "text-accent"
-        : "text-dimmer"}"
-      aria-hidden="true"
-    >
-      ${formatRank(rank)}
-    </div>
+    ${rankHtml(rank)}
     <a class="[grid-area:avatar]" href="${profileHref}" tabindex="-1"
       ><img
         class="size-[52px] rounded-[13px] border border-line bg-heat-0 saturate-[0.85] transition-[filter,border-color] duration-200 group-hover:border-accent/40 group-hover:saturate-100 max-phone:size-[42px] max-phone:rounded-[11px]"
