@@ -87,8 +87,8 @@ const PLOT_PANEL =
 const SECTION_RULE =
   "mt-[clamp(2.25rem,5vw,3.25rem)] mb-4 flex items-center gap-[0.85rem] text-[0.66rem] tracking-[0.2em] text-dimmer uppercase";
 
-function sectionRuleHtml(label: string | number): Html {
-  return html`<div class="${SECTION_RULE}">
+function sectionRuleHtml(label: string | number, id?: string): Html {
+  return html`<div${id ? html` id="${id}"` : null} class="${SECTION_RULE}${id ? " scroll-mt-3" : ""}">
     <span>${label}</span><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span>
   </div>`;
 }
@@ -669,15 +669,13 @@ function liveYearSectionHtml(options: LiveYearSectionOptions): Html {
       : html`<p class="text-dimmer">no activity yet</p>`,
   });
 
-  // Day links land on the card, not the panel, so the grid stays in view.
   return html`<section
-    id="heatmap"
-    class="${CARD} scroll-mt-3 [animation-delay:90ms] ${leadsYear ? "border-accent/32" : "border-line-soft"}"
+    class="${CARD} [animation-delay:90ms] ${leadsYear ? "border-accent/32" : "border-line-soft"}"
     aria-label="${user.login} in ${year}"
   >
     <div class="${CARD_WELL}" data-day-slot>
       ${heatmapSvg(grid, {
-        dayHref: (date) => `/u/${user.login}?day=${date}#heatmap`,
+        dayHref: (date) => `/u/${user.login}?day=${date}#year`,
         selectedDate: options.selectedDate,
         cell: 17,
         gap: 3,
@@ -803,7 +801,8 @@ export function userPageHtml(options: UserPageOptions): string {
       : null,
   });
 
-  const main = html`${identityCard}${sectionRuleHtml(year)}${liveSection}${sectionRuleHtml("where contributions came from")}
+  // Day links land on the year's heading, so the heatmap stays in view under it.
+  const main = html`${identityCard}${sectionRuleHtml(year, "year")}${liveSection}${sectionRuleHtml("where contributions came from")}
     ${yearBreakdown ? breakdownHtml(yearBreakdown) : html`<p class="text-[0.75rem] text-faint">Breakdown unavailable right now.</p>`}
     ${cardSectionHtml(user.login)}`;
 

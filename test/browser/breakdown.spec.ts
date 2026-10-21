@@ -62,8 +62,8 @@ function buildPage(day?: string, overrides: Partial<Parameters<typeof userPageHt
 }
 const first = "2026-03-02";
 const second = "2026-03-03";
-const closed = `${ORIGIN}/u/example#heatmap`;
-const url = (day?: string) => `${ORIGIN}/u/example${day ? `?day=${day}#heatmap` : ""}`;
+const closed = `${ORIGIN}/u/example#year`;
+const url = (day?: string) => `${ORIGIN}/u/example${day ? `?day=${day}#year` : ""}`;
 const cell = (page: Page, day = first) => page.locator(`a[data-day="${day}"]`);
 const panel = (page: Page) => page.locator('[aria-label="example in 2026"] [data-day-slot] + #day-breakdown');
 function buildPanel(day: string, overrides: Partial<Parameters<typeof dayPanelFragmentHtml>[0]> = {}) {
@@ -101,12 +101,13 @@ test.describe("day links without JavaScript", () => {
   test("navigate into the heatmap card and close", async ({ page, context }) => {
     await serveDays(context);
     await page.goto(url());
-    await expect(cell(page)).toHaveAttribute("href", "/u/example?day=2026-03-02#heatmap");
+    await expect(cell(page)).toHaveAttribute("href", "/u/example?day=2026-03-02#year");
     await cell(page).click();
     await expect(page).toHaveURL(url(first));
     await expect(panel(page)).toContainText("3 contributions on Mon 2 Mar");
     await expect(cell(page).locator("rect")).toHaveAttribute("data-selected", "true");
-    // Lands with the heatmap still in view above the panel.
+    // Lands on the year's heading, with the heatmap and the panel under it.
+    await expect(page.locator("#year")).toBeInViewport();
     await expect(cell(page)).toBeInViewport();
     await expect(panel(page)).toBeInViewport();
     await page.locator("[data-day-close]").click();

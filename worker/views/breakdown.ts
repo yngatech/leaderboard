@@ -139,7 +139,7 @@ export function dayBreakdownHtml(
   const tags = measured
     ? html` data-cell-label="${measured.cell}" data-year-label="${measured.year}"`
     : null;
-  const close = html`<a data-day-close class="shrink-0 text-[0.69rem] text-dim hover:text-accent" href="/u/${login}#heatmap">close ×</a>`;
+  const close = html`<a data-day-close class="shrink-0 text-[0.69rem] text-dim hover:text-accent" href="/u/${login}#year">close ×</a>`;
   if (!data || data.window.kind !== "day") {
     return html`<section id="day-breakdown" data-date="${date}"${tags} class="${CARD_LEDGER} flex items-baseline justify-between gap-4 text-[0.75rem] text-faint"><p>Breakdown unavailable for this day right now.</p>${close}</section>`;
   }
