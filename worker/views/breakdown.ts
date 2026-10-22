@@ -151,6 +151,6 @@ export function dayBreakdownHtml(
     <header class="mb-3.5 flex items-baseline justify-between gap-4"><h3><strong class="mr-1.5 font-display text-xl leading-none font-extrabold tracking-[-0.03em] tabular-nums text-accent">${formatNumber(data.calendarTotal)}</strong> ${contributions(data.calendarTotal)} on ${Number(date.slice(0, 4)) === pageYear ? caption.replace(/ \d{4}$/, "") : caption}</h3>${close}</header>
     ${barHtml([...parts, ...hiddenSegments(data, true)], "h-[10px]")}
     ${splitHtml([...labels, ...hiddenSegments(data, true)])}${discrepancyHtml(data)}
-    <div class="mt-3">${repositoriesHtml(data, 4)}</div>
+    ${parts.length > 0 ? html`<div class="mt-3">${repositoriesHtml(data, 4)}</div>` : null}
   </section>`;
 }
