@@ -114,16 +114,17 @@ export function breakdownHtml(data: ContributionBreakdown): Html {
   return html`<section id="year-breakdown" class="${CARD} border-line-soft px-[1.3rem] py-[1.15rem] font-mono text-[0.75rem] leading-[1.7] text-dim max-phone:px-4">
     <header class="mb-3.5"><h3><strong class="mr-1.5 font-display text-[30px] leading-none font-extrabold tracking-[-0.03em] tabular-nums text-accent">${formatNumber(data.calendarTotal)}</strong> ${contributions(data.calendarTotal)} in ${year} so far</h3></header>
     ${barHtml(parts, "h-[10px]")}${splitHtml(parts)}${discrepancyHtml(data)}
-    <h4 class="${LEDGER_TERM} mt-[22px] mb-2.5">public, by type</h4>
-    ${barHtml(kinds, "h-[14px]")}
-    <dl class="mt-3 grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-[18px] gap-y-3">
-      ${data.kinds.filter((k) => k.total > 0).map((k) => html`<div>
-        <dt class="${LEDGER_TERM} flex items-center gap-1.5"><span aria-hidden="true" class="${COLORS[k.kind]} inline-block size-2 rounded-[2px]"></span>${LABELS[k.kind]}</dt>
-        <dd class="mt-0.5"><strong class="${LEDGER_VALUE} text-[15px]">${formatNumber(k.total)}</strong><span class="block text-[0.66rem] leading-[1.4] text-faint">${CAPTIONS[k.kind]}</span></dd>
-      </div>`)}
-    </dl>
-    <h4 class="${LEDGER_TERM} mt-[22px] mb-2.5">top repositories</h4>
-    ${repositoriesHtml(data, 5)}
+    ${publicTotal > 0 ? html`
+      <h4 class="${LEDGER_TERM} mt-[22px] mb-2.5">public, by type</h4>
+      ${barHtml(kinds, "h-[14px]")}
+      <dl class="mt-3 grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-[18px] gap-y-3">
+        ${data.kinds.filter((k) => k.total > 0).map((k) => html`<div>
+          <dt class="${LEDGER_TERM} flex items-center gap-1.5"><span aria-hidden="true" class="${COLORS[k.kind]} inline-block size-2 rounded-[2px]"></span>${LABELS[k.kind]}</dt>
+          <dd class="mt-0.5"><strong class="${LEDGER_VALUE} text-[15px]">${formatNumber(k.total)}</strong><span class="block text-[0.66rem] leading-[1.4] text-faint">${CAPTIONS[k.kind]}</span></dd>
+        </div>`)}
+      </dl>
+      <h4 class="${LEDGER_TERM} mt-[22px] mb-2.5">top repositories</h4>
+      ${repositoriesHtml(data, 5)}` : null}
     <p class="mt-[18px] border-t border-line-soft pt-3 text-[0.69rem] text-faint">Broken down <time datetime="${data.generatedAt}" data-ago>${formatAgo(data.generatedAt)}</time>; newer contributions count as not itemised until it refreshes. Numbers as GitHub reports them, which can differ from its <a class="text-dim underline hover:text-accent" href="${COUNTING_RULES_URL}" target="_blank" rel="noreferrer noopener">counting rules ↗</a></p>
   </section>`;
 }
