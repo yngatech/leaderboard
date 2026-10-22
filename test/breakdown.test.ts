@@ -294,6 +294,20 @@ test("year bars separate visibility from public types and omit negative gaps", (
   }
 });
 
+test("no public work drops the public breakdown instead of drawing it empty", () => {
+  const result = map(collection({
+    contributionCalendar: { totalContributions: 12 },
+    restrictedContributionsCount: 10,
+  }));
+  const markup = String(breakdownHtml(result));
+  const bars = [...markup.matchAll(/<div role="img"[^>]*>([\s\S]*?)<\/div>/g)];
+  assert.equal(bars.length, 1);
+  assert.deepEqual([...bars[0][1].matchAll(/data-breakdown-count="(\d+)"/g)].map((m) => Number(m[1])), [10, 2]);
+  assert.ok(!markup.includes("<h4"));
+  assert.ok(!markup.includes("<ol"));
+  assert.ok(!String(dayBreakdownHtml("2026-10-10", result, "example", 2026)).includes("<ol"));
+});
+
 test("a day missing from the calendar reconciles against the zero the heatmap draws", async () => {
   const { userPageHtml } = await import("../worker/views/pages.ts");
   const boardUser = {
