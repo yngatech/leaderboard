@@ -36,7 +36,6 @@ interface Segment {
   label: string;
   count: number;
   color: string;
-  note?: string;
 }
 
 function publicSegments(data: ContributionBreakdown): Segment[] {
@@ -45,10 +44,10 @@ function publicSegments(data: ContributionBreakdown): Segment[] {
   }));
 }
 
-function hiddenSegments(data: ContributionBreakdown, day: boolean): Segment[] {
+function hiddenSegments(data: ContributionBreakdown): Segment[] {
   return [
-    { label: "private", count: data.private, color: "breakdown-private", note: day ? "count only" : "repositories hidden, count only" },
-    { label: "not itemised", count: data.other, color: "bg-faint", note: "on the calendar only" },
+    { label: "private", count: data.private, color: "breakdown-private" },
+    { label: "not itemised", count: data.other, color: "bg-faint" },
   ].filter((s) => s.count > 0);
 }
 
@@ -61,7 +60,7 @@ function barHtml(parts: Segment[], height: string): Html {
 
 function splitHtml(parts: Segment[]): Html {
   return html`<ul class="mt-2 flex flex-wrap gap-x-[22px] gap-y-1 text-[0.72rem]">
-    ${parts.map((s) => html`<li><strong class="${LEDGER_VALUE}">${formatNumber(s.count)}</strong> ${s.label}${s.note ? html` <span class="ml-1.5 text-faint">${s.note}</span>` : null}</li>`)}
+    ${parts.map((s) => html`<li><strong class="${LEDGER_VALUE}">${formatNumber(s.count)}</strong> ${s.label}</li>`)}
   </ul>`;
 }
 
@@ -108,7 +107,7 @@ export function breakdownHtml(data: ContributionBreakdown): Html {
   const publicTotal = kinds.reduce((n, s) => n + s.count, 0);
   const parts = [
     ...(publicTotal > 0 ? [{ label: "public", count: publicTotal, color: "bg-public" }] : []),
-    ...hiddenSegments(data, false),
+    ...hiddenSegments(data),
   ];
   const year = data.window.kind === "year" ? data.window.year : Number(data.window.date.slice(0, 4));
   return html`<section id="year-breakdown" class="${CARD} border-line-soft px-[1.3rem] py-[1.15rem] font-mono text-[0.75rem] leading-[1.7] text-dim max-phone:px-4">
@@ -149,8 +148,8 @@ export function dayBreakdownHtml(
   const labels = parts.map((s) => ({ ...s, label: s.count === 1 ? (s.label === "pull requests" ? "pull request" : s.label === "repos created" ? "repo created" : s.label.slice(0, -1)) : s.label })).sort((a, b) => b.count - a.count);
   return html`<section id="day-breakdown" data-date="${date}"${tags} class="${CARD_LEDGER} font-mono text-[0.75rem] leading-[1.7] text-dim">
     <header class="mb-3.5 flex items-baseline justify-between gap-4"><h3><strong class="mr-1.5 font-display text-xl leading-none font-extrabold tracking-[-0.03em] tabular-nums text-accent">${formatNumber(data.calendarTotal)}</strong> ${contributions(data.calendarTotal)} on ${Number(date.slice(0, 4)) === pageYear ? caption.replace(/ \d{4}$/, "") : caption}</h3>${close}</header>
-    ${barHtml([...parts, ...hiddenSegments(data, true)], "h-[10px]")}
-    ${splitHtml([...labels, ...hiddenSegments(data, true)])}${discrepancyHtml(data)}
+    ${barHtml([...parts, ...hiddenSegments(data)], "h-[10px]")}
+    ${splitHtml([...labels, ...hiddenSegments(data)])}${discrepancyHtml(data)}
     ${parts.length > 0 ? html`<div class="mt-3">${repositoriesHtml(data, 4)}</div>` : null}
   </section>`;
 }
