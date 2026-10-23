@@ -1,7 +1,8 @@
-name: Preview deployment
+name: Deployments
 
-# Workers Builds reports each `leaderboard-preview` upload only as a check run.
-# Mirror it as a GitHub deployment so the pull request links the preview.
+# Workers Builds reports each upload only as a check run. Mirror it as a GitHub
+# deployment so pull requests link their preview and the repository lists the
+# production site.
 on:
   check_run:
     types: [completed]
@@ -10,7 +11,29 @@ permissions:
   deployments: write
 
 jobs:
-  deployment:
+  production:
+    if: >-
+      github.event.check_run.app.slug == 'cloudflare-workers-and-pages' &&
+      github.event.check_run.name == 'Workers Builds: leaderboard' &&
+      github.event.check_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.event.check_run.head_sha }}
+          BUILD_URL: ${{ github.event.check_run.details_url }}
+        run: |
+          id=$(jq -n --arg ref "$SHA" '{ref: $ref, environment: "production",
+            auto_merge: false, required_contexts: [],
+            transient_environment: false, production_environment: true}' |
+            gh api "repos/$GH_REPO/deployments" --input - --jq .id)
+          jq -n --arg log "$BUILD_URL" '{state: "success",
+            environment_url: "https://leaderboard.ynga.tech", log_url: $log}' |
+            gh api "repos/$GH_REPO/deployments/$id/statuses" --input - --silent
+
+  preview:
     if: >-
       github.event.check_run.app.slug == 'cloudflare-workers-and-pages' &&
       github.event.check_run.name == 'Workers Builds: leaderboard-preview' &&
