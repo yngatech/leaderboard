@@ -52,7 +52,7 @@ test("merge accounts and dedupe PR IDs; exclude private, other-author and other-
 test("intent precedence, scoped areas, tags, branch prefixes and complete exclusive paths", () => {
   assert.equal(classifyIntent(pr({ title: "FIX(engine)!: repair widget", headRefName: "feat/widget" })).intent, "fix");
   assert.equal(classifyIntent(pr({ title: "[deps] update packages" })).intent, "deps");
-  assert.deepEqual(classifyIntent(pr({ title: "board: add widget", headRefName: "fix/widget" })), { intent: "fix", source: "branch", scoped: true });
+  assert.deepEqual(classifyIntent(pr({ title: "board: add widget", headRefName: "fix/widget" })), { intent: "fix", source: "branch" });
   assert.equal(classifyIntent(pr({ title: "[web] new screen" })).intent, "unknown");
   assert.equal(classifyIntent(pr({ title: "board: update widget" })).intent, "unknown");
   for (const [path, intent] of [["README.md", "docs"], ["docs/a.md", "docs"], ["src/a.test.ts", "test"], ["package-lock.json", "deps"], [".github/workflows/test.yml", "ci"]]) {
@@ -61,6 +61,32 @@ test("intent precedence, scoped areas, tags, branch prefixes and complete exclus
     assert.equal(classifyIntent({ ...input, changedFiles: 101 }).intent, "unknown");
   }
   assert.equal(classifyIntent(pr({ changedFiles: 0, files: { nodes: [], pageInfo: { hasNextPage: false } } })).intent, "unknown");
+});
+
+test("common intent scopes share categories without interpreting subsystem names", () => {
+  const groups = {
+    docs: ["docs", "doc", "documentation", "readme"], test: ["test", "tests", "e2e"],
+    deps: ["deps", "dependencies", "dependabot", "renovate"],
+    ci: ["ci", "workflows", "actions", "github-actions", "build", "bundle", "tooling"],
+    chore: ["release", "chore"], perf: ["perf"], fix: ["fix"], feat: ["feat"],
+  };
+  const rows: InsightPullRequest[] = [];
+  for (const [intent, aliases] of Object.entries(groups)) for (const alias of aliases) {
+    for (const title of [`${alias}: update widget`, `${alias}(board)!: update widget`, `[${alias}] update widget`]) {
+      assert.deepEqual(classifyIntent(pr({ title, headRefName: "refactor/widget" })), { intent, source: "title" }, title);
+    }
+    assert.deepEqual(classifyIntent(pr({ headRefName: `${alias}/widget` })), { intent, source: "branch" });
+    rows.push(pr({ id: alias, title: `${alias}: update widget` }));
+  }
+  for (const scope of ["board", "api", "generate", "codex-terminal", "makefile", "readme-badge", "neqmac, nitmac, docs"]) {
+    assert.deepEqual(classifyIntent(pr({ title: `${scope}: update widget` })), { intent: "unknown", source: "unknown" });
+  }
+  assert.equal(classifyIntent(pr({ title: "board: update widget", headRefName: "fix-widget" })).intent, "fix");
+  const { mix } = summarize(rows).intent;
+  assert.equal(mix.ci, groups.ci.length);
+  assert.equal(mix.deps, groups.deps.length);
+  assert.ok(!("build" in mix));
+  assert.equal(Object.values(mix).reduce((n, count) => n + count, 0), rows.length);
 });
 
 test("attribution preserves body vs trailers and counts each PR/agent once despite repeated trailers", () => {

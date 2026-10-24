@@ -36,12 +36,14 @@ export function excludedPath(path: string): boolean {
   return EXCLUDED_PATHS.test(path);
 }
 
-export type Intent = "feat" | "fix" | "refactor" | "docs" | "test" | "chore" | "perf" | "ci" | "build" | "deps" | "unknown";
-export const INTENTS: Intent[] = ["feat", "fix", "refactor", "docs", "test", "chore", "perf", "ci", "build", "deps", "unknown"];
+export type Intent = "feat" | "fix" | "refactor" | "docs" | "test" | "chore" | "perf" | "ci" | "deps" | "unknown";
+export const INTENTS: Intent[] = ["feat", "fix", "refactor", "docs", "test", "chore", "perf", "ci", "deps", "unknown"];
 const ALIASES = new Map<string, Intent>(Object.entries({
   feat: "feat", feature: "feat", fix: "fix", bugfix: "fix", hotfix: "fix", refactor: "refactor",
-  docs: "docs", documentation: "docs", test: "test", tests: "test", chore: "chore", perf: "perf",
-  ci: "ci", build: "build", deps: "deps", dependencies: "deps", dependabot: "deps",
+  docs: "docs", doc: "docs", documentation: "docs", readme: "docs",
+  test: "test", tests: "test", e2e: "test", chore: "chore", release: "chore", perf: "perf",
+  ci: "ci", workflows: "ci", actions: "ci", "github-actions": "ci", build: "ci", bundle: "ci", tooling: "ci",
+  deps: "deps", dependencies: "deps", dependabot: "deps", renovate: "deps",
 } as const));
 
 export function completeFiles(pr: InsightPullRequest): boolean {
@@ -49,15 +51,15 @@ export function completeFiles(pr: InsightPullRequest): boolean {
 }
 
 /** Title > branch > exclusive paths. An arbitrary Scoped Commit scope is an area, not an intent. */
-export function classifyIntent(pr: InsightPullRequest): { intent: Intent; source: "title" | "branch" | "paths" | "unknown"; scoped: boolean } {
+export function classifyIntent(pr: InsightPullRequest): { intent: Intent; source: "title" | "branch" | "paths" | "unknown" } {
   const prefix = /^([\w./-]+(?:,\s*[\w./-]+)*)(?:\([^\n)]+\))?!?:\s*\S/.exec(pr.title);
-  const scoped = !!prefix && !ALIASES.has(prefix[1].toLowerCase());
   const tag = /^\[([\w-]+)\]\s*\S/.exec(pr.title);
   const titleType = ALIASES.get((prefix?.[1] ?? tag?.[1] ?? "").toLowerCase());
-  if (titleType) return { intent: titleType, source: "title", scoped };
-  const branch = /^([\w]+)[/-]/.exec(pr.headRefName);
-  const branchType = ALIASES.get(branch?.[1].toLowerCase() ?? "");
-  if (branchType) return { intent: branchType, source: "branch", scoped };
+  if (titleType) return { intent: titleType, source: "title" };
+  const branch = /^([\w-]+)\//.exec(pr.headRefName);
+  const branchPrefix = /^(\w+)[/-]/.exec(pr.headRefName);
+  const branchType = ALIASES.get(branch?.[1].toLowerCase() ?? "") ?? ALIASES.get(branchPrefix?.[1].toLowerCase() ?? "");
+  if (branchType) return { intent: branchType, source: "branch" };
   const paths = pr.files?.nodes.map((f) => f.path) ?? [];
   if (completeFiles(pr) && paths.length) {
     const rules: [Intent, RegExp][] = [
@@ -67,10 +69,10 @@ export function classifyIntent(pr: InsightPullRequest): { intent: Intent; source
       ["ci", /^(?:\.github\/workflows\/|\.circleci\/|\.gitlab-ci\.yml$|Jenkinsfile$)/i],
     ];
     for (const [intent, rule] of rules) {
-      if (paths.every((path) => rule.test(path))) return { intent, source: "paths", scoped };
+      if (paths.every((path) => rule.test(path))) return { intent, source: "paths" };
     }
   }
-  return { intent: "unknown", source: "unknown", scoped };
+  return { intent: "unknown", source: "unknown" };
 }
 
 export type EvidenceKind = "bodyFooter" | "commitTrailer" | "commitAuthor" | "prAuthor";
@@ -150,7 +152,7 @@ export interface PrInsights {
     buckets: { label: string; count: number }[];
     biggestNetDeletion: { url: string; lines: number } | null;
   };
-  intent: { mix: Record<Intent, number>; sources: Record<string, number>; scopedTitles: number };
+  intent: { mix: Record<Intent, number>; sources: Record<string, number> };
   agents: {
     attributed: number; share: number | null; agents: { name: string; count: number }[];
     evidence: Record<EvidenceKind, number>; incompleteCommits: number;
@@ -168,7 +170,7 @@ export function aggregateInsights(login: string, accounts: readonly string[], ye
   const sources: Record<string, number> = { title: 0, branch: 0, paths: 0, unknown: 0 };
   const evidence: Record<EvidenceKind, number> = { bodyFooter: 0, commitTrailer: 0, commitAuthor: 0, prAuthor: 0 };
   const agents = new Map<string, number>();
-  let scopedTitles = 0, attributed = 0, incompleteCommits = 0;
+  let attributed = 0, incompleteCommits = 0;
   for (const pr of eligible) {
     if (completeFiles(pr)) {
       const files = pr.files!.nodes.filter((file) => !excludedPath(file.path));
@@ -183,7 +185,6 @@ export function aggregateInsights(login: string, accounts: readonly string[], ye
     const intent = classifyIntent(pr);
     mix[intent.intent] += 1;
     sources[intent.source] += 1;
-    if (intent.scoped) scopedTitles += 1;
     const found = agentEvidence(pr);
     for (const kind of Object.keys(evidence) as EvidenceKind[]) if (found[kind].length) evidence[kind] += 1;
     const union = new Set(Object.values(found).flat());
@@ -199,7 +200,7 @@ export function aggregateInsights(login: string, accounts: readonly string[], ye
       median: sizes.length ? (sizes[middle] + sizes[Math.floor((sizes.length - 1) / 2)]) / 2 : null,
       smallShare: sizes.length ? sizes.filter((n) => n < 100).length / sizes.length : null,
       buckets, biggestNetDeletion },
-    intent: { mix, sources, scopedTitles },
+    intent: { mix, sources },
     agents: { attributed, share: eligible.length ? attributed / eligible.length : null,
       agents: [...agents].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
       evidence, incompleteCommits },

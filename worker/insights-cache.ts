@@ -3,7 +3,7 @@ import { fetchInsights } from "./insights-fetch.ts";
 import { INTENTS, SIZE_BUCKETS, type PrInsights } from "./insights.ts";
 
 // Separate source namespace survives deploys. Include the roster so account changes invalidate it.
-const PREFIX = `https://ynga-git-board.internal/insights/v2/${encodeURIComponent(JSON.stringify(PEOPLE))}/`;
+const PREFIX = `https://ynga-git-board.internal/insights/v3/${encodeURIComponent(JSON.stringify(PEOPLE))}/`;
 const DAY_MS = 86400_000;
 export interface InsightsCache {
   match(key: Request): Promise<Response | undefined>;
@@ -36,8 +36,7 @@ function validSize(size: unknown, total: number): boolean {
 }
 
 function validIntent(intent: unknown, total: number): boolean {
-  return record(intent) && counts(intent.mix, INTENTS, total) && counts(intent.sources, ["title", "branch", "paths", "unknown"], total) &&
-    count(intent.scopedTitles) && intent.scopedTitles <= total;
+  return record(intent) && counts(intent.mix, INTENTS, total) && counts(intent.sources, ["title", "branch", "paths", "unknown"], total);
 }
 
 function validAgents(agents: unknown, total: number): boolean {
