@@ -85,19 +85,23 @@ const BOT_AGENTS = new Map<string, string>(Object.entries({
 // Exact attribution emails, never display names or substrings of human addresses.
 // Cursor: https://cursor.com/docs/cloud-agent/security-network
 // Copilot: https://github.com/microsoft/vscode/issues/314311
+// Aider: https://github.com/Aider-AI/aider/blob/main/aider/repo.py
+// Amp: https://github.com/ampcode/amp-examples-and-guides/tree/main/examples/amp%2Bcodesearch
 const AGENT_EMAILS = new Map<string, string>(Object.entries({
   "noreply@anthropic.com": "Claude", "noreply@openai.com": "Codex",
   "cursoragent@cursor.com": "Cursor", "copilot@github.com": "Copilot",
+  "aider@aider.chat": "Aider", "amp@ampcode.com": "Amp",
 }));
-/** Client/model labels are interpreted only inside an explicit prose disclosure. */
+/** Read the tool/model at the start of a disclosure field, never its trailing prose. */
 function disclosureAgents(text: string): string[] {
   const rules: [string, RegExp][] = [
-    ["Claude", /\bclaude(?: code|[- ](?:opus|sonnet|haiku))?\b/i], ["Codex", /\bcodex\b|\bgpt-[a-z0-9][\w.-]*/i],
-    ["Cursor", /\bcursor(?: agent)?\b/i], ["Copilot", /\bcopilot\b/i], ["Devin", /\bdevin\b/i],
-    ["Jules", /\bjules\b/i], ["Aider", /\baider\b/i], ["Amp", /\bamp\b/i],
-    ["OpenCode", /\bopencode\b/i], ["Gemini", /\bgemini\b/i],
+    ["Claude", /^claude(?:[- ][a-z0-9.]+)*(?=$|[\s.;])/i],
+    ["Codex", /^codex(?=$|[\s.;])|^gpt-\d+(?:\.\d+)?(?:-[a-z0-9]+)*(?=$|\s|\.(?:\s|$))/i],
+    ["Cursor", /^cursor(?=$|[\s.;])/i], ["Copilot", /^copilot(?=$|[\s.;])/i], ["Devin", /^devin(?=$|[\s.;])/i],
+    ["Jules", /^jules(?=$|[\s.;])/i], ["Aider", /^aider(?=$|[\s.;])/i], ["Amp", /^amp(?=$|[\s.;])/i],
+    ["OpenCode", /^opencode(?=$|[\s.;/])/i], ["Gemini", /^gemini(?:-[a-z0-9.]+)*(?=$|[\s.;])/i],
   ];
-  return rules.filter(([, rule]) => rule.test(text)).map(([name]) => name);
+  return rules.filter(([, rule]) => rule.test(text.trim())).map(([name]) => name);
 }
 /** Ignore fenced examples, block quotes and indented code before anchored marker matching. */
 function prose(text: string): string {
@@ -119,10 +123,18 @@ export function agentEvidence(pr: InsightPullRequest): Record<EvidenceKind, stri
   const sets = { bodyFooter: new Set<string>(), commitTrailer: new Set<string>(), commitAuthor: new Set<string>(), prAuthor: new Set<string>() };
   const add = (kind: EvidenceKind, names: string[]) => names.forEach((name) => sets[kind].add(name));
   for (const line of prose(pr.body).split("\n")) {
-    if (/^\s*(?:[🤖✨]\s*)?(?:Written by an agent\s*\(|(?:Generated|Created|Made) (?:with|by)\s+)/iu.test(line)) {
-      const names = disclosureAgents(line);
-      if (names.length) add("bodyFooter", names);
-      else if (/Written by an agent/i.test(line)) add("bodyFooter", ["Other agent"]);
+    // Keep link labels, discard targets before parsing any disclosure fields.
+    const marker = line.replace(/\[([^\]\n]+)\]\([^\n)]*\)/g, "[$1]")
+      .replace(/^\s*(?:[🤖✨]\s*)?/u, "");
+    if (/^Written by an agent\s*\(/i.test(marker)) {
+      // Also accept additional explicit disclosures (e.g. "; revised by an agent (...)").
+      for (const match of marker.matchAll(/\bby an agent\s*\(([^()\n]+)\)/gi)) {
+        const names = match[1].split(/[,;]/).flatMap((field) => disclosureAgents(field.replace(/^\s*\[([^\]]+)\]\s*$/, "$1")));
+        add("bodyFooter", names.length ? names : ["Other agent"]);
+      }
+    } else {
+      const generated = /^(?:Generated|Created|Made) (?:with|by)\s+(?:\[([^\]]+)\]|([^\n]+))/i.exec(marker);
+      if (generated) add("bodyFooter", disclosureAgents(generated[1] ?? generated[2]));
     }
   }
   const bot = BOT_AGENTS.get(pr.author?.login.toLowerCase() ?? "");

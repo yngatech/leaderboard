@@ -232,8 +232,8 @@ test("panel suppresses tiny cohorts and tiny size subsets while keeping larger-c
 });
 
 test("human names and lookalike emails are not agent identities in trailers or authors", () => {
-  for (const name of ["Devin Example", "Claude Example", "Jules Example", "Devin", "Claude", "Jules", "Codex", "Cursor Agent", "Copilot"]) {
-    for (const email of ["human@example.test", "noreply@anthropic.com.example.test", "noreply@openai.com.example.test", "cursoragent@cursor.com.example.test"]) {
+  for (const name of ["Devin Example", "Claude Example", "Jules Example", "Devin", "Claude", "Jules", "Codex", "Cursor Agent", "Copilot", "aider (example-model)", "Amp"]) {
+    for (const email of ["human@example.test", "noreply@anthropic.com.example.test", "noreply@openai.com.example.test", "cursoragent@cursor.com.example.test", "aider@aider.chat.example.test", "amp@ampcode.com.example.test", "aider@not-aider.chat", "amp@not-ampcode.com"]) {
       const input = pr();
       input.commits.nodes[0].commit = {
         message: `Update widget\n\nCo-authored-by: ${name} <${email}>`,
@@ -252,6 +252,8 @@ test("trailers and commit authors share exact known email and GitHub bot identit
     ["Cursor Agent", "12345+cursoragent@users.noreply.github.com", "Cursor"],
     ["Copilot", "copilot@github.com", "Copilot"],
     ["Copilot", "12345+Copilot@users.noreply.github.com", "Copilot"],
+    ["aider (example-model)", "aider@aider.chat", "Aider"],
+    ["Amp", "amp@ampcode.com", "Amp"],
     ["Example bot", "12345+chatgpt-codex-connector[bot]@users.noreply.github.com", "Codex"],
   ]) {
     const input = pr();
@@ -276,9 +278,57 @@ test("disclosures recognize model families across clients without guessing from 
     ["Written by an agent (T3 Code, gpt-6-example).", ["Codex"]],
     ["Written by an agent (styal, claude-sonnet-example).", ["Claude"]],
     ["Written by an agent (OpenCode, claude-opus-example).", ["Claude", "OpenCode"]],
+    ["Written by an agent (Codex, claude-opus-example).", ["Claude", "Codex"]],
+    ["Written by an agent (Claude Code, claude-opus-example; Codex, gpt-6.1-sol).", ["Claude", "Codex"]],
+    ["Written by an agent (styal, gpt-6-example); revised by an agent (Claude Code, claude-opus-example).", ["Claude", "Codex"]],
     ["Written by an agent (Example Client, example-model).", ["Other agent"]],
     ["Written by an agent (styal).", ["Other agent"]],
   ] as const) assert.deepEqual(agentEvidence(pr({ body: marker })).bodyFooter, agents);
+});
+
+test("disclosures bound client/model fields and generated tool labels without scanning prose or links", () => {
+  for (const body of [
+    "Generated with gpt-tokenizer fixtures; no language model was used.",
+    "Generated with [gpt-tokenizer](https://example.test/gpt-6).",
+    "Generated with [Example Tool](https://example.test/Codex/gpt-6).",
+    "Generated with [Example Tool](https://example.test/tool). This updates gpt-6 and Claude fixtures.",
+    "Generated with fixtures for gpt-6 and Codex.",
+    "Generated with https://example.test/gpt-6.",
+    "Generated with gpt-6.invalid fixtures.",
+    "Generated with gpt-6-tokenizer.invalid fixtures.",
+  ]) assert.deepEqual(agentEvidence(pr({ body })).bodyFooter, [], body);
+  for (const suffix of [
+    "This changes the gpt-tokenizer dependency.", "This changes gpt-6 fixtures and Claude dependencies.",
+    "[gpt-6](https://example.test/Codex)",
+  ]) assert.deepEqual(agentEvidence(pr({ body: `Written by an agent (Example Client, example-model). ${suffix}` })).bodyFooter, ["Other agent"]);
+  assert.deepEqual(agentEvidence(pr({ body: "Written by an agent ([Example Client](https://example.test/Codex), [example-model](https://example.test/gpt-6))." })).bodyFooter, ["Other agent"]);
+  assert.deepEqual(agentEvidence(pr({ body: "Generated with [Claude Code](https://example.test/gpt-6). Also updates Codex fixtures." })).bodyFooter, ["Claude"]);
+  for (const model of ["gpt-6", "gpt-6.1-sol", "GPT-6.1 Sol"]) {
+    assert.deepEqual(agentEvidence(pr({ body: `Generated with ${model} via the example harness.` })).bodyFooter, ["Codex"]);
+  }
+});
+
+test("methodology reflects evidence categories and incomplete commit coverage inside collapsed details", async () => {
+  const { insightsHtml } = await import("../worker/views/insights.ts");
+  const rows = Array.from({ length: 10 }, (_, i) => pr({ id: String(i) }));
+  const original = String(insightsHtml(summarize(rows)));
+  const input = rows[0];
+  input.body = "Written by an agent (Codex, gpt-6).";
+  input.author = { login: "copilot-swe-agent[bot]" };
+  input.commits.totalCount = 51;
+  input.commits.nodes[0].commit.message += "\n\nCo-authored-by: Amp <amp@ampcode.com>";
+  input.commits.nodes[0].commit.authors = { totalCount: 6, nodes: [{ name: "aider (example-model)", email: "aider@aider.chat", user: null }] };
+  const summary = aggregateInsights("example-user", ["example-user", "copilot-swe-agent[bot]"], 2026, rows, "2026-03-01T00:00:00Z");
+  const rendered = String(insightsHtml(summary));
+  const details = (html: string) => /<details\b([^>]*)>([\s\S]*?)<\/details>/.exec(html)!;
+  assert.ok(!/\bopen\b/.test(details(rendered)[1]));
+  assert.notEqual(details(original)[2], details(rendered)[2]);
+  for (const label of ["body disclosures", "commit trailers", "commit authors", "PR authors"]) {
+    assert.ok(details(original)[2].includes(`${label} 0`));
+    assert.ok(details(rendered)[2].includes(`${label} 1`));
+  }
+  assert.ok(details(original)[2].includes("incomplete for 0 PRs"));
+  assert.ok(details(rendered)[2].includes("incomplete for 1 PR;"));
 });
 
 test("inherited object keys stay unknown and never corrupt aggregation", () => {
