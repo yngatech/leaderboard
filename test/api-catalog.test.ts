@@ -14,8 +14,10 @@ test("publishes a self-contained API catalog with concrete user endpoints", () =
       { href: "https://leaderboard.example/api/all", type: "application/json" },
       { href: "https://leaderboard.example/api/users/alice", type: "application/json" },
       { href: "https://leaderboard.example/api/users/alice/breakdown", type: "application/json" },
+      { href: "https://leaderboard.example/api/users/alice/insights", type: "application/json" },
       { href: "https://leaderboard.example/api/users/bob", type: "application/json" },
       { href: "https://leaderboard.example/api/users/bob/breakdown", type: "application/json" },
+      { href: "https://leaderboard.example/api/users/bob/insights", type: "application/json" },
     ],
   );
 });

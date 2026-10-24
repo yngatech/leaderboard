@@ -1,3 +1,5 @@
+import { insightsHtml } from "./insights.ts";
+import type { PrInsights } from "../insights.ts";
 import { CARD, CARD_LEDGER, LEDGER_TERM, LEDGER_VALUE } from "./card-styles.ts";
 import type {
   AllTime,
@@ -375,6 +377,7 @@ function ledgerHtml(fields: LedgerField[]): Html | null {
 
 export interface UserPageOptions {
   achievements?: RecentAchievementsOptions;
+  insights?: PrInsights | null;
   breakdown?: ContributionBreakdown | null;
   dayBreakdown?: ContributionBreakdown | null;
   day?: string;
@@ -832,6 +835,7 @@ export function userPageHtml(options: UserPageOptions): string {
     ${options.achievements ? recentAchievementsHtml(options.achievements) : null}
     ${sectionRuleHtml("where contributions came from")}
     ${yearBreakdown ? breakdownHtml(yearBreakdown) : html`<p class="text-[0.75rem] text-muted">Breakdown unavailable right now.</p>`}
+    ${options.insights ? html`${sectionRuleHtml("PR style")}${insightsHtml(options.insights)}` : null}
     ${cardSectionHtml(user.login)}`;
 
   return pageHtml({

@@ -240,31 +240,37 @@ export interface BoardResult {
   missing: string[];
 }
 
-/** One GraphQL round trip, with the HTTP-level failures normalised. */
-async function graphql<T>(token: string, body: unknown): Promise<GraphQLResponse<T>> {
-  const res = await fetch(GITHUB_GRAPHQL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      "User-Agent": "ynga-git-board",
-    },
-    body: JSON.stringify(body),
-  });
+function rateLimited(status: number, payload: { message?: string; errors?: { message: string; type?: string }[] } | null): boolean {
+  return status === 429 || (status === 403 && /rate limit|abuse/i.test(payload?.message ?? "")) ||
+    !!payload?.errors?.some((error) => /rate.limit|abuse/i.test(`${error.type} ${error.message}`));
+}
 
-  if (!res.ok) {
-    // Log the body for debugging, but never surface it to the client.
-    console.error("github http error", { status: res.status, body: (await res.text()).slice(0, 300) });
-    throw new GitHubError(
-      res.status === 401 || res.status === 403
-        ? `GitHub rejected the board's credentials (${res.status}).`
-        : `GitHub is not answering right now (${res.status}).`,
-      502,
-    );
+/** Shared transport; background enrichments retry transient and secondary limits. */
+export async function githubGraphql<T>(token: string, body: unknown, retry = false): Promise<{ data?: T | null; errors?: { message: string; type?: string }[] }> {
+  for (let attempt = 0; ; attempt += 1) {
+    const res = await fetch(GITHUB_GRAPHQL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json", "User-Agent": "ynga-git-board" },
+      body: JSON.stringify(body),
+    });
+    const payload = await res.json().catch(() => null) as { data?: T | null; errors?: { message: string; type?: string }[]; message?: string } | null;
+    const limited = rateLimited(res.status, payload);
+    if (retry && attempt < 2 && (limited || res.status >= 500)) {
+      const retryAfter = Number(res.headers.get("Retry-After"));
+      const reset = res.headers.get("X-RateLimit-Remaining") === "0"
+        ? Number(res.headers.get("X-RateLimit-Reset")) * 1000 - Date.now() : 0;
+      // A primary limit can be an hour away: leave the old summary for the next cron.
+      if (limited && (reset > 120_000 || retryAfter > 120)) throw new GitHubError("GitHub rate limit reached.", 502);
+      await pause(limited ? Math.min(120_000, Math.max(60_000 * (attempt + 1), retryAfter * 1000, reset > 0 ? reset : 0)) : 1000 * 2 ** attempt);
+      continue;
+    }
+    if (!res.ok || !payload) throw new GitHubError(`GitHub is not answering right now (${res.status}).`, 502);
+    return payload;
   }
+}
 
-  return (await res.json()) as GraphQLResponse<T>;
+async function graphql<T>(token: string, body: unknown): Promise<GraphQLResponse<T>> {
+  return githubGraphql<Record<string, T | null>>(token, body);
 }
 
 export async function fetchBoard(

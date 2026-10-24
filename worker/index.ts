@@ -1,3 +1,4 @@
+import { cachedInsights, refreshInsights } from "./insights-cache";
 import {
   breakdownTtl,
   dayWindow,
@@ -1074,6 +1075,16 @@ async function handleAllPage(env: Env, ctx: ExecutionContext): Promise<Response>
   return withBrowserHeaders(fresh, state);
 }
 
+async function handleInsightsApi(requested: string, url: URL, readOnly: boolean): Promise<Response> {
+  if (!readOnly) return json({ error: "Use GET for user APIs.", status: 405 }, { status: 405, headers: { Allow: "GET, HEAD", "Cache-Control": "no-store" } });
+  const login = rosterLogin(requested);
+  if (!login) return json({ error: "Unknown leaderboard account.", status: 404 }, { status: 404, headers: { "Cache-Control": "no-store" } });
+  if (url.pathname !== `/api/users/${login}/insights`) return Response.redirect(`${url.origin}/api/users/${login}/insights`, 308);
+  const summary = await cachedInsights(caches.default, login);
+  // An absent summary is a cache miss, never a reason to query GitHub on a visitor's request.
+  return json(summary ?? { login, status: "pending" }, { status: summary ? 200 : 202, headers: { "Cache-Control": __IS_PREVIEW_BUILD__ || !summary ? "no-store" : "public, max-age=60" } });
+}
+
 async function handleBreakdownApi(
   requested: string,
   url: URL,
@@ -1194,11 +1205,12 @@ async function handleUserPage(
   // One fetch of the year in progress, awaited by both feeds. Starting it
   // before the all-time feed keeps the two running side by side.
   const boardFetch = boardJson(currentYear(), env, ctx);
-  const [boardResult, allResult, yearBreakdownResponse, dayBreakdownResponse] = await Promise.all([
+  const [boardResult, allResult, yearBreakdownResponse, dayBreakdownResponse, insights] = await Promise.all([
     boardFetch,
     allTimeJson(env, ctx, boardFetch),
     breakdownJson(login, yearWindow(currentYear(), new Date()), env, ctx),
     day ? breakdownJson(login, dayWindow(day), env, ctx) : Promise.resolve(null),
+    cachedInsights(caches.default, login),
   ]);
   if (!boardResult.response.ok) return pageFromFailure(boardResult.response);
   if (!allResult.response.ok) return pageFromFailure(allResult.response);
@@ -1220,6 +1232,7 @@ async function handleUserPage(
   const breakdownOk =
     yearBreakdownResponse.ok && (!dayBreakdownResponse || dayBreakdownResponse.ok);
   const page = userPageHtml({
+    insights,
     day,
     breakdown: yearBreakdownResponse.ok
       ? ((await yearBreakdownResponse.json()) as ContributionBreakdown)
@@ -1949,6 +1962,9 @@ async function routeApi(
     }
   }
 
+  const insightsMatch = /^\/api\/users\/([A-Za-z0-9][A-Za-z0-9-]*)\/insights\/?$/.exec(url.pathname);
+  if (insightsMatch) return handleInsightsApi(insightsMatch[1], url, readOnly);
+
   const breakdownMatch = /^\/api\/users\/([A-Za-z0-9][A-Za-z0-9-]*)\/breakdown\/?$/.exec(
     url.pathname,
   );
@@ -2205,5 +2221,18 @@ export default {
     const markdown = await routeMarkdown(url, readOnly, env, ctx);
     if (markdown) return markdown;
     return routePage(request, url, readOnly, env, ctx);
+  },
+
+  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+    const [board, insights] = await Promise.allSettled([
+      refreshBoard(env),
+      refreshInsights(caches.default, env.GITHUB_TOKEN),
+    ]);
+    if (insights.status === "rejected") {
+      console.error("insights refresh failed", {
+        message: insights.reason instanceof Error ? insights.reason.message : String(insights.reason),
+      });
+    }
+    if (board.status === "rejected") throw board.reason;
   },
 } satisfies ExportedHandler<Env>;
