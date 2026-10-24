@@ -37,12 +37,12 @@ export function excludedPath(path: string): boolean {
 }
 
 export type Intent = "feat" | "fix" | "refactor" | "docs" | "test" | "chore" | "perf" | "ci" | "build" | "deps" | "unknown";
-const INTENTS: Intent[] = ["feat", "fix", "refactor", "docs", "test", "chore", "perf", "ci", "build", "deps", "unknown"];
-const ALIASES: Record<string, Intent> = {
+export const INTENTS: Intent[] = ["feat", "fix", "refactor", "docs", "test", "chore", "perf", "ci", "build", "deps", "unknown"];
+const ALIASES = new Map<string, Intent>(Object.entries({
   feat: "feat", feature: "feat", fix: "fix", bugfix: "fix", hotfix: "fix", refactor: "refactor",
   docs: "docs", documentation: "docs", test: "test", tests: "test", chore: "chore", perf: "perf",
   ci: "ci", build: "build", deps: "deps", dependencies: "deps", dependabot: "deps",
-};
+} as const));
 
 export function completeFiles(pr: InsightPullRequest): boolean {
   return !!pr.files && !pr.files.pageInfo.hasNextPage && pr.files.nodes.length === pr.changedFiles;
@@ -51,12 +51,12 @@ export function completeFiles(pr: InsightPullRequest): boolean {
 /** Title > branch > exclusive paths. An arbitrary Scoped Commit scope is an area, not an intent. */
 export function classifyIntent(pr: InsightPullRequest): { intent: Intent; source: "title" | "branch" | "paths" | "unknown"; scoped: boolean } {
   const prefix = /^([\w./-]+(?:,\s*[\w./-]+)*)(?:\([^\n)]+\))?!?:\s*\S/.exec(pr.title);
-  const scoped = !!prefix && !ALIASES[prefix[1].toLowerCase()];
+  const scoped = !!prefix && !ALIASES.has(prefix[1].toLowerCase());
   const tag = /^\[([\w-]+)\]\s*\S/.exec(pr.title);
-  const titleType = ALIASES[(prefix?.[1] ?? tag?.[1] ?? "").toLowerCase()];
+  const titleType = ALIASES.get((prefix?.[1] ?? tag?.[1] ?? "").toLowerCase());
   if (titleType) return { intent: titleType, source: "title", scoped };
   const branch = /^([\w]+)[/-]/.exec(pr.headRefName);
-  const branchType = ALIASES[branch?.[1].toLowerCase() ?? ""];
+  const branchType = ALIASES.get(branch?.[1].toLowerCase() ?? "");
   if (branchType) return { intent: branchType, source: "branch", scoped };
   const paths = pr.files?.nodes.map((f) => f.path) ?? [];
   if (completeFiles(pr) && paths.length) {
@@ -74,15 +74,23 @@ export function classifyIntent(pr: InsightPullRequest): { intent: Intent; source
 }
 
 export type EvidenceKind = "bodyFooter" | "commitTrailer" | "commitAuthor" | "prAuthor";
-const BOT_AGENTS: Record<string, string> = {
+const BOT_AGENTS = new Map<string, string>(Object.entries({
   "copilot-swe-agent[bot]": "Copilot", copilot: "Copilot",
-  "chatgpt-codex-connector[bot]": "Codex", "cursor[bot]": "Cursor",
+  "chatgpt-codex-connector[bot]": "Codex", "cursor[bot]": "Cursor", cursoragent: "Cursor",
   "devin-ai-integration[bot]": "Devin", "google-labs-jules[bot]": "Jules",
   "sweep-ai[bot]": "Sweep", "sweep-ai-deprecated[bot]": "Sweep",
-};
-function agentNames(text: string): string[] {
+}));
+// Exact attribution emails, never display names or substrings of human addresses.
+// Cursor: https://cursor.com/docs/cloud-agent/security-network
+// Copilot: https://github.com/microsoft/vscode/issues/314311
+const AGENT_EMAILS = new Map<string, string>(Object.entries({
+  "noreply@anthropic.com": "Claude", "noreply@openai.com": "Codex",
+  "cursoragent@cursor.com": "Cursor", "copilot@github.com": "Copilot",
+}));
+/** Client/model labels are interpreted only inside an explicit prose disclosure. */
+function disclosureAgents(text: string): string[] {
   const rules: [string, RegExp][] = [
-    ["Claude", /\bclaude(?: code|[- ](?:opus|sonnet|haiku))?\b/i], ["Codex", /\bcodex\b/i],
+    ["Claude", /\bclaude(?: code|[- ](?:opus|sonnet|haiku))?\b/i], ["Codex", /\bcodex\b|\bgpt-[a-z0-9][\w.-]*/i],
     ["Cursor", /\bcursor(?: agent)?\b/i], ["Copilot", /\bcopilot\b/i], ["Devin", /\bdevin\b/i],
     ["Jules", /\bjules\b/i], ["Aider", /\baider\b/i], ["Amp", /\bamp\b/i],
     ["OpenCode", /\bopencode\b/i], ["Gemini", /\bgemini\b/i],
@@ -95,13 +103,14 @@ function prose(text: string): string {
     .split("\n").filter((line) => !/^\s*>|^(?: {4}|\t)/.test(line)).join("\n");
 }
 function authorAgents(author: { name: string | null; email: string | null; user: { login: string } | null }): string[] {
-  const bot = BOT_AGENTS[author.user?.login.toLowerCase() ?? ""];
+  const bot = BOT_AGENTS.get(author.user?.login.toLowerCase() ?? "");
   if (bot) return [bot];
-  if (/^(?:dependabot|renovate)(?:\[bot\])?$/i.test(author.user?.login ?? author.name ?? "")) return [];
-  if (/^noreply@anthropic\.com$/i.test(author.email ?? "")) return ["Claude"];
-  if (/^noreply@openai\.com$/i.test(author.email ?? "")) return ["Codex"];
-  if (/^(?:Cursor Agent|Copilot|Claude(?: Code)?(?: \([^)]*\))?|Codex)$/i.test(author.name ?? "")) return agentNames(author.name ?? "");
-  return [];
+  const email = author.email?.trim().toLowerCase() ?? "";
+  const known = AGENT_EMAILS.get(email);
+  if (known) return [known];
+  const githubEmail = /^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/.exec(email);
+  const githubBot = BOT_AGENTS.get(githubEmail?.[1] ?? "");
+  return githubBot ? [githubBot] : [];
 }
 
 export function agentEvidence(pr: InsightPullRequest): Record<EvidenceKind, string[]> {
@@ -109,21 +118,19 @@ export function agentEvidence(pr: InsightPullRequest): Record<EvidenceKind, stri
   const add = (kind: EvidenceKind, names: string[]) => names.forEach((name) => sets[kind].add(name));
   for (const line of prose(pr.body).split("\n")) {
     if (/^\s*(?:[🤖✨]\s*)?(?:Written by an agent\s*\(|(?:Generated|Created|Made) (?:with|by)\s+)/iu.test(line)) {
-      const names = agentNames(line);
+      const names = disclosureAgents(line);
       if (names.length) add("bodyFooter", names);
       else if (/Written by an agent/i.test(line)) add("bodyFooter", ["Other agent"]);
     }
   }
-  const bot = BOT_AGENTS[pr.author?.login.toLowerCase() ?? ""];
+  const bot = BOT_AGENTS.get(pr.author?.login.toLowerCase() ?? "");
   if (bot) add("prAuthor", [bot]);
   for (const { commit } of pr.commits.nodes) {
     // Only the final paragraph can be a Git trailer block.
     const trailerBlock = prose(commit.message).trim().split(/\n\s*\n/).at(-1) ?? "";
     for (const match of trailerBlock.matchAll(/^co-authored-by:\s*(.+)$/gim)) {
-      const identity = match[1];
-      if (/noreply@anthropic\.com/i.test(identity)) add("commitTrailer", ["Claude"]);
-      else if (/noreply@openai\.com/i.test(identity)) add("commitTrailer", ["Codex"]);
-      else add("commitTrailer", agentNames(identity));
+      const identity = /^([^<>]+?)\s*<([^<>\s]+@[^<>\s]+)>\s*$/.exec(match[1]);
+      if (identity) add("commitTrailer", authorAgents({ name: identity[1].trim(), email: identity[2], user: null }));
     }
     for (const author of commit.authors.nodes) {
       add("commitAuthor", authorAgents(author));

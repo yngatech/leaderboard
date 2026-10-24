@@ -204,3 +204,89 @@ test("panel suppresses tiny cohorts and tiny size subsets while keeping larger-c
   assert.ok(rendered.includes('aria-label="Attributed agents"'));
   assert.ok(String(insightsHtml(summarize(rows))).includes('aria-label="PR size histogram"'));
 });
+
+test("human names and lookalike emails are not agent identities in trailers or authors", () => {
+  for (const name of ["Devin Example", "Claude Example", "Jules Example", "Devin", "Claude", "Jules", "Codex", "Cursor Agent", "Copilot"]) {
+    for (const email of ["human@example.test", "noreply@anthropic.com.example.test", "noreply@openai.com.example.test", "cursoragent@cursor.com.example.test"]) {
+      const input = pr();
+      input.commits.nodes[0].commit = {
+        message: `Update widget\n\nCo-authored-by: ${name} <${email}>`,
+        authors: { totalCount: 1, nodes: [{ name, email, user: { login: "example-human" } }] },
+      };
+      assert.deepEqual(agentEvidence(input), { bodyFooter: [], commitTrailer: [], commitAuthor: [], prAuthor: [] }, `${name} <${email}>`);
+    }
+  }
+});
+
+test("trailers and commit authors share exact known email and GitHub bot identities", () => {
+  for (const [name, email, agent] of [
+    ["Claude (Example Model)", "noreply@anthropic.com", "Claude"],
+    ["Codex", "noreply@openai.com", "Codex"],
+    ["Cursor Agent", "cursoragent@cursor.com", "Cursor"],
+    ["Cursor Agent", "12345+cursoragent@users.noreply.github.com", "Cursor"],
+    ["Copilot", "copilot@github.com", "Copilot"],
+    ["Copilot", "12345+Copilot@users.noreply.github.com", "Copilot"],
+    ["Example bot", "12345+chatgpt-codex-connector[bot]@users.noreply.github.com", "Codex"],
+  ]) {
+    const input = pr();
+    input.commits.nodes[0].commit = {
+      message: `Update widget\n\nCo-authored-by: ${name} <${email}>`,
+      authors: { totalCount: 1, nodes: [{ name, email, user: null }] },
+    };
+    const found = agentEvidence(input);
+    assert.deepEqual(found.commitTrailer, [agent], email);
+    assert.deepEqual(found.commitAuthor, [agent], email);
+  }
+  const input = pr();
+  input.commits.nodes[0].commit.authors.nodes[0] = { name: null, email: null, user: { login: "google-labs-jules[bot]" } };
+  assert.deepEqual(agentEvidence(input).commitAuthor, ["Jules"]);
+});
+
+test("disclosures recognize model families across clients without guessing from client alone", () => {
+  for (const [marker, agents] of [
+    ["Written by an agent (Claude Code, claude-opus-example).", ["Claude"]],
+    ["Written by an agent (Codex, gpt-6-example).", ["Codex"]],
+    ["Written by an agent (styal, gpt-6-example).", ["Codex"]],
+    ["Written by an agent (T3 Code, gpt-6-example).", ["Codex"]],
+    ["Written by an agent (styal, claude-sonnet-example).", ["Claude"]],
+    ["Written by an agent (OpenCode, claude-opus-example).", ["Claude", "OpenCode"]],
+    ["Written by an agent (Example Client, example-model).", ["Other agent"]],
+    ["Written by an agent (styal).", ["Other agent"]],
+  ] as const) assert.deepEqual(agentEvidence(pr({ body: marker })).bodyFooter, agents);
+});
+
+test("inherited object keys stay unknown and never corrupt aggregation", () => {
+  for (const key of ["constructor", "__proto__"]) {
+    for (const overrides of [{ title: `${key}: handle missing argument` }, { title: `[${key}] update widget` }, { headRefName: `${key}/repair` }]) {
+      const input = pr(overrides);
+      assert.equal(classifyIntent(input).intent, "unknown");
+      const summary = summarize([input]);
+      assert.equal(summary.intent.mix.unknown, 1);
+      assert.equal(Object.values(summary.intent.mix).reduce((n, count) => n + count, 0), summary.total);
+    }
+    const input = pr({ author: { login: key }, body: "Written by an agent (Codex, example-model)." });
+    input.commits.nodes[0].commit.authors.nodes[0].user = { login: key };
+    assert.deepEqual(agentEvidence(input), { bodyFooter: ["Codex"], commitAuthor: [], commitTrailer: [], prAuthor: [] });
+    const summary = aggregateInsights(key, [key], 2026, [input], "2026-03-01T00:00:00Z");
+    assert.deepEqual(summary.agents.agents, [{ name: "Codex", count: 1 }]);
+  }
+});
+
+test("optional cache reads reject malformed shapes and isolate lookup/decode failures", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const now = new Date("2026-03-01T00:00:00Z");
+  const valid = summarize([pr()]);
+  const read = (value: unknown) => cachedInsights({ match: async () => Response.json(value), put: async () => {} }, "example-user", now);
+  assert.deepEqual(await read(valid), valid);
+  assert.deepEqual(await read(summarize([])), summarize([]));
+  for (const value of [null, {}, { ...valid, accounts: null }, { ...valid, login: "other-user" }, { ...valid, year: 2025 },
+    { ...valid, generatedAt: "invalid" }, { ...valid, total: -1 }, { ...valid, size: { ...valid.size, median: null } },
+    { ...valid, size: { ...valid.size, buckets: [] } }, { ...valid, intent: { ...valid.intent, mix: { constructor: 1 } } },
+    { ...valid, agents: { ...valid.agents, agents: [{ name: {}, count: 1 }] } },
+    { ...valid, agents: { ...valid.agents, evidence: null } },
+    { ...valid, size: { ...valid.size, biggestNetDeletion: { url: "javascript:alert(1)", lines: 1 } } },
+  ]) assert.equal(await read(value), null);
+  assert.equal(await cachedInsights({ match: async () => new Response("{"), put: async () => {} }, "example-user", now), null);
+  assert.equal(await cachedInsights({ match: async () => { throw new Error("synthetic outage"); }, put: async () => {} }, "example-user", now), null);
+  assert.equal(logged.mock.callCount(), 15);
+});
