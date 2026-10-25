@@ -1,7 +1,7 @@
 import type { Board } from "../shared/types";
 
 /**
- * The board the scheduled check last fetched in full: a partial fetch never
+ * The board the alarm check last fetched in full: a partial fetch never
  * replaces it. Pages read the year in progress from here, so the site shows
  * the same numbers Discord was told.
  */
@@ -16,7 +16,7 @@ export const BOARD_SNAPSHOT_KEY = "board-snapshot";
 
 /**
  * Three missed checks. Past this the snapshot is no longer the live board, and
- * pages go back to asking GitHub rather than freeze on a stopped cron.
+ * pages go back to asking GitHub rather than freeze on a stopped alarm.
  */
 export const SNAPSHOT_MAX_AGE_MS = 30 * 60 * 1000;
 
