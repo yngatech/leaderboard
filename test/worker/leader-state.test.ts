@@ -164,7 +164,7 @@ test("a native preview retains isolated DO configuration and runs alarms without
   assert.equal(preview.define?.__LOCAL_DEVELOPMENT__, "false");
 
   // Supply a webhook deliberately: the build must suppress notifications itself.
-  const app = await setup(t, { workerPreview: true });
+  const app = await setup(t, { workerPreview: true, history: 17480 });
   const response = await app.mf.dispatchFetch("https://board.test/api/board");
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("Cache-Control"), "no-store");
@@ -178,6 +178,7 @@ test("a native preview retains isolated DO configuration and runs alarms without
   assert.equal(second.values["board-snapshot"]?.board[0].totalContributions, 42);
   assert.equal(second.values.leader, undefined);
   assert.equal(second.values.milestones, undefined);
+  assert.equal(second.values["all-time-milestones"], undefined);
   assert.equal(app.attempts(), 0);
   assert.ok(app.exchanges() > 0);
 });
