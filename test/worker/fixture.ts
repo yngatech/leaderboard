@@ -97,7 +97,7 @@ export async function setup(
     workerPreview?: boolean;
   } = {},
 ) {
-  let mode: "ok" | "github-error" | "partial" | "discord-error" | "yearly-discord-error" |
+  let mode: "ok" | "github-error" | "partial" | "partial-secondary" | "discord-error" | "yearly-discord-error" |
     "lifetime-discord-error" | "archive-error" | "archive-partial" = "ok";
   let leadingCount = 10;
   let queries = 0;
@@ -158,7 +158,8 @@ export async function setup(
         if (mode === "github-error") return new Response("unavailable", { status: 503 });
         return Response.json({ data: Object.fromEntries(logins.map((login, i) => [
           `u${i}`,
-          mode === "partial" && i === 0 ? null : {
+          ((mode === "partial" && i === 0) ||
+            (mode === "partial-secondary" && login === PEOPLE.find((person) => person.accounts.length > 1)!.accounts[1])) ? null : {
             login,
             name: "Test contributor",
             url: `https://github.com/${login}`,

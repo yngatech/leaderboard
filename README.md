@@ -17,6 +17,7 @@ and link each heatmap day to its breakdown.
 | `/` | The year in progress: ranked heatmaps |
 | `/{year}` | An archived year, 2008 through the current one |
 | `/all` | All-time: one year-strip per account, ranked by career total |
+| `/achievements` | Contribution milestones, record improvements and anniversaries; optional `?year=&person=` filters |
 | `/u/{login}` | One account across every year; `?day=YYYY-MM-DD` selects day detail |
 | `/u/{login}.svg` | That account's year as a card, for a profile README |
 | `/u/{login}/year.svg` | Badge: that account's contributions this year |
@@ -31,6 +32,17 @@ and link each heatmap day to its breakdown.
 | `/.well-known/api-catalog` | RFC 9727 API catalogue as a JSON Linkset |
 
 ## Layout
+
+The board and account pages show recent achievements. `/achievements` browses a
+selected year's milestones, daily record improvements and GitHub anniversaries
+without requiring JavaScript. History is reconstructed from contribution dates
+using the current milestone ladders; late pushes and visibility changes can revise
+it, and today's counts are provisional. Records reset yearly, exclude the first
+active day's baseline, and combine a personal best with its matching board record.
+Board achievements use the current roster. Each view reads only its selected
+year's daily calendar and cached finished-year totals for lifetime offsets.
+Incomplete sources suppress lifetime or board achievements while leaving supported
+personal entries available.
 
 - `worker/github.ts` — the people/account mapping (`PEOPLE`), the contribution
   fetches and their retries, and the batched archive fetch behind `/all`.

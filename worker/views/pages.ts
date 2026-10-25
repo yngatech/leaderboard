@@ -35,6 +35,7 @@ import { cumulativeChartHtml } from "./chart.ts";
 import { MIN_PAGE_YEAR, SITE, hrefForYear, pageHtml, type SiteChrome } from "./layout.ts";
 import { allTimeRowHtml, boardGoalLineHtml, goalRailHtml, rowGapHtml, userRowHtml } from "./rows.ts";
 import { dayTitle, heatmapSvg, yearStripSvg } from "./svg.ts";
+import { recentAchievementsHtml, type RecentAchievementsOptions } from "./achievements.ts";
 
 const SITE_DESCRIPTION =
   "GitHub contribution leaderboard and heatmaps for the ynga.tech friends.";
@@ -126,6 +127,7 @@ export interface YearPageOptions {
   today: string;
   generatedAt: string | null;
   missing: string[];
+  achievements?: RecentAchievementsOptions;
 }
 
 export function yearPageHtml(options: YearPageOptions): string {
@@ -208,7 +210,8 @@ export function yearPageHtml(options: YearPageOptions): string {
     </section>
     ${sectionRuleHtml("the board")}
     <main class="flex flex-col gap-[0.6rem]">${rowsHtml}</main>
-    ${missingNoteHtml(options.missing)}${chartHtml}`;
+    ${missingNoteHtml(options.missing)}${chartHtml}
+    ${options.achievements ? recentAchievementsHtml(options.achievements) : null}`;
 
   return pageHtml({
     chrome,
@@ -371,6 +374,7 @@ function ledgerHtml(fields: LedgerField[]): Html | null {
 }
 
 export interface UserPageOptions {
+  achievements?: RecentAchievementsOptions;
   breakdown?: ContributionBreakdown | null;
   dayBreakdown?: ContributionBreakdown | null;
   day?: string;
@@ -824,7 +828,9 @@ export function userPageHtml(options: UserPageOptions): string {
   });
 
   // Day links land on the year's heading, so the heatmap stays in view under it.
-  const main = html`${identityCard}${sectionRuleHtml(year, "year")}${liveSection}${sectionRuleHtml("where contributions came from")}
+  const main = html`${identityCard}${sectionRuleHtml(year, "year")}${liveSection}
+    ${options.achievements ? recentAchievementsHtml(options.achievements) : null}
+    ${sectionRuleHtml("where contributions came from")}
     ${yearBreakdown ? breakdownHtml(yearBreakdown) : html`<p class="text-[0.75rem] text-muted">Breakdown unavailable right now.</p>`}
     ${cardSectionHtml(user.login)}`;
 
