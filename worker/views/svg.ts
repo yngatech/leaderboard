@@ -93,7 +93,7 @@ export function heatmapSvg(weeks: Grid, options: HeatmapOptions): Html {
     for (const tick of ticks) {
       parts.push(
         html`<text
-          class="fill-dimmer font-mono text-[10px] tracking-[0.06em]"
+          class="fill-muted font-mono text-[10px] tracking-[0.06em]"
           x="${tick.x}"
           y="${MONTH_BAND - 6}"
           >${tick.label}</text
@@ -220,7 +220,7 @@ export function yearStripSvg(cells: YearCell[], options: YearStripOptions): Html
     cells.forEach((item, index) => {
       parts.push(
         html`<text
-          class="fill-dimmer font-mono text-[10px] tracking-[0.06em]"
+          class="fill-muted font-mono text-[10px] tracking-[0.06em]"
           x="${index * pitch}"
           y="${LABEL_BAND - 6}"
           >${item.year}</text

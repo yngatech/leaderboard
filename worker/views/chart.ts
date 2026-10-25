@@ -436,7 +436,7 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
           y2="${yAt(value).toFixed(1)}"
         ></line
         ><text
-          class="fill-dimmer font-mono text-[10px] tracking-[0.06em]"
+          class="fill-muted font-mono text-[10px] tracking-[0.06em]"
           x="${padLeft - 8}"
           y="${(yAt(value) + 3).toFixed(1)}"
           text-anchor="end"
@@ -447,7 +447,7 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
   for (const month of months) {
     backdrop.push(
       html`<text
-        class="fill-dimmer font-mono text-[10px] tracking-[0.06em]"
+        class="fill-muted font-mono text-[10px] tracking-[0.06em]"
         x="${(month.x + 2).toFixed(1)}"
         y="${height - 7}"
         >${month.label}</text
@@ -463,7 +463,7 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
         y2="${baseline}"
       ></line
       ><text
-        class="fill-dim font-mono text-[9px] tracking-[0.12em] uppercase"
+        class="fill-secondary font-mono text-[10px] font-medium"
         x="${todayLabelX.toFixed(1)}"
         y="${PAD_TOP - 8}"
         text-anchor="${todayTight ? "end" : "start"}"
@@ -479,7 +479,7 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
     .map(
       (entry) =>
         html`<path
-          class="fill-none [stroke:var(--series,var(--color-dim))] [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:1.75]"
+          class="fill-none [stroke:var(--series,var(--color-muted))] [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:1.75]"
           data-series="${entry.index % SERIES_COLOURS.length}"
           d="${entry.d}"
           style="--series:${entry.colour}"
@@ -495,7 +495,7 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
     .map(
       (entry) =>
         html`<circle
-          class="[fill:var(--series,var(--color-dim))] stroke-void [stroke-width:1]"
+          class="[fill:var(--series,var(--color-muted))] stroke-void [stroke-width:1]"
           data-series="${entry.index % SERIES_COLOURS.length}"
           cx="${xAt(entry.item.points.length - 1).toFixed(1)}"
           cy="${yAt(entry.item.total).toFixed(1)}"
@@ -521,18 +521,18 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
     ];
     for (const label of railLabels) {
       const meta = label.rank
-        ? html`<tspan class="fill-faint">${label.rank}</tspan
-            ><tspan class="fill-dim tabular-nums" dx="${RANK_DX}">${label.total}</tspan>`
-        : html`<tspan class="fill-dim tabular-nums">${label.total}</tspan>`;
+        ? html`<tspan class="fill-muted">${label.rank}</tspan
+            ><tspan class="fill-secondary tabular-nums" dx="${RANK_DX}">${label.total}</tspan>`
+        : html`<tspan class="fill-secondary tabular-nums">${label.total}</tspan>`;
       railParts.push(
         html`<g style="--series:${label.colour}">
           <path
-            class="fill-none [stroke:var(--series,var(--color-dim))] [stroke-linecap:round] [stroke-width:1] opacity-40"
+            class="fill-none [stroke:var(--series,var(--color-muted))] [stroke-linecap:round] [stroke-width:1] opacity-40"
             data-series="${label.index % SERIES_COLOURS.length}"
             d="${label.link}"
           ></path>
           <rect
-            class="[fill:var(--series,var(--color-dim))]"
+            class="[fill:var(--series,var(--color-muted))]"
             x="${rail.ruleX.toFixed(1)}"
             y="${(label.y - RAIL_RULE_H / 2).toFixed(1)}"
             width="${RAIL_RULE_W}"
@@ -563,7 +563,7 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
   if (keyItems.length > 0) {
     const heading = rail
       ? html`<h3
-          class="pt-px text-[0.6rem] leading-[11px] tracking-[0.2em] text-dimmer uppercase max-phone:basis-full max-phone:tracking-[0.14em]"
+          class="pt-px text-[0.72rem] leading-[1.4] font-medium text-secondary max-phone:basis-full"
         >
           the rest
         </h3>`
@@ -580,7 +580,7 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
             style="--series:${seriesColour(entry.index)}"
           >
             <span
-              class="h-5 w-[2px] flex-none rounded-full [background:var(--series,var(--color-dim))]"
+              class="h-5 w-[2px] flex-none rounded-full [background:var(--series,var(--color-muted))]"
               aria-hidden="true"
             ></span
             ><span class="min-w-0"
@@ -589,8 +589,8 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
                 >${entry.item.login}</span
               ><span
                 class="mt-0.5 flex items-baseline gap-[0.5rem] text-[9.5px] leading-[9.5px] tracking-[0.04em]"
-                ><span class="text-faint">${formatRank(entry.rank)}</span
-                ><span class="text-dim tabular-nums"
+                ><span class="text-muted">${formatRank(entry.rank)}</span
+                ><span class="text-secondary tabular-nums"
                   >${formatNumber(entry.item.total)}</span
                 ></span
               ></span
@@ -628,7 +628,7 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
     aria-labelledby="climb-heading"
   >
     <div
-      class="mb-[0.9rem] flex flex-wrap items-center gap-x-[0.85rem] gap-y-2 text-[0.66rem] tracking-[0.2em] text-dimmer uppercase max-phone:tracking-[0.14em]"
+      class="mb-[0.9rem] flex flex-wrap items-center gap-x-[0.85rem] gap-y-2 text-[0.78rem] font-medium text-secondary"
     >
       <h2 id="climb-heading">cumulative contributions</h2>
       <span class="h-px min-w-6 flex-[1_1_24px] bg-line-soft" aria-hidden="true"></span>

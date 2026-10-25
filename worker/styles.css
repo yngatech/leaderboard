@@ -2,7 +2,7 @@
 
 /* ---------------------------------------------------------------------------
    Theme
-   Every value here is exposed to Tailwind as a utility: bg-panel, text-dim,
+   Every value here is exposed to Tailwind as a utility: bg-panel, text-muted,
    fill-heat-3, border-line-soft, font-display, animate-rise, max-wide:*, …
    Component layout and typography live in the JSX, not in this file.
 --------------------------------------------------------------------------- */
@@ -23,11 +23,13 @@
   --color-line-soft: #1a1f38;
   --color-future-line: rgba(236, 234, 247, 0.09);
   --color-public: #c9c6e6;
+  /* Three text roles: names/totals, supporting copy, and metadata. Keep heat
+     colours for data and awards rather than adding more text shades.
+     DM Mono uses 400 for reading and 500 for emphasis; the display face uses
+     600 for names and 800 for headline figures. */
   --color-ink: #eceaf7;
-  --color-dim: #918fb4;
-  --color-dimmer: #8986ad;
-  /* One real step below dimmer, for a number that qualifies another number. */
-  --color-faint: #7a7899;
+  --color-secondary: #b9b6d1;
+  --color-muted: #9693b0;
 
   --font-display: "Bricolage Grotesque", "Trebuchet MS", system-ui, sans-serif;
   --font-mono: "DM Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
@@ -62,7 +64,7 @@
     background: var(--color-void);
     color: var(--color-ink);
     font-family: var(--font-mono);
-    font-weight: 300;
+    font-weight: 400;
     line-height: normal;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
@@ -212,7 +214,7 @@
 }
 a[data-day]:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .breakdown-private {
-  background: repeating-linear-gradient(135deg, var(--color-line) 0 3px, var(--color-faint) 3px 6px);
+  background: repeating-linear-gradient(135deg, var(--color-line) 0 3px, var(--color-muted) 3px 6px);
 }
 #day-breakdown[aria-busy="true"] {
   opacity: 0.45;
