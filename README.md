@@ -29,7 +29,7 @@ and link each heatmap day to its breakdown.
 | `/api/all` | All-time JSON |
 | `/api/users/{login}` | One account's all-time totals and current-year daily JSON |
 | `/api/users/{login}/breakdown` | Contribution types and public repositories; optional `?date=YYYY-MM-DD` |
-| `/api/users/{login}/insights` | Durable Object current-year public PR style summary; 202 while awaiting cron collection |
+| `/api/users/{login}/insights` | Durable Object current-year public PR style summary; 202 while awaiting alarm collection |
 | `/.well-known/api-catalog` | RFC 9727 API catalogue as a JSON Linkset |
 
 ## Layout
@@ -237,9 +237,9 @@ Intent uses a known title prefix (Conventional Commits or bracket tag), then a t
 
 Agent-attributed means a recognized disclosure in the PR body, a commit coauthor trailer, or a recognized agent author/coauthor identity. The summary retains those evidence categories separately, deduplicates repeated markers per PR, and shows overlapping agent-family counts. Dependabot and Renovate identities do not count. Commit inspection is bounded to the first 50 commits and first 5 authors each, with incomplete coverage reported. Markers can describe prose or inherited history; neither attribution nor its absence establishes who wrote the code. Only PR-contained commit metadata is inspected; there is no commit-history crawl.
 
-Every 10-minute cron also refreshes one due person's insights, at most once per day per summary. The existing SQLite-backed `LeaderState` Durable Object stores only computed summaries under `insights:<year>:<primaryLogin>`, with a schema version field; raw bodies, messages and author emails stay in collection memory. Account changes and schema version mismatches treat the summary as missing. Refresh attempts are serialized separately from notifications and keep a timestamp under `insights-attempt:<year>:<primaryLogin>` for the one-hour failure cooldown. Collection failures preserve the last valid summary. Page and JSON requests only read the Durable Object and never initiate collection. Missing, malformed or unavailable summaries hide the panel and return HTTP 202 from the JSON endpoint. JSON accepts GET/HEAD and uses the same canonical roster logins as other user APIs.
+Every 10-minute alarm also refreshes one due person's insights, at most once per day per summary. Board and insights refreshes run independently; a failure in either leaves the other refresh and the next alarm intact. The existing SQLite-backed `LeaderState` Durable Object stores only computed summaries under `insights:<year>:<primaryLogin>`, with a schema version field; raw bodies, messages and author emails stay in collection memory. Account changes and schema version mismatches treat the summary as missing. Alarm callbacks serialize refresh attempts, which keep a timestamp under `insights-attempt:<year>:<primaryLogin>` for the one-hour failure cooldown. Collection failures preserve the last valid summary. Page and JSON requests only read the Durable Object and never initiate collection. Missing, malformed or unavailable summaries hide the panel and return HTTP 202 from the JSON endpoint. JSON accepts GET/HEAD and uses the same canonical roster logins as other user APIs.
 
-Summaries have no automatic expiry and are available across Cloudflare locations through the shared object. Preview builds currently omit the Durable Object binding and cron, so they omit the panel; any environment with the binding can read its stored summaries without collecting on visits. Locally, `curl http://localhost:5173/cdn-cgi/handler/scheduled` runs one refresh tick; repeat after it finishes to populate the next person.
+Summaries have no automatic expiry and are available across Cloudflare locations through the shared object. Native PR previews collect and store insights in their isolated Durable Object. Local development and `npm run preview` disable alarm startup and execution; environments with the binding can still read previously stored summaries without collecting on visits. `npm run test:worker` exercises alarm-driven collection with synthetic GitHub responses in workerd.
 
 ## Development
 

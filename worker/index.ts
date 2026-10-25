@@ -1762,11 +1762,18 @@ export class LeaderState extends DurableObject<Env> {
     // Persist the next run before external I/O. An upstream outage must not
     // exhaust alarm retries and leave the board permanently stopped.
     await this.ctx.storage.setAlarm(Date.now() + BOARD_REFRESH_INTERVAL_MS);
-    try {
-      await this.refreshBoard();
-    } catch (error) {
+    const [board, insights] = await Promise.allSettled([
+      this.refreshBoard(),
+      this.refreshInsights(),
+    ]);
+    if (board.status === "rejected") {
       console.error("board alarm refresh failed", {
-        error: error instanceof Error ? error.message : String(error),
+        error: board.reason instanceof Error ? board.reason.message : String(board.reason),
+      });
+    }
+    if (insights.status === "rejected") {
+      console.error("insights alarm refresh failed", {
+        error: insights.reason instanceof Error ? insights.reason.message : String(insights.reason),
       });
     }
   }
@@ -1939,9 +1946,9 @@ export class LeaderState extends DurableObject<Env> {
     return storedInsights(this.ctx.storage, login, year);
   }
 
-  async refreshInsights(): Promise<void> {
-    // GitHub fetches open the input gate. Serialize refreshes independently of notifications.
-    return this.insightsUpdates.run(async () => refreshInsights(this.ctx.storage, await githubToken(this.env)));
+  private async refreshInsights(): Promise<void> {
+    if (!hasGitHubCredentials(this.env, GITHUB_AUTH)) return;
+    await refreshInsights(this.ctx.storage, await githubToken(this.env, GITHUB_AUTH));
   }
 }
 
@@ -2240,18 +2247,5 @@ export default {
     const markdown = await routeMarkdown(url, readOnly, env, ctx);
     if (markdown) return markdown;
     return routePage(request, url, readOnly, env, ctx);
-  },
-
-  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
-    const [board, insights] = await Promise.allSettled([
-      refreshBoard(env),
-      leaderState(env).refreshInsights(),
-    ]);
-    if (insights.status === "rejected") {
-      console.error("insights refresh failed", {
-        message: insights.reason instanceof Error ? insights.reason.message : String(insights.reason),
-      });
-    }
-    if (board.status === "rejected") throw board.reason;
   },
 } satisfies ExportedHandler<Env>;

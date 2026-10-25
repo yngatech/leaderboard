@@ -188,7 +188,7 @@ test("stored summaries round trip by person and year; old versions and changed a
   assert.equal(await storedInsights(storage, login, 2026), null);
 });
 
-test("storage miss does no network work; cron stores one person per tick and refreshes only after a day", async (t) => {
+test("storage miss does no network work; refresh stores one person per tick and refreshes only after a day", async (t) => {
   const { entries, storage } = memoryStorage();
   let requests = 0;
   t.mock.method(globalThis, "fetch", async () => { requests += 1; return searchResponse([]); });
@@ -209,7 +209,7 @@ test("storage miss does no network work; cron stores one person per tick and ref
   assert.equal((await storedInsights(storage, PEOPLE[0].accounts[0], 2026))?.generatedAt, "2026-01-11T12:00:00.000Z");
 });
 
-test("a failed cron attempt preserves stored data, skips to the next person, and retries after an hour", async (t) => {
+test("a failed refresh attempt preserves stored data, skips to the next person, and retries after an hour", async (t) => {
   const { storage } = memoryStorage();
   const login = PEOPLE[0].accounts[0];
   t.mock.method(globalThis, "fetch", async () => searchResponse([]));
