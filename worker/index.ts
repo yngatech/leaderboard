@@ -16,6 +16,7 @@ import { absentCardSvg, cardSvg } from "./views/card";
 import { apiCatalog } from "./api-catalog";
 import { BOARD_SNAPSHOT_KEY, usableSnapshot, type BoardSnapshot } from "./board-snapshot";
 import {
+  allTimeMilestoneNotification,
   cakeDayNotification,
   discordWebhookPayload,
   discordWebhookUrl,
@@ -64,13 +65,17 @@ import monoFont from "./fonts/mono.woff2?inline";
 import enhanceUrl from "./enhance.js?url";
 import stylesUrl from "./styles.css?url";
 import {
+  allTimeMilestoneUsers,
+  deliverAllTimeMilestones,
   deliverCakeDays,
   deliverMilestones,
   deliverStandings,
   ordinal,
+  planAllTimeMilestones,
   planCakeDays,
   planMilestones,
   planStandings,
+  type AllTimeMilestoneState,
   type BoardMilestoneEvent,
   type BoardRecordEvent,
   type CakeDayState,
@@ -509,7 +514,8 @@ function renderAllTimeMarkdown(
  * HTML fetches stay well inside this Workers Paid plan's 1,000-subrequest limit.
  */
 async function archiveTotals(
-  ctx: ExecutionContext,
+  ctx: Pick<ExecutionContext, "waitUntil">,
+  requireComplete = false,
 ): Promise<
   { ok: true; archive: ArchiveTotals; stale: boolean } | { ok: false; status: number; message: string }
 > {
@@ -536,7 +542,12 @@ async function archiveTotals(
 
   const hit = await cache.match(cacheKey);
   if (hit) {
-    return { ok: true, archive: (await hit.json()) as ArchiveTotals, stale: isStaleCopy(hit) };
+    const archive = (await hit.json()) as ArchiveTotals;
+    // Lifetime checks retry missing history on the next alarm, even when a
+    // partial archive remains usable for a page with a missing-data notice.
+    if (!requireComplete || shouldUpdateNotifications(archive.missing)) {
+      return { ok: true, archive, stale: isStaleCopy(hit) };
+    }
   }
 
   try {
@@ -1671,10 +1682,14 @@ export class LeaderState extends DurableObject<Env> {
 
     // Alarm handlers run one at a time. Save the board before posting so a
     // slow or failed webhook does not hold back the site's snapshot.
-    await this.updateStandings(year, board);
-    await this.updateDailyRecords({ year, board }, today);
-    await this.updateMilestones(year, board);
-    await this.updateCakeDays(today, board);
+    // Wait for both groups even when one fails, preserving each checkpoint.
+    const results = await Promise.allSettled([
+      this.updateYearlyNotifications(year, board, today),
+      this.updateAllTimeMilestones(year, board),
+    ]);
+    for (const result of results) {
+      if (result.status === "rejected") throw result.reason;
+    }
   }
 
   private async notify(notification: DiscordNotification): Promise<void> {
@@ -1771,6 +1786,32 @@ export class LeaderState extends DurableObject<Env> {
       plan,
       (event) => this.notify(cakeDayNotification(event, userIds)),
       (state) => this.ctx.storage.put("cake-days", state),
+    );
+  }
+
+  private async updateYearlyNotifications(year: number, board: Board, today: string): Promise<void> {
+    await this.updateStandings(year, board);
+    await this.updateDailyRecords({ year, board }, today);
+    await this.updateMilestones(year, board);
+    await this.updateCakeDays(today, board);
+  }
+
+  private async updateAllTimeMilestones(year: number, board: Board): Promise<void> {
+    const archive = await archiveTotals(this.ctx, true);
+    if (!archive.ok || archive.stale) {
+      console.warn("all-time milestones skipped for unavailable archive", { year });
+      return;
+    }
+    const users = allTimeMilestoneUsers(year, board, archive.archive);
+    if (!users) {
+      console.warn("all-time milestones skipped for incomplete archive", { year });
+      return;
+    }
+    const previous = await this.ctx.storage.get<AllTimeMilestoneState>("all-time-milestones");
+    await deliverAllTimeMilestones(
+      planAllTimeMilestones(users, previous),
+      (event) => this.notify(allTimeMilestoneNotification(event)),
+      (state) => this.ctx.storage.put("all-time-milestones", state),
     );
   }
 

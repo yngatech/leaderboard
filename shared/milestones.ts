@@ -11,6 +11,11 @@ export const PERSONAL_MILESTONES = [
 export const LEGACY_PERSONAL_MILESTONES = [
   100, 250, 500, 1000, 2500, 5000, 7500, 10000, 15000, 20000, 25000, 50000,
 ];
+/** Lifetime goals stay independent of yearly targets and legacy migrations. */
+export const ALL_TIME_PERSONAL_MILESTONES = [
+  100, 250, 500, 1000, 2500, 5000, 7500, 10000, 12500, 15000, 17500,
+  20000, 22500, 25000, 30000, 40000, 50000, 75000, 100000,
+];
 export const BOARD_MILESTONES = [
   1000, 2500, 5000, 7500, 10000, 15000, 20000, 25000, 50000, 75000, 100000,
 ];

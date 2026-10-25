@@ -1,6 +1,6 @@
 import { joinDay } from "../shared/cakeday.ts";
-import { formatDayYear } from "../shared/format.ts";
-import type { CakeDayEvent } from "./notifications.ts";
+import { formatDayYear, formatNumber } from "../shared/format.ts";
+import type { CakeDayEvent, PersonalMilestoneEvent } from "./notifications.ts";
 import { SITE } from "./views/layout.ts";
 
 const DISCORD_USER_ID = /^[1-9]\d{16,19}$/;
@@ -50,6 +50,19 @@ export interface DiscordComponentsNotification {
 }
 
 export type DiscordNotification = DiscordEmbedNotification | DiscordComponentsNotification;
+
+export function allTimeMilestoneNotification(event: PersonalMilestoneEvent): DiscordEmbedNotification {
+  return {
+    kind: "embed",
+    embed: {
+      title: "All-time contribution milestone",
+      url: `${SITE}/u/${encodeURIComponent(event.login)}`,
+      description: `[${event.login}](${event.url}) has reached **${formatNumber(event.threshold)} contributions** all time.`,
+      color: 0x58a6ff,
+      thumbnail: { url: event.avatarUrl },
+    },
+  };
+}
 
 export interface AllowedMentions {
   parse: string[];
