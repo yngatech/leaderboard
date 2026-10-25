@@ -103,6 +103,24 @@ test("Discord failure keeps the fresh board and retries undelivered notification
   assert.equal(app.posts.length, delivered);
 });
 
+test("an alarm due during a Discord post waits without duplicating notifications", async (t) => {
+  const app = await setup(t);
+  const baseline = await app.refreshed();
+  app.setCount(42);
+  app.pauseDiscord();
+  await app.state("wake");
+  const posting = await app.until((state) => state.active === 1 && app.attempts() > 0);
+  assert.equal(posting.values["board-snapshot"]?.board[0].totalContributions, 42);
+
+  await app.state("wake");
+  app.resumeDiscord();
+  const finished = await app.until((state) => state.completed === baseline.completed + 2);
+  assert.equal(finished.maxActive, 1);
+  assert.ok(app.posts.length > 0);
+  assert.equal(new Set(app.posts.map((post) => JSON.stringify(post))).size, app.posts.length);
+  assertNextRun(finished);
+});
+
 test("without a webhook an alarm still refreshes the site's snapshot", async (t) => {
   const app = await setup(t, { webhook: false });
   await app.state("snapshot");

@@ -179,7 +179,7 @@ to ping Discord users.
 
 The same alarm check stores the current-year board it fetched in the
 Durable Object, and the site renders the year in progress from that snapshot,
-so the board and Discord always show the same numbers. A check that gets a
+so the board and notification checks share one source. A check that gets a
 partial board from GitHub leaves the last full one in place. If no snapshot is
 newer than 30 minutes (local development, preview builds, a stopped alarm), the
 site fetches the board from GitHub itself and caches it for 5 minutes.
@@ -239,11 +239,10 @@ pages and API routes.
 
 Cloudflare cannot generate preview URLs for a Worker that implements a Durable
 Object. When Workers Builds identifies the connected Worker as
-`leaderboard-preview`, `vite.config.ts` therefore removes the
-Durable Object, migration and production route from the generated
-deployment config. The production Worker build retains all three. The preview
-Worker has its own GitHub App secrets, but no Discord webhook; it cannot run
-notifications or change their state.
+`leaderboard-preview`, `vite.config.ts` removes the Durable Object, migration
+and production route from its generated config. The preview fetches board data
+directly from GitHub using its own App credentials, without background checks
+or Discord notifications.
 
 The root `wrangler.jsonc` intentionally remains named `leaderboard`. The Vite
 build writes the matching `leaderboard-preview` name into its generated Wrangler

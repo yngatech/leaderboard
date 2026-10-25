@@ -14,7 +14,7 @@ import { nextMilestone, PERSONAL_MILESTONES } from "../shared/milestones";
 import { badgeSvg, type BadgeInput, type BadgeKind } from "./views/badge";
 import { absentCardSvg, cardSvg } from "./views/card";
 import { apiCatalog } from "./api-catalog";
-import { BOARD_SNAPSHOT_KEY, supersedes, usableSnapshot, type BoardSnapshot } from "./board-snapshot";
+import { BOARD_SNAPSHOT_KEY, usableSnapshot, type BoardSnapshot } from "./board-snapshot";
 import {
   cakeDayNotification,
   discordWebhookPayload,
@@ -82,7 +82,6 @@ import {
   type PersonalBestEvent,
   type StandingNotification,
   type StandingState,
-  SerialTaskQueue,
   shouldUpdateNotifications,
   updateDailyRecordYears,
   type YearBoard,
@@ -1632,9 +1631,7 @@ function standingOvertakeEmbed(
  * checkpoints in the existing object, preserving notification history.
  */
 export class LeaderState extends DurableObject<Env> {
-  /** External webhook fetches open the DO input gate, so queue whole updates. */
-  private readonly updates = new SerialTaskQueue();
-  /** Parsed once per object instance so a bad secret warns promptly, not twice an hour. */
+  /** Parsed once per object instance. */
   private discordUserIds?: ReadonlyMap<string, string>;
 
   async alarm(): Promise<void> {
@@ -1668,11 +1665,16 @@ export class LeaderState extends DurableObject<Env> {
       console.warn("board refresh skipped for incomplete board", { year, missing });
       return;
     }
-    await this.publish(
-      { year, board, generatedAt },
-      todayIso(),
-      Boolean(this.env.DISCORD_WEBHOOK_URL),
-    );
+    const today = todayIso();
+    await this.ctx.storage.put(BOARD_SNAPSHOT_KEY, { year, board, generatedAt });
+    if (!this.env.DISCORD_WEBHOOK_URL) return;
+
+    // Alarm handlers run one at a time. Save the board before posting so a
+    // slow or failed webhook does not hold back the site's snapshot.
+    await this.updateStandings(year, board);
+    await this.updateDailyRecords({ year, board }, today);
+    await this.updateMilestones(year, board);
+    await this.updateCakeDays(today, board);
   }
 
   private async notify(notification: DiscordNotification): Promise<void> {
@@ -1736,8 +1738,8 @@ export class LeaderState extends DurableObject<Env> {
         put: (key, state) => this.ctx.storage.put(key, state),
         delete: (key) => this.ctx.storage.delete(key),
       },
-      // Fetched here, inside the queued notification work, so the live board
-      // is already saved for the site and never waits on the finished year.
+      // The live board is already saved for the site and never waits on the
+      // finished year.
       (year) => finishedBoard(this.env, year),
       (year, notification) =>
         this.notify({ kind: "embed", embed: dailyRecordEmbed(year, notification) }),
@@ -1770,31 +1772,6 @@ export class LeaderState extends DurableObject<Env> {
       (event) => this.notify(cakeDayNotification(event, userIds)),
       (state) => this.ctx.storage.put("cake-days", state),
     );
-  }
-
-  /**
-   * Saves the board a check fetched, then sends its notifications.
-   * The save sits outside the update queue so a slow Discord post cannot hold
-   * the site's numbers back. A check that finished after a newer one is
-   * dropped whole: its board would roll the site back, and its notifications
-   * would announce an order the site no longer shows.
-   */
-  async publish(snapshot: BoardSnapshot, today: string, notify: boolean): Promise<void> {
-    const current = await this.ctx.storage.get<BoardSnapshot>(BOARD_SNAPSHOT_KEY);
-    if (!supersedes(snapshot, current)) return;
-    await this.ctx.storage.put(BOARD_SNAPSHOT_KEY, snapshot);
-    if (!notify) return;
-
-    const { year, board } = snapshot;
-    return this.updates.run(async () => {
-      // A newer check may have saved its board while this one waited.
-      const latest = await this.ctx.storage.get<BoardSnapshot>(BOARD_SNAPSHOT_KEY);
-      if (latest?.generatedAt !== snapshot.generatedAt) return;
-      await this.updateStandings(year, board);
-      await this.updateDailyRecords({ year, board }, today);
-      await this.updateMilestones(year, board);
-      await this.updateCakeDays(today, board);
-    });
   }
 
   async boardSnapshot(year: number): Promise<BoardSnapshot | null> {

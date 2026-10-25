@@ -145,7 +145,7 @@ export function isLiveWindow(window: BreakdownWindow, now: Date): boolean {
 /**
  * A live day is one cheap query and keeps to the minute. The year so far is
  * the slow one (seconds, not milliseconds) and every user page renders it,
- * so it keeps the board's own half-hour; the page reconciles any gap.
+ * so it caches for half an hour; the page reconciles any gap with the board.
  */
 export function breakdownTtl(window: BreakdownWindow, now: Date): number {
   if (!isLiveWindow(window, now)) return 30 * 24 * 60 * 60;
