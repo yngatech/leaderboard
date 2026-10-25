@@ -93,9 +93,10 @@ export interface RecentAchievementsOptions {
 
 export function recentAchievementsHtml(options: RecentAchievementsOptions): Html {
   const events = achievementFeed(options.events, options.login).slice(0, 4);
-  return html`<section id="achievements" class="mt-8 scroll-mt-4" aria-labelledby="achievements-heading">
-    <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 border-b border-line pb-3">
-      <h2 id="achievements-heading" class="font-display text-[1.25rem] font-semibold tracking-[-0.025em] text-ink">Recent achievements</h2>
+  return html`<section id="achievements" class="mt-[clamp(2.25rem,5vw,3.25rem)] scroll-mt-4" aria-labelledby="achievements-heading">
+    <div class="mb-4 flex flex-wrap items-center gap-x-[0.85rem] gap-y-2 text-[0.78rem] font-medium text-secondary">
+      <h2 id="achievements-heading">recent achievements</h2>
+      <span class="h-px min-w-6 flex-[1_1_24px] bg-line-soft" aria-hidden="true"></span>
       <a class="text-[0.72rem] font-medium text-secondary underline decoration-line underline-offset-4 hover:text-accent"
         href="${achievementsHref(options.year, options.login)}">View achievements</a>
     </div>
