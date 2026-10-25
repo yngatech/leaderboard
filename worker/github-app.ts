@@ -1,11 +1,11 @@
 import { GitHubError } from "./github.ts";
 
 /**
- * The GitHub App installation the board reads GitHub as. Its tokens have their
- * own rate limit, unlike a personal token, which shares its owner's limit with
- * everything else they run.
+ * Deployed Workers use the GitHub App installation's rate limit. A personal
+ * token is also accepted when the caller explicitly allows local development.
  */
 export interface GitHubCredentials {
+  GITHUB_TOKEN?: string;
   GITHUB_APP_ID?: string;
   GITHUB_APP_INSTALLATION_ID?: string;
   /** PKCS#8 PEM (`BEGIN PRIVATE KEY`), as WebCrypto cannot import PKCS#1. */
@@ -24,8 +24,15 @@ const REFRESH_MARGIN_MS = 5 * 60 * 1000;
 let cached: InstallationToken | null = null;
 let minting: Promise<InstallationToken> | null = null;
 
-export function hasGitHubCredentials(env: GitHubCredentials): boolean {
+export const GITHUB_APP_CREDENTIALS_MISSING =
+  "The board is missing its GitHub App credentials. Set the GITHUB_APP_* secrets.";
+
+function appConfigured(env: GitHubCredentials): boolean {
   return Boolean(env.GITHUB_APP_ID && env.GITHUB_APP_INSTALLATION_ID && env.GITHUB_APP_PRIVATE_KEY);
+}
+
+export function hasGitHubCredentials(env: GitHubCredentials, allowPersonalToken = false): boolean {
+  return appConfigured(env) || Boolean(allowPersonalToken && env.GITHUB_TOKEN);
 }
 
 /** The token to send GitHub. Callers check `hasGitHubCredentials` first. */
@@ -33,7 +40,12 @@ export async function githubToken(
   env: GitHubCredentials,
   now: () => number = Date.now,
   request: typeof fetch = fetch,
+  allowPersonalToken = false,
 ): Promise<string> {
+  if (!appConfigured(env)) {
+    if (allowPersonalToken && env.GITHUB_TOKEN) return env.GITHUB_TOKEN;
+    throw new GitHubError(GITHUB_APP_CREDENTIALS_MISSING, 500);
+  }
   if (cached && cached.expiresAt - REFRESH_MARGIN_MS > now()) return cached.token;
   // Concurrent requests share one exchange rather than each minting a token.
   minting ??= mintInstallationToken(env, now(), request).finally(() => {

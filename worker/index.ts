@@ -34,7 +34,12 @@ import {
   staleCopy,
 } from "./cache-policy";
 import type { ArchiveTotals } from "./github";
-import { githubToken, hasGitHubCredentials, type GitHubCredentials } from "./github-app";
+import {
+  GITHUB_APP_CREDENTIALS_MISSING,
+  githubToken as resolveGitHubToken,
+  hasGitHubCredentials as credentialsAvailable,
+  type GitHubCredentials,
+} from "./github-app";
 import {
   PEOPLE,
   currentYear,
@@ -157,8 +162,18 @@ const HTML_CACHE_PREFIX =
  */
 const AVATAR_CACHE_PREFIX = "https://ynga-git-board.internal/avatar/v1/";
 
-const TOKEN_MISSING =
-  "The board is missing its GitHub App credentials. Set the GITHUB_APP_* secrets.";
+const TOKEN_MISSING = __LOCAL_DEVELOPMENT__
+  ? "The board is missing its GitHub credentials. Set GITHUB_TOKEN in .dev.vars."
+  : GITHUB_APP_CREDENTIALS_MISSING;
+
+function hasGitHubCredentials(env: GitHubCredentials): boolean {
+  return credentialsAvailable(env, __LOCAL_DEVELOPMENT__);
+}
+
+function githubToken(env: GitHubCredentials): Promise<string> {
+  return resolveGitHubToken(env, Date.now, fetch, __LOCAL_DEVELOPMENT__);
+}
+
 /** A fresh fetch, an edge cache entry, or the last good copy standing in. */
 type CacheState = "HIT" | "MISS" | "STALE";
 /**

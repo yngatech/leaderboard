@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { setTimeout } from "node:timers/promises";
@@ -17,6 +18,14 @@ const localPreviewBundle = await readFile(
 export const config = JSON.parse(await readFile(`${buildRoot}wrangler.json`, "utf8"));
 const year = new Date().getUTCFullYear();
 const logins = PEOPLE.flatMap((person) => person.accounts);
+const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const appCredentials = {
+  GITHUB_APP_ID: "12345",
+  GITHUB_APP_INSTALLATION_ID: "678",
+  GITHUB_APP_PRIVATE_KEY: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+};
+const personalToken = "synthetic-personal-token";
+const installationToken = "synthetic-installation-token";
 
 // Only this test subclass exposes storage controls; the real alarm and RPC
 // methods run unchanged in workerd against SQLite storage and fake upstreams.
@@ -51,12 +60,23 @@ export interface State {
 
 export async function setup(
   t: TestContext,
-  options: { credentials?: boolean; webhook?: boolean; localPreview?: boolean } = {},
+  options: {
+    credentials?: false | "app" | "personal" | "partial-app";
+    webhook?: boolean;
+    localPreview?: boolean;
+  } = {},
 ) {
   let mode: "ok" | "github-error" | "partial" | "discord-error" = "ok";
   let leadingCount = 10;
   let queries = 0;
   let attempts = 0;
+  let exchanges = 0;
+  const personal = options.credentials === "personal" || options.credentials === "partial-app";
+  const credentials = options.credentials === false ? {} : {
+    app: { ...appCredentials, GITHUB_TOKEN: personalToken },
+    personal: { GITHUB_TOKEN: personalToken },
+    "partial-app": { GITHUB_TOKEN: personalToken, GITHUB_APP_ID: "12345" },
+  }[options.credentials ?? "app"];
   const posts: unknown[] = [];
   const mf = new Miniflare({
     name: "alarm-test",
@@ -71,12 +91,20 @@ export async function setup(
     compatibilityDate: config.compatibility_date,
     durableObjects: { LEADER_STATE: { className: "TestLeaderState", useSQLite: true } },
     bindings: {
-      ...(options.credentials !== false ? { GITHUB_TOKEN: "synthetic-test-token" } : {}),
+      ...credentials,
       ...(options.webhook !== false ? { DISCORD_WEBHOOK_URL: "https://discord.example/webhook" } : {}),
     },
     log: new Log(LogLevel.NONE),
     outboundService: async (request: MiniflareRequest) => {
       const url = new URL(request.url);
+      if (url.href === "https://api.github.com/app/installations/678/access_tokens") {
+        exchanges++;
+        assert.equal(request.method, "POST");
+        return Response.json({
+          token: installationToken,
+          expires_at: new Date(Date.now() + 3600000).toISOString(),
+        });
+      }
       if (url.hostname === "discord.example") {
         attempts++;
         if (mode === "discord-error") return new Response("unavailable", { status: 503 });
@@ -85,7 +113,29 @@ export async function setup(
       }
       if (url.href === "https://api.github.com/graphql") {
         queries++;
+        assert.equal(request.headers.get("Authorization"), `Bearer ${personal ? personalToken : installationToken}`);
         if (mode === "github-error") return new Response("unavailable", { status: 503 });
+        const body = await request.json() as { query: string; variables: Record<string, string> };
+        if (body.query.includes("query BreakdownQuery")) {
+          return Response.json({ data: Object.fromEntries(
+            Object.entries(body.variables).filter(([key]) => /^l\d+$/.test(key)).map(([key, login]) => [
+              `a${key.slice(1)}`,
+              { login, contributionsCollection: {
+                contributionCalendar: { totalContributions: 3 },
+                restrictedContributionsCount: 0,
+                totalCommitContributions: 2,
+                totalIssueContributions: 1,
+                totalPullRequestContributions: 0,
+                totalPullRequestReviewContributions: 0,
+                totalRepositoryContributions: 0,
+                commitContributionsByRepository: [],
+                issueContributionsByRepository: [],
+                pullRequestContributionsByRepository: [],
+                pullRequestReviewContributionsByRepository: [],
+              } },
+            ]),
+          ) });
+        }
         return Response.json({ data: Object.fromEntries(logins.map((login, i) => [
           `u${i}`,
           mode === "partial" && i === 0 ? null : {
@@ -136,5 +186,6 @@ export async function setup(
     setCount: (count: number) => { leadingCount = count; },
     queries: () => queries,
     attempts: () => attempts,
+    exchanges: () => exchanges,
   };
 }

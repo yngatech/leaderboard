@@ -54,6 +54,9 @@ export default defineConfig(({ command, mode }) => ({
     __BUILD_COMMIT_SHA__: JSON.stringify(buildCommitSha()),
     __DEV__: JSON.stringify(command === "serve"),
     __IS_PREVIEW_BUILD__: JSON.stringify(isWorkersPreviewBuild()),
+    __LOCAL_DEVELOPMENT__: JSON.stringify(
+      (command === "serve" || mode === "local-preview") && env.WORKERS_CI !== "1",
+    ),
     __BOARD_ALARMS_ENABLED__: JSON.stringify(
       command === "build" && mode !== "local-preview" && !isWorkersPreviewBuild(),
     ),

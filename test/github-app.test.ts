@@ -107,3 +107,16 @@ test("credentials count only when every app secret is set", () => {
   assert.equal(hasGitHubCredentials({ ...app, GITHUB_APP_INSTALLATION_ID: "" }), false);
   assert.equal(hasGitHubCredentials({}), false);
 });
+
+test("personal tokens require an explicit local-development allowance", async () => {
+  const request = (async () => assert.fail("no token exchange expected")) as typeof fetch;
+  const personal = { GITHUB_TOKEN: "synthetic-personal-token" };
+  const partial = { ...personal, GITHUB_APP_ID: "12345" };
+
+  for (const env of [personal, partial]) {
+    assert.equal(hasGitHubCredentials(env), false);
+    assert.equal(hasGitHubCredentials(env, true), true);
+    await assert.rejects(githubToken(env, Date.now, request), /missing its GitHub App credentials/);
+    assert.equal(await githubToken(env, Date.now, request, true), personal.GITHUB_TOKEN);
+  }
+});
