@@ -110,13 +110,24 @@ is a record of that year rather than of the day it is read on.
 
 ## Discord notifications
 
-A scheduled Worker checks the current-year board every 10 minutes. When a new
+A Durable Object alarm checks the current-year board every 10 minutes. When a new
 account takes the lead, someone overtakes another account for any board
 position, someone sets a daily contributions PB, someone beats the board's peak
 daily contributions record, or a user or the board reaches a contribution
 milestone, it posts a rich message to Discord. Daily records and milestones
 restart each calendar year. Durable state prevents duplicate messages; the
 first run records a baseline without sending one.
+
+The first live-board read that reaches the Durable Object starts the alarm
+chain; request `/api/board` after deploying to start it once any cached response
+expires. Each alarm saves the next run before fetching GitHub or sending
+notifications, so failures leave another check scheduled. Later live-board
+reads restart the chain if its alarm is missing, without postponing a pending
+check. There is no cron trigger. Local development and preview builds do not
+start alarms. `npm run preview` builds with the `local-preview` mode, which
+disables both alarm startup and execution while retaining production page and
+cache behavior. Serving that build or running dev also stops any persisted
+local alarm before it can fetch or post.
 
 A daily PB or board record is announced at most once per account and day. If
 that day keeps climbing, the rises are saved quietly, and the first check after
@@ -160,11 +171,11 @@ to ping Discord users.
 
 ## Caching
 
-The same scheduled check stores the current-year board it fetched in the
+The same alarm check stores the current-year board it fetched in the
 Durable Object, and the site renders the year in progress from that snapshot,
 so the board and Discord always show the same numbers. A check that gets a
 partial board from GitHub leaves the last full one in place. If no snapshot is
-newer than 30 minutes (local development, preview builds, a stopped cron), the
+newer than 30 minutes (local development, preview builds, a stopped alarm), the
 site fetches the board from GitHub itself and caches it for 5 minutes.
 
 The year in progress caches for 1 minute at the edge and in the browser.
@@ -199,7 +210,8 @@ npm test             # fast unit and renderer tests
 npx playwright install chromium # once per machine
 npm run test:e2e     # progressive-enhancement browser tests
 npm run test:e2e:ui  # interactive runner, opened in T3 Preview
-npm run test:all     # both test suites
+npm run test:worker  # build both alarm modes and run integration tests in workerd
+npm run test:all     # all suites, including a build for the Worker tests
 npm run preview      # build, then serve the built Worker
 npm run deploy       # typecheck, build, wrangler deploy
 ```
@@ -221,9 +233,9 @@ pages and API routes.
 
 Cloudflare cannot generate preview URLs for a Worker that implements a Durable
 Object. When Workers Builds identifies the connected Worker as
-`leaderboard-preview`, `vite.config.ts` therefore removes the notification-only
-Durable Object, migration, cron and production route from the generated
-deployment config. The production Worker build retains all four. The preview
+`leaderboard-preview`, `vite.config.ts` therefore removes the
+Durable Object, migration and production route from the generated
+deployment config. The production Worker build retains all three. The preview
 Worker has its own read-only GitHub token, but no Discord webhook; it cannot run
 notifications or change their state.
 

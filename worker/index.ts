@@ -84,11 +84,11 @@ import {
 } from "./notifications";
 
 export interface Env extends GitHubCredentials {
-  /** Optional locally; production cron checks are enabled when this secret exists. */
+  /** Optional; checks still refresh the board without sending notifications. */
   DISCORD_WEBHOOK_URL?: string;
   /** Optional encrypted JSON map from GitHub logins to Discord user IDs. */
   DISCORD_USER_IDS?: string;
-  /** Omitted from preview versions, which cannot receive scheduled events. */
+  /** Omitted from preview versions, which do not run background checks. */
   LEADER_STATE: DurableObjectNamespace<LeaderState>;
   ASSETS: Fetcher;
 }
@@ -162,17 +162,19 @@ const TOKEN_MISSING =
 /** A fresh fetch, an edge cache entry, or the last good copy standing in. */
 type CacheState = "HIT" | "MISS" | "STALE";
 /**
- * The year in progress keeps moving. Its numbers come from the scheduled
+ * The year in progress keeps moving. Its numbers come from the alarm
  * check's snapshot, so the edge only needs to hold them long enough to spare
  * the Durable Object a read per visitor.
  */
 const LIVE_TTL_SECONDS = 60;
 /**
  * The year in progress when no current snapshot exists (preview builds, local
- * development, a stopped cron) and the board is fetched from GitHub directly.
+ * development, a stopped alarm) and the board is fetched from GitHub directly.
  * Short, so a snapshot that appears is picked up within minutes.
  */
 const UPSTREAM_LIVE_TTL_SECONDS = 5 * 60;
+/** How often the Durable Object refreshes the board and notifications. */
+const BOARD_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 /** Finished years only shift if someone retoggles private-contribution visibility. */
 const ARCHIVE_TTL_SECONDS = 30 * 24 * 60 * 60;
 const BROWSER_TTL_SECONDS = 60;
@@ -297,7 +299,7 @@ function leaderState(env: Env): DurableObjectStub<LeaderState> {
 }
 
 /**
- * The scheduled check's board for the year in progress, when it has a current
+ * The alarm check's board for the year in progress, when it has a current
  * one. Any failure to reach it reads as no snapshot, and the caller goes to
  * GitHub as it did before snapshots existed.
  */
@@ -1489,26 +1491,6 @@ function withBrowserHeaders(
 }
 
 /**
- * One fetch serves both readers: the snapshot the site renders the year in
- * progress from, and the notifications Discord is sent from it.
- */
-async function refreshBoard(env: Env): Promise<void> {
-  if (!hasGitHubCredentials(env)) throw new Error(TOKEN_MISSING);
-
-  const year = currentYear();
-  const generatedAt = new Date().toISOString();
-  const { board, missing } = await fetchBoard(await githubToken(env), year);
-  // A partial board would drop people from the site; the last full one stands
-  // in until it ages out, and notifications wait for the same full board.
-  if (!shouldUpdateNotifications(missing)) {
-    console.warn("board refresh skipped for incomplete board", { year, missing });
-    return;
-  }
-  const notify = Boolean(env.DISCORD_WEBHOOK_URL);
-  await leaderState(env).publish({ year, board, generatedAt }, todayIso(), notify);
-}
-
-/**
  * The finished year's board, re-fetched in the new year's first week so late
  * pushes landing on 31 December are still seen. Null when the fetch fails or
  * comes back incomplete: that year's records wait for the next check.
@@ -1638,14 +1620,52 @@ function standingOvertakeEmbed(
 }
 
 /**
- * Stores notification checkpoints, so scheduled checks cannot post duplicates,
- * and the board those checks last fetched in full.
+ * Runs recurring board checks and stores their snapshot and notification
+ * checkpoints in the existing object, preserving notification history.
  */
 export class LeaderState extends DurableObject<Env> {
   /** External webhook fetches open the DO input gate, so queue whole updates. */
   private readonly updates = new SerialTaskQueue();
   /** Parsed once per object instance so a bad secret warns promptly, not twice an hour. */
   private discordUserIds?: ReadonlyMap<string, string>;
+
+  async alarm(): Promise<void> {
+    // Local storage can retain an alarm from a previously served build.
+    // Disabled builds must stop that chain before any external I/O.
+    if (!__BOARD_ALARMS_ENABLED__) {
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+    // Persist the next run before external I/O. An upstream outage must not
+    // exhaust alarm retries and leave the board permanently stopped.
+    await this.ctx.storage.setAlarm(Date.now() + BOARD_REFRESH_INTERVAL_MS);
+    try {
+      await this.refreshBoard();
+    } catch (error) {
+      console.error("board alarm refresh failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /** One fetch supplies both the site's snapshot and Discord notifications. */
+  private async refreshBoard(): Promise<void> {
+    if (!hasGitHubCredentials(this.env)) throw new Error(TOKEN_MISSING);
+
+    const year = currentYear();
+    const generatedAt = new Date().toISOString();
+    const { board, missing } = await fetchBoard(await githubToken(this.env), year);
+    // A partial fetch leaves the last complete board and checkpoints intact.
+    if (!shouldUpdateNotifications(missing)) {
+      console.warn("board refresh skipped for incomplete board", { year, missing });
+      return;
+    }
+    await this.publish(
+      { year, board, generatedAt },
+      todayIso(),
+      Boolean(this.env.DISCORD_WEBHOOK_URL),
+    );
+  }
 
   private async notify(notification: DiscordNotification): Promise<void> {
     if (!this.env.DISCORD_WEBHOOK_URL) return;
@@ -1745,7 +1765,7 @@ export class LeaderState extends DurableObject<Env> {
   }
 
   /**
-   * Saves the board a scheduled check fetched, then sends its notifications.
+   * Saves the board a check fetched, then sends its notifications.
    * The save sits outside the update queue so a slow Discord post cannot hold
    * the site's numbers back. A check that finished after a newer one is
    * dropped whole: its board would roll the site back, and its notifications
@@ -1770,6 +1790,13 @@ export class LeaderState extends DurableObject<Env> {
   }
 
   async boardSnapshot(year: number): Promise<BoardSnapshot | null> {
+    // A live-board read starts the chain after deployment, or restarts it if
+    // no alarm remains. Visitors never postpone an already scheduled check.
+    if (__BOARD_ALARMS_ENABLED__ && hasGitHubCredentials(this.env)) {
+      if ((await this.ctx.storage.getAlarm()) === null) {
+        await this.ctx.storage.setAlarm(Date.now());
+      }
+    }
     const snapshot = await this.ctx.storage.get<BoardSnapshot>(BOARD_SNAPSHOT_KEY);
     return usableSnapshot(snapshot, year, Date.now());
   }
@@ -2064,9 +2091,5 @@ export default {
     const markdown = await routeMarkdown(url, readOnly, env, ctx);
     if (markdown) return markdown;
     return routePage(request, url, readOnly, env, ctx);
-  },
-
-  scheduled(_controller: ScheduledController, env: Env): Promise<void> {
-    return refreshBoard(env);
   },
 } satisfies ExportedHandler<Env>;
