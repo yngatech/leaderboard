@@ -86,7 +86,7 @@ if (chart && dataBlock) {
 
     const panel = document.createElement("div");
     panel.className =
-      "pointer-events-none absolute z-10 rounded-[9px] border border-line bg-[rgba(8,10,22,0.95)] px-[0.7rem] py-[0.55rem] font-mono text-[0.68rem] leading-[1.5]";
+      "pointer-events-none absolute z-10 rounded-[9px] border border-line bg-[rgba(8,10,22,0.95)] px-[0.7rem] py-[0.55rem] font-mono text-[0.72rem] leading-[1.5]";
     panel.style.display = "none";
     const holder = chart.parentElement;
     holder.appendChild(panel);
@@ -120,7 +120,7 @@ if (chart && dataBlock) {
 
       panel.replaceChildren();
       const heading = document.createElement("p");
-      heading.className = "mb-[0.35rem] text-dimmer tracking-[0.08em] uppercase text-[0.58rem]";
+      heading.className = "mb-[0.35rem] text-secondary font-medium text-[0.72rem]";
       heading.textContent = date;
       panel.appendChild(heading);
       for (const row of rows) {
@@ -133,7 +133,7 @@ if (chart && dataBlock) {
         name.className = "text-ink";
         name.textContent = row.login;
         const total = document.createElement("span");
-        total.className = "ml-auto text-dim tabular-nums";
+        total.className = "ml-auto text-secondary tabular-nums";
         total.textContent = numberFmt.format(row.total);
         line.append(mark, name, total);
         panel.appendChild(line);

@@ -49,14 +49,14 @@ export function boardGoalLineHtml(goal: BoardGoal): Html | null {
     <div
       class="flex flex-wrap items-baseline justify-between gap-x-5 gap-y-1 font-mono text-[0.74rem]"
     >
-      <p class="text-dim">
-        <span class="text-[0.6rem] tracking-[0.18em] text-dimmer uppercase"
+      <p class="text-secondary">
+        <span class="mr-2 inline-block text-[0.72rem] font-medium text-secondary"
           >next board target</span
         >
-        <span class="tabular-nums text-ink">${formatNumber(goal.total)}</span> of
+        <span class="font-medium tabular-nums text-ink">${formatNumber(goal.total)}</span> of
         <span class="tabular-nums">${formatNumber(goal.nextMilestone)}</span>
       </p>
-      <p class="tabular-nums text-dimmer">${formatNumber(goal.remaining ?? 0)} to go</p>
+      <p class="tabular-nums text-muted">${formatNumber(goal.remaining ?? 0)} to go</p>
     </div>
     <div class="mt-[0.6rem]">${goalRailHtml(goal.total, goal.nextMilestone)}</div>
   </div>`;
@@ -74,7 +74,7 @@ export function rowGapHtml(above: BoardUser, below: BoardUser): Html | null {
   const label = `${formatNumber(margin)} ahead`;
   const spoken = `${above.login} leads ${below.login} by ${formatNumber(margin)}`;
   return html`<div
-    class="-my-[0.1rem] flex items-center gap-3 px-[1.3rem] font-mono text-[0.66rem] text-dimmer max-phone:px-4"
+    class="-my-[0.1rem] flex items-center gap-3 px-[1.3rem] font-mono text-[0.72rem] text-muted max-phone:px-4"
   >
     <span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span
     ><span class="tabular-nums" aria-hidden="true">${label}</span
@@ -122,7 +122,7 @@ function userRowBody(options: UserRowOptions): Html {
    *  spacing a screen reader can hear. */
   const cakeDay = cakeYears
     ? html`<span
-        class="flex shrink-0 items-center gap-[0.4rem] rounded-full border border-heat-2/70 bg-heat-2/32 px-[0.6rem] py-[0.25rem] text-[0.7rem] text-ink"
+        class="flex shrink-0 items-center gap-[0.4rem] rounded-full border border-heat-2/70 bg-heat-2/32 px-[0.6rem] py-[0.25rem] text-[0.72rem] text-ink"
         ><span class="text-[0.85rem] leading-none" aria-hidden="true">🎂</span
         ><span class="tabular-nums" aria-hidden="true">${cakeYears}</span
         ><span class="sr-only">cake day — ${cakeYears} on GitHub today</span
@@ -132,12 +132,12 @@ function userRowBody(options: UserRowOptions): Html {
 
   const score = peak
     ? html`<span
-        class="mt-[0.4rem] text-[0.68rem] ${leadsPeak ? "text-accent" : "text-dim"}"
+        class="mt-[0.4rem] text-[0.72rem] ${leadsPeak ? "text-accent" : "text-secondary"}"
         >peak ${formatNumber(peak.count)} on ${formatDayShort(peak.date)}${leadsPeak
           ? html`<span class="sr-only"> — highest single day on the board</span>`
           : null}</span
       >`
-    : html`<span class="mt-[0.4rem] text-[0.68rem] text-dim">no activity</span>`;
+    : html`<span class="mt-[0.4rem] text-[0.72rem] text-secondary">no activity</span>`;
 
   return html`${rankHtml(rank)}
     <a class="[grid-area:avatar]" href="${profileHref}" tabindex="-1"
@@ -150,15 +150,15 @@ function userRowBody(options: UserRowOptions): Html {
         loading="lazy"
     /></a>
     <div class="min-w-0 [grid-area:id]">
-      <div class="flex min-w-0 items-center gap-[0.7rem]">
+      <div class="flex min-w-0 flex-wrap items-center gap-x-[0.7rem] gap-y-1">
         <a
-          class="font-display text-[1.08rem] font-semibold tracking-[-0.015em] text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[3px]"
+          class="max-w-full font-display text-[1.08rem] font-semibold tracking-[-0.015em] break-words text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[3px]"
           href="${profileHref}"
           >${user.login}</a
         >${cakeDay}
       </div>
-      <p class="mt-[0.15rem] text-[0.74rem] text-dim">${user.name ?? "—"}</p>
-<p class="mt-[0.4rem] wrap-sep text-[0.68rem] text-dimmer">
+      <p class="mt-[0.15rem] text-[0.74rem] text-secondary">${user.name ?? "—"}</p>
+      <p class="mt-[0.4rem] wrap-sep text-[0.72rem] text-muted">
         <span>${formatNumber(user.followers)} followers</span
         ><span>${formatNumber(user.following)} following</span
         >${options.currentStreak && options.currentStreak > 1
@@ -175,7 +175,7 @@ function userRowBody(options: UserRowOptions): Html {
     peakDate: peak?.date,
     label: `${user.login} made ${formatNumber(user.totalContributions)} contributions in ${year}`,
   })}</div>
-    <div class="flex flex-col items-end text-right [grid-area:score]">
+    <div class="flex flex-col items-end text-right [grid-area:score] max-phone:flex-row max-phone:flex-wrap max-phone:items-baseline max-phone:gap-x-2 max-phone:gap-y-1 max-phone:text-left max-phone:[&>span]:mt-0 max-phone:[&>span:last-child]:ml-auto">
       <span
         class="font-display text-2xl leading-none font-extrabold tracking-[-0.03em] tabular-nums max-phone:text-[1.2rem] ${leadsTotal
           ? "text-accent"
@@ -183,7 +183,7 @@ function userRowBody(options: UserRowOptions): Html {
         >${formatNumber(user.totalContributions)}${leadsTotal
           ? html`<span class="sr-only"> — highest total on the board</span>`
           : null}</span
-      ><span class="mt-[0.3rem] text-[0.62rem] tracking-[0.12em] text-dimmer uppercase"
+      ><span class="mt-[0.3rem] text-[0.72rem] text-muted"
         >contributions</span
       >${score}
     </div>`;
@@ -191,7 +191,7 @@ function userRowBody(options: UserRowOptions): Html {
 
 /** The rank in the display face: gold for the leader, bright for the podium. */
 function rankHtml(rank: number): Html {
-  const tone = rank === 1 ? "text-accent" : rank <= 3 ? "text-ink" : "text-dimmer";
+  const tone = rank === 1 ? "text-accent" : rank <= 3 ? "text-ink" : "text-muted";
   return html`<div
     class="font-display text-[1.15rem] font-extrabold tracking-[-0.03em] tabular-nums [grid-area:rank] max-phone:text-[0.95rem] ${tone}"
     aria-hidden="true"
@@ -202,7 +202,7 @@ function rankHtml(rank: number): Html {
 
 /** The grid layout the row's cells sit in; shared by the year and all-time rows. */
 const ROW_GRID =
-  "grid grid-cols-[2.5rem_52px_minmax(150px,1fr)_auto_8rem] items-center gap-5 px-[1.3rem] py-4 [grid-template-areas:'rank_avatar_id_plot_score'] max-wide:grid-cols-[2.5rem_52px_minmax(0,1fr)_auto] max-wide:gap-y-4 max-wide:[grid-template-areas:'rank_avatar_id_score'_'plot_plot_plot_plot'] max-phone:grid-cols-[2rem_42px_minmax(0,1fr)_auto] max-phone:gap-x-[0.9rem] max-phone:gap-y-[0.9rem] max-phone:px-4 max-phone:py-[0.9rem]";
+  "grid grid-cols-[2.5rem_52px_minmax(150px,1fr)_auto_8rem] items-center gap-5 px-[1.3rem] py-4 [grid-template-areas:'rank_avatar_id_plot_score'] max-wide:grid-cols-[2.5rem_52px_minmax(0,1fr)_auto] max-wide:gap-y-4 max-wide:[grid-template-areas:'rank_avatar_id_score'_'plot_plot_plot_plot'] max-phone:grid-cols-[2rem_42px_minmax(0,1fr)] max-phone:gap-x-[0.9rem] max-phone:gap-y-[0.9rem] max-phone:px-4 max-phone:py-[0.9rem] max-phone:[grid-template-areas:'rank_avatar_id'_'score_score_score'_'plot_plot_plot']";
 
 /** The card shell: border, background and the staggered entrance. */
 const ROW_CARD =
@@ -242,7 +242,7 @@ export function allTimeRowHtml(options: AllTimeRowOptions): Html {
 
   const follows =
     user.followers !== null
-      ? html`<p class="mt-[0.4rem] wrap-sep text-[0.68rem] text-dimmer">
+      ? html`<p class="mt-[0.4rem] wrap-sep text-[0.72rem] text-muted">
           <span>${formatNumber(user.followers ?? 0)} followers</span
           ><span>${formatNumber(user.following ?? 0)} following</span>
         </p>`
@@ -250,12 +250,12 @@ export function allTimeRowHtml(options: AllTimeRowOptions): Html {
 
   const score = best
     ? html`<span
-        class="mt-[0.4rem] text-[0.68rem] ${leadsYear ? "text-accent" : "text-dim"}"
+        class="mt-[0.4rem] text-[0.72rem] ${leadsYear ? "text-accent" : "text-secondary"}"
         >best ${formatNumber(best.count)} in ${best.year}${leadsYear
           ? html`<span class="sr-only"> — highest single year on the board</span>`
           : null}</span
       >`
-    : html`<span class="mt-[0.4rem] text-[0.68rem] text-dim">no activity</span>`;
+    : html`<span class="mt-[0.4rem] text-[0.72rem] text-secondary">no activity</span>`;
 
   return html`<article
     class="${ROW_CARD} ${lead ? "border-accent/32" : "border-line-soft"} ${ROW_GRID}"
@@ -272,14 +272,14 @@ export function allTimeRowHtml(options: AllTimeRowOptions): Html {
         loading="lazy"
     /></a>
     <div class="min-w-0 [grid-area:id]">
-      <div class="flex min-w-0 items-center gap-[0.35rem]">
+      <div class="flex min-w-0 flex-wrap items-center gap-[0.35rem]">
         <a
-          class="font-display text-[1.08rem] font-semibold tracking-[-0.015em] text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[3px]"
+          class="max-w-full font-display text-[1.08rem] font-semibold tracking-[-0.015em] break-words text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[3px]"
           href="${profileHref}"
           >${user.login}</a
         >
       </div>
-      <p class="mt-[0.15rem] text-[0.74rem] text-dim">${user.name ?? "—"}</p>
+      <p class="mt-[0.15rem] text-[0.74rem] text-secondary">${user.name ?? "—"}</p>
       ${follows}
     </div>
     <div class="min-w-0 [grid-area:plot]">${yearStripSvg(cells, {
@@ -288,7 +288,7 @@ export function allTimeRowHtml(options: AllTimeRowOptions): Html {
     podium: true,
     label: `${user.login} made ${formatNumber(user.total)} contributions from ${years[0]} to ${years[years.length - 1]}`,
   })}</div>
-    <div class="flex flex-col items-end text-right [grid-area:score]">
+    <div class="flex flex-col items-end text-right [grid-area:score] max-phone:flex-row max-phone:flex-wrap max-phone:items-baseline max-phone:gap-x-2 max-phone:gap-y-1 max-phone:text-left max-phone:[&>span]:mt-0 max-phone:[&>span:last-child]:ml-auto">
       <span
         class="font-display text-2xl leading-none font-extrabold tracking-[-0.03em] tabular-nums max-phone:text-[1.2rem] ${leadsTotal
           ? "text-accent"
@@ -296,7 +296,7 @@ export function allTimeRowHtml(options: AllTimeRowOptions): Html {
         >${formatNumber(user.total)}${leadsTotal
           ? html`<span class="sr-only"> — highest total on the board</span>`
           : null}</span
-      ><span class="mt-[0.3rem] text-[0.62rem] tracking-[0.12em] text-dimmer uppercase"
+      ><span class="mt-[0.3rem] text-[0.72rem] text-muted"
         >contributions</span
       >${score}
     </div>
