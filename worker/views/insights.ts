@@ -6,14 +6,16 @@ import { agentIcon } from "./agent-icons.ts";
 
 const LABELS: Record<Intent, string> = { feat: "features", fix: "fixes", refactor: "refactoring", docs: "docs", test: "tests", chore: "maintenance", perf: "performance", ci: "CI & build", deps: "dependencies", unknown: "unknown" };
 const COLORS = ["bg-heat-1", "bg-heat-2", "bg-heat-3", "bg-heat-4", "bg-public"];
-const AGENT_COLORS = new Map([
-  ["Claude", "var(--color-heat-4)"], ["Codex", "var(--color-heat-3)"],
-  ["Copilot", "var(--color-heat-2)"], ["Cursor", "var(--color-public)"],
-  ["Gemini", "var(--color-heat-1)"], ["OpenCode", "var(--color-dim)"],
-  ["Devin", "var(--color-heat-2)"], ["Jules", "var(--color-heat-3)"],
-  ["Aider", "var(--color-heat-1)"], ["Amp", "var(--color-public)"], ["Sweep", "var(--color-heat-4)"],
+// Brand colours: Simple Icons 16.35.0 catalogue; OpenAI is monochrome.
+// Clay is Claude's accent for Anthropic; neutral brands use light ink on this dark panel.
+const BRAND_COLORS = new Map([
+  ["Anthropic", "#D97757"], ["Claude Code", "#D97757"], ["OpenAI", "#F5F5F5"], ["Codex", "#F5F5F5"],
+  ["Google", "#4285F4"], ["Gemini CLI", "#4285F4"], ["xAI", "#B8BEC8"],
+  ["Mistral", "#FA520F"], ["DeepSeek", "#5786FE"], ["Moonshot/Kimi", "#ECEAF7"],
+  ["Qwen/Alibaba", "#9C85FF"], ["Zhipu/GLM", "#B8BEC8"], ["Meta", "#4285E8"],
+  ["Jules", "#A494EF"], ["unknown model", "#918FB4"], ["unknown harness", "#918FB4"],
 ]);
-const agentColor = (name: string) => AGENT_COLORS.get(name) ?? "var(--color-faint)";
+const agentColor = (name: string) => BRAND_COLORS.get(name) ?? "#ECEAF7";
 const percent = (fraction: number) => `${(fraction * 100).toFixed(1)}%`;
 
 export function insightsHtml(data: PrInsights): Html {
@@ -21,9 +23,8 @@ export function insightsHtml(data: PrInsights): Html {
   const size = data.size;
   const intents = Object.entries(data.intent.mix) as [Intent, number][];
   const maxBucket = Math.max(1, ...size.buckets.map((b) => b.count));
-  // Multi-agent PRs count once for each named agent, so normalize by agent counts,
-  // not attributed PRs. This keeps the bar full without inventing exclusive attribution.
-  const agentMentions = data.agents.agents.reduce((sum, agent) => sum + agent.count, 0);
+  // Provider counts overlap; unknown model accounts for markers with no detectable vendor.
+  const providerMentions = data.agents.providers.reduce((sum, provider) => sum + provider.count, 0);
   return html`<section id="pr-insights" aria-label="PR style" class="${CARD} border-line-soft px-[1.3rem] py-[1.15rem] text-[0.75rem] leading-[1.7] text-dim max-phone:px-4">
     <header class="mb-5"><h3 class="font-display text-[24px] font-bold tracking-[-0.03em] text-ink">PR style <span class="text-dim">/ ${data.year}</span></h3>
       <p>${formatNumber(data.total)} public PRs opened across ${data.accounts.join(" + ")}.</p></header>
@@ -50,14 +51,16 @@ export function insightsHtml(data: PrInsights): Html {
     <div class="mt-5 border-t border-line-soft pt-4">
       <h4 class="${LEDGER_TERM}">agent-attributed</h4>
       <p class="mt-1"><strong class="${LEDGER_VALUE} font-display text-[30px] leading-tight text-accent">${percent(data.agents.share!)}</strong> <span class="ml-2">${formatNumber(data.agents.attributed)} of ${formatNumber(data.total)} PRs carry a recognized marker</span></p>
-      ${agentMentions ? html`<div class="mt-3 flex h-2 overflow-hidden rounded-[2px]" role="img" aria-label="Agent split within attributed PRs; multi-agent PRs count for each agent. ${data.agents.agents.map((agent) => `${agent.name}: ${formatNumber(agent.count)}`).join("; ")}">
-        ${data.agents.agents.map((agent) => html`<span class="h-full shrink-0" style="width:${100 * agent.count / agentMentions}%;background:${agentColor(agent.name)}" title="${agent.name}: ${percent(agent.count / agentMentions)} of agent mentions"></span>`)}
+      ${providerMentions ? html`<div class="mt-3 flex h-2 gap-px overflow-hidden rounded-[2px]" role="img" aria-label="Model provider split within attributed PRs; PRs can count for multiple providers, including unknown model. ${data.agents.providers.map((provider) => `${provider.name}: ${formatNumber(provider.count)}`).join("; ")}">
+        ${data.agents.providers.map((provider) => html`<span class="h-full min-w-0" style="flex:${provider.count} 1 0%;background:${agentColor(provider.name)}" title="${provider.name}: ${percent(provider.count / providerMentions)} of provider mentions"></span>`)}
       </div>` : null}
-      <ul class="mt-3 flex flex-wrap gap-2" aria-label="Attributed agents">${data.agents.agents.map((agent) => html`<li class="inline-flex items-center gap-1.5 rounded-full border border-line px-2.5 py-0.5 text-ink"><span style="color:${agentColor(agent.name)}">${agentIcon(agent.name)}</span>${agent.name} <span class="text-dim">${formatNumber(agent.count)}</span></li>`)}</ul>
-      <p class="mt-2 text-[0.69rem] text-faint">Disclosures, co-authors and bot identities; PRs can name multiple agents.</p>
+      ${data.agents.attributed ? html`<ul class="mt-3 flex flex-wrap gap-2" aria-label="Model providers">${data.agents.providers.map((provider) => html`<li class="inline-flex items-center gap-1.5 rounded-full border border-line px-2.5 py-0.5 ${provider.name === "unknown model" ? "text-dim" : "text-ink"}"><span style="color:${agentColor(provider.name)}">${agentIcon(provider.name)}</span>${provider.name} <span class="text-dim">${formatNumber(provider.count)}</span></li>`)}</ul>
+      <div class="mt-2 flex items-baseline gap-2 text-[0.66rem] text-dim"><span>via</span><ul class="flex flex-wrap gap-x-3 gap-y-1" aria-label="Agent harnesses">${data.agents.harnesses.map((harness) => html`<li class="inline-flex items-center gap-1 rounded-full border border-line-soft px-2 py-0.5"><span style="color:${agentColor(harness.name)}">${agentIcon(harness.name)}</span>${harness.name} <span>${formatNumber(harness.count)}</span></li>`)}</ul></div>` : null}
+      <p class="mt-2 text-[0.69rem] text-faint">Disclosures, co-authors and bot identities; PRs can count for multiple providers.</p>
     </div>
     <details class="mt-4 border-t border-line-soft pt-3 text-[0.69rem] text-faint"><summary class="cursor-pointer text-dim">How this is counted</summary>
       <p class="mt-2">Size counts additions + deletions, excluding lockfiles and generated files; ${formatNumber(size.incomplete)} incomplete file lists omitted. Intent uses title, branch, then exclusive paths.</p>
+      <p class="mt-1">Providers come from named models, vendor trailers or single-vendor harnesses; other markers are unknown model. The bar shows overlapping provider mentions. Harnesses identify the client separately; model-only markers have unknown harness.</p>
       <p class="mt-1">Evidence, in PRs (categories overlap): body disclosures ${formatNumber(data.agents.evidence.bodyFooter)} · commit trailers ${formatNumber(data.agents.evidence.commitTrailer)} · commit authors ${formatNumber(data.agents.evidence.commitAuthor)} · PR authors ${formatNumber(data.agents.evidence.prAuthor)}.</p>
       <p class="mt-1">Commit inspection incomplete for ${formatNumber(data.agents.incompleteCommits)} PR${data.agents.incompleteCommits === 1 ? "" : "s"}; limited to 50 commits per PR and 5 authors per commit. Markers can concern the description or inherited commits; unmarked PRs are unknown, not human-only.</p>
       <p class="mt-1">Public PRs opened this year, deduplicated across accounts. Refreshed <time datetime="${data.generatedAt}" data-ago>${formatAgo(data.generatedAt)}</time>. <a class="underline hover:text-accent" href="/api/users/${data.login}/insights">Summary JSON</a></p>

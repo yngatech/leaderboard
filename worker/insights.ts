@@ -76,7 +76,10 @@ export function classifyIntent(pr: InsightPullRequest): { intent: Intent; source
 }
 
 export type EvidenceKind = "bodyFooter" | "commitTrailer" | "commitAuthor" | "prAuthor";
-const BOT_AGENTS = new Map<string, string>(Object.entries({
+export const EVIDENCE_KINDS: EvidenceKind[] = ["bodyFooter", "commitTrailer", "commitAuthor", "prAuthor"];
+export const UNKNOWN_MODEL = "unknown model";
+export const UNKNOWN_HARNESS = "unknown harness";
+const BOT_HARNESSES = new Map<string, string>(Object.entries({
   "copilot-swe-agent[bot]": "Copilot", copilot: "Copilot",
   "chatgpt-codex-connector[bot]": "Codex", "cursor[bot]": "Cursor", cursoragent: "Cursor",
   "devin-ai-integration[bot]": "Devin", "google-labs-jules[bot]": "Jules",
@@ -88,69 +91,119 @@ const BOT_AGENTS = new Map<string, string>(Object.entries({
 // Aider: https://github.com/Aider-AI/aider/blob/main/aider/repo.py
 // Amp: https://github.com/ampcode/amp-examples-and-guides/tree/main/examples/amp%2Bcodesearch
 const AGENT_EMAILS = new Map<string, string>(Object.entries({
-  "noreply@anthropic.com": "Claude", "noreply@openai.com": "Codex",
+  "noreply@anthropic.com": "Claude Code", "noreply@openai.com": "Codex",
   "cursoragent@cursor.com": "Cursor", "copilot@github.com": "Copilot",
   "aider@aider.chat": "Aider", "amp@ampcode.com": "Amp",
 }));
-/** Read the tool/model at the start of a disclosure field, never its trailing prose. */
-function disclosureAgents(text: string): string[] {
-  const rules: [string, RegExp][] = [
-    ["Claude", /^claude(?:[- ][a-z0-9.]+)*(?=$|[\s.;])/i],
-    ["Codex", /^codex(?=$|[\s.;])|^gpt-\d+(?:\.\d+)?(?:-[a-z0-9]+)*(?=$|\s|\.(?:\s|$))/i],
-    ["Cursor", /^cursor(?=$|[\s.;])/i], ["Copilot", /^copilot(?=$|[\s.;])/i], ["Devin", /^devin(?=$|[\s.;])/i],
-    ["Jules", /^jules(?=$|[\s.;])/i], ["Aider", /^aider(?=$|[\s.;])/i], ["Amp", /^amp(?=$|[\s.;])/i],
-    ["OpenCode", /^opencode(?=$|[\s.;/])/i], ["Gemini", /^gemini(?:-[a-z0-9.]+)*(?=$|[\s.;])/i],
-  ];
-  return rules.filter(([, rule]) => rule.test(text.trim())).map(([name]) => name);
+const SINGLE_VENDOR = new Map([
+  ["Claude Code", "Anthropic"], ["Codex", "OpenAI"], ["Jules", "Google"], ["Gemini CLI", "Google"],
+]);
+const HARNESS_ALIASES = new Map(Object.entries({
+  "claude code": "Claude Code", claude: "Claude Code", codex: "Codex",
+  "chatgpt-codex-connector": "Codex", "github copilot": "Copilot", copilot: "Copilot",
+  cursor: "Cursor", opencode: "OpenCode", "open code": "OpenCode", devin: "Devin",
+  jules: "Jules", "google jules": "Jules", aider: "Aider", amp: "Amp",
+  "gemini cli": "Gemini CLI", "t3 code": "T3 Code", styal: "styal", sweep: "Sweep",
+}));
+// A bounded leading model identifier, not arbitrary prose or dependency names.
+// Numeric GPT/o-series syntax deliberately excludes gpt-tokenizer, gpt-next, etc.
+const MODEL_PROVIDERS: [string, RegExp][] = [
+  ["Anthropic", /^claude-[a-z0-9]+(?:[.-][a-z0-9]+)*/i],
+  ["OpenAI", /^(?:gpt-\d+(?:\.\d+)?(?:-[a-z0-9]+)*|o\d+(?:-[a-z0-9]+)*|codex-[a-z0-9]+(?:[.-][a-z0-9]+)*)/i],
+  ["Google", /^gemini-\d+(?:[.-][a-z0-9]+)*/i],
+  ["xAI", /^grok-(?:\d+|code)(?:[.-][a-z0-9]+)*/i],
+  ["Mistral", /^(?:mistral|magistral|ministral|mixtral|codestral|devstral|pixtral)-(?:[a-z0-9]+[.-])*[a-z0-9]+/i],
+  ["DeepSeek", /^deepseek-(?:v\d+|r\d+|coder|chat|reasoner)(?:[.-][a-z0-9]+)*/i],
+  ["Moonshot/Kimi", /^(?:kimi-(?:k\d+|\d+)|moonshot-v\d+)(?:[.-][a-z0-9]+)*/i],
+  ["Qwen/Alibaba", /^qwen(?:\d+(?:\.\d+)?)?-[a-z0-9]+(?:[.-][a-z0-9]+)*/i],
+  ["Zhipu/GLM", /^glm-\d+(?:[.-][a-z0-9]+)*/i],
+  ["Meta", /^llama-?\d+(?:[.-][a-z0-9]+)*/i],
+];
+interface Marker { providers: string[]; harnesses: string[] }
+function harnessMarker(harness: string): Marker {
+  return { providers: [SINGLE_VENDOR.get(harness) ?? UNKNOWN_MODEL], harnesses: [harness] };
+}
+/** Read only disclosure fields, or the leading generated tool/model label. */
+function disclosureMarker(fields: string[], explicit: boolean): Marker | null {
+  const providers = new Set<string>(), harnesses = new Set<string>();
+  for (const raw of fields) {
+    const field = raw.trim().replace(/^\[([^\]]+)\]$/, "$1");
+    // Fields are exact client labels; generated lines may carry ordinary suffix prose.
+    const harness = HARNESS_ALIASES.get(field.toLowerCase()) ?? (!explicit ?
+      [...HARNESS_ALIASES].find(([alias]) => field.toLowerCase().startsWith(`${alias} `) || field.toLowerCase().startsWith(`${alias}.`))?.[1] : undefined);
+    if (harness) harnesses.add(harness);
+    for (const [provider, rule] of MODEL_PROVIDERS) {
+      // Model registries may prefix a model id (e.g. opencode/deepseek-v4-flash-free).
+      // Only identifier-shaped namespaces are stripped; URLs and link targets cannot match.
+      const model = field.replace(/^(?:[a-z0-9][a-z0-9._-]*\/)+/i, "");
+      const match = rule.exec(model);
+      if (match && /^(?:$|\s|\.(?:\s|$)|;)/.test(model.slice(match[0].length))) providers.add(provider);
+    }
+  }
+  if (!explicit && !providers.size && !harnesses.size) return null;
+  // A named model takes precedence over a single-vendor client inference in this marker.
+  if (!providers.size) for (const harness of harnesses) {
+    const provider = SINGLE_VENDOR.get(harness);
+    if (provider) providers.add(provider);
+  }
+  return { providers: providers.size ? [...providers] : [UNKNOWN_MODEL], harnesses: harnesses.size ? [...harnesses] : [UNKNOWN_HARNESS] };
 }
 /** Ignore fenced examples, block quotes and indented code before anchored marker matching. */
 function prose(text: string): string {
   return text.replace(/(^|\n)[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n[ \t]*\2[^\n]*(?=\n|$)|$)/g, "$1")
     .split("\n").filter((line) => !/^\s*>|^(?: {4}|\t)/.test(line)).join("\n");
 }
-function authorAgents(author: { name: string | null; email: string | null; user: { login: string } | null }): string[] {
-  const bot = BOT_AGENTS.get(author.user?.login.toLowerCase() ?? "");
-  if (bot) return [bot];
+function authorMarker(author: { name: string | null; email: string | null; user: { login: string } | null }): Marker | null {
+  const bot = BOT_HARNESSES.get(author.user?.login.toLowerCase() ?? "");
+  if (bot) return harnessMarker(bot);
   const email = author.email?.trim().toLowerCase() ?? "";
   const known = AGENT_EMAILS.get(email);
-  if (known) return [known];
+  if (known) return harnessMarker(known);
   const githubEmail = /^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/.exec(email);
-  const githubBot = BOT_AGENTS.get(githubEmail?.[1] ?? "");
-  return githubBot ? [githubBot] : [];
+  const githubBot = BOT_HARNESSES.get(githubEmail?.[1] ?? "");
+  return githubBot ? harnessMarker(githubBot) : null;
 }
 
-export function agentEvidence(pr: InsightPullRequest): Record<EvidenceKind, string[]> {
-  const sets = { bodyFooter: new Set<string>(), commitTrailer: new Set<string>(), commitAuthor: new Set<string>(), prAuthor: new Set<string>() };
-  const add = (kind: EvidenceKind, names: string[]) => names.forEach((name) => sets[kind].add(name));
+export type DimensionEvidence = Record<EvidenceKind, string[]>;
+const emptyEvidence = (): Record<EvidenceKind, number> => ({ bodyFooter: 0, commitTrailer: 0, commitAuthor: 0, prAuthor: 0 });
+export function agentEvidence(pr: InsightPullRequest): { providers: DimensionEvidence; harnesses: DimensionEvidence } {
+  const sets = () => ({ bodyFooter: new Set<string>(), commitTrailer: new Set<string>(), commitAuthor: new Set<string>(), prAuthor: new Set<string>() });
+  const providers = sets(), harnesses = sets();
+  const add = (kind: EvidenceKind, marker: Marker | null) => {
+    marker?.providers.forEach((name) => providers[kind].add(name));
+    marker?.harnesses.forEach((name) => harnesses[kind].add(name));
+  };
   for (const line of prose(pr.body).split("\n")) {
     // Keep link labels, discard targets before parsing any disclosure fields.
     const marker = line.replace(/\[([^\]\n]+)\]\([^\n)]*\)/g, "[$1]")
       .replace(/^\s*(?:[🤖✨]\s*)?/u, "");
     if (/^Written by an agent\s*\(/i.test(marker)) {
-      // Also accept additional explicit disclosures (e.g. "; revised by an agent (...)").
       for (const match of marker.matchAll(/\bby an agent\s*\(([^()\n]+)\)/gi)) {
-        const names = match[1].split(/[,;]/).flatMap((field) => disclosureAgents(field.replace(/^\s*\[([^\]]+)\]\s*$/, "$1")));
-        add("bodyFooter", names.length ? names : ["Other agent"]);
+        add("bodyFooter", disclosureMarker(match[1].split(/[,;]/), true));
       }
     } else {
       const generated = /^(?:Generated|Created|Made) (?:with|by)\s+(?:\[([^\]]+)\]|([^\n]+))/i.exec(marker);
-      if (generated) add("bodyFooter", disclosureAgents(generated[1] ?? generated[2]));
+      if (generated) add("bodyFooter", disclosureMarker([generated[1] ?? generated[2]], false));
     }
   }
-  const bot = BOT_AGENTS.get(pr.author?.login.toLowerCase() ?? "");
-  if (bot) add("prAuthor", [bot]);
+  const bot = BOT_HARNESSES.get(pr.author?.login.toLowerCase() ?? "");
+  if (bot) add("prAuthor", harnessMarker(bot));
   for (const { commit } of pr.commits.nodes) {
-    // Only the final paragraph can be a Git trailer block.
     const trailerBlock = prose(commit.message).trim().split(/\n\s*\n/).at(-1) ?? "";
     for (const match of trailerBlock.matchAll(/^co-authored-by:\s*(.+)$/gim)) {
       const identity = /^([^<>]+?)\s*<([^<>\s]+@[^<>\s]+)>\s*$/.exec(match[1]);
-      if (identity) add("commitTrailer", authorAgents({ name: identity[1].trim(), email: identity[2], user: null }));
+      if (identity) add("commitTrailer", authorMarker({ name: identity[1].trim(), email: identity[2], user: null }));
     }
-    for (const author of commit.authors.nodes) {
-      add("commitAuthor", authorAgents(author));
-    }
+    for (const author of commit.authors.nodes) add("commitAuthor", authorMarker(author));
   }
-  return Object.fromEntries(Object.entries(sets).map(([kind, values]) => [kind, [...values].sort()])) as Record<EvidenceKind, string[]>;
+  const lists = (dimension: ReturnType<typeof sets>) => Object.fromEntries(EVIDENCE_KINDS.map((kind) => [kind, [...dimension[kind]].sort()])) as DimensionEvidence;
+  return { providers: lists(providers), harnesses: lists(harnesses) };
+}
+
+export interface AttributionCount {
+  name: string;
+  count: number;
+  evidence: Record<EvidenceKind, number>;
 }
 
 export interface PrInsights {
@@ -166,7 +219,7 @@ export interface PrInsights {
   };
   intent: { mix: Record<Intent, number>; sources: Record<string, number> };
   agents: {
-    attributed: number; share: number | null; agents: { name: string; count: number }[];
+    attributed: number; share: number | null; providers: AttributionCount[]; harnesses: AttributionCount[];
     evidence: Record<EvidenceKind, number>; incompleteCommits: number;
   };
 }
@@ -180,8 +233,8 @@ export function aggregateInsights(login: string, accounts: readonly string[], ye
   let biggestNetDeletion: PrInsights["size"]["biggestNetDeletion"] = null;
   const mix = Object.fromEntries(INTENTS.map((kind) => [kind, 0])) as Record<Intent, number>;
   const sources: Record<string, number> = { title: 0, branch: 0, paths: 0, unknown: 0 };
-  const evidence: Record<EvidenceKind, number> = { bodyFooter: 0, commitTrailer: 0, commitAuthor: 0, prAuthor: 0 };
-  const agents = new Map<string, number>();
+  const evidence = emptyEvidence();
+  const providers = new Map<string, AttributionCount>(), harnesses = new Map<string, AttributionCount>();
   let attributed = 0, incompleteCommits = 0;
   for (const pr of eligible) {
     if (completeFiles(pr)) {
@@ -198,12 +251,19 @@ export function aggregateInsights(login: string, accounts: readonly string[], ye
     mix[intent.intent] += 1;
     sources[intent.source] += 1;
     const found = agentEvidence(pr);
-    for (const kind of Object.keys(evidence) as EvidenceKind[]) if (found[kind].length) evidence[kind] += 1;
-    const union = new Set(Object.values(found).flat());
-    if (union.size) attributed += 1;
-    for (const name of union) agents.set(name, (agents.get(name) ?? 0) + 1);
+    for (const kind of EVIDENCE_KINDS) if (found.providers[kind].length) evidence[kind] += 1;
+    if (Object.values(found.providers).some((names) => names.length)) attributed += 1;
+    for (const [dimension, counts] of [[found.providers, providers], [found.harnesses, harnesses]] as const) {
+      for (const name of new Set(Object.values(dimension).flat())) {
+        const entry = counts.get(name) ?? { name, count: 0, evidence: emptyEvidence() };
+        entry.count += 1;
+        for (const kind of EVIDENCE_KINDS) if (dimension[kind].includes(name)) entry.evidence[kind] += 1;
+        counts.set(name, entry);
+      }
+    }
     if (pr.commits.nodes.length < pr.commits.totalCount || pr.commits.nodes.some(({ commit }) => commit.authors.nodes.length < commit.authors.totalCount)) incompleteCommits += 1;
   }
+  const sorted = (counts: Map<string, AttributionCount>) => [...counts.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   sizes.sort((a, b) => a - b);
   const middle = Math.floor(sizes.length / 2);
   return {
@@ -214,7 +274,7 @@ export function aggregateInsights(login: string, accounts: readonly string[], ye
       buckets, biggestNetDeletion },
     intent: { mix, sources },
     agents: { attributed, share: eligible.length ? attributed / eligible.length : null,
-      agents: [...agents].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+      providers: sorted(providers), harnesses: sorted(harnesses),
       evidence, incompleteCommits },
   };
 }

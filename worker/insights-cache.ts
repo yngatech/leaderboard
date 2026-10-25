@@ -1,9 +1,9 @@
 import { PEOPLE } from "./github.ts";
 import { fetchInsights } from "./insights-fetch.ts";
-import { INTENTS, SIZE_BUCKETS, type PrInsights } from "./insights.ts";
+import { EVIDENCE_KINDS, INTENTS, SIZE_BUCKETS, type PrInsights } from "./insights.ts";
 
 // Separate source namespace survives deploys. Include the roster so account changes invalidate it.
-const PREFIX = `https://ynga-git-board.internal/insights/v4/${encodeURIComponent(JSON.stringify(PEOPLE))}/`;
+const PREFIX = `https://ynga-git-board.internal/insights/v6/${encodeURIComponent(JSON.stringify(PEOPLE))}/`;
 const DAY_MS = 86400_000;
 export interface InsightsCache {
   match(key: Request): Promise<Response | undefined>;
@@ -39,13 +39,25 @@ function validIntent(intent: unknown, total: number): boolean {
   return record(intent) && counts(intent.mix, INTENTS, total) && counts(intent.sources, ["title", "branch", "paths", "unknown"], total);
 }
 
+function validDimension(value: unknown, attributed: number): boolean {
+  return Array.isArray(value) && new Set(value.map((entry) => record(entry) ? entry.name : null)).size === value.length &&
+    value.every((entry) => {
+      if (!record(entry)) return false;
+      const { name, count: prs, evidence } = entry;
+      return typeof name === "string" && name.length > 0 && count(prs) && prs > 0 && prs <= attributed &&
+        record(evidence) && EVIDENCE_KINDS.every((kind) => count(evidence[kind]) && evidence[kind] <= prs) &&
+        Object.values(evidence).reduce<number>((sum, n) => sum + (n as number), 0) >= prs;
+    }) &&
+    value.reduce((sum, entry) => sum + entry.count, 0) >= attributed && (attributed > 0 || value.length === 0);
+}
+
 function validAgents(agents: unknown, total: number): boolean {
   if (!record(agents)) return false;
   const { attributed, evidence } = agents;
   return count(attributed) && attributed <= total && (total ? share(agents.share) && agents.share === attributed / total : agents.share === null) &&
     count(agents.incompleteCommits) && agents.incompleteCommits <= total &&
-    Array.isArray(agents.agents) && agents.agents.every((agent) => record(agent) && typeof agent.name === "string" && agent.name.length > 0 && count(agent.count) && agent.count <= attributed) &&
-    record(evidence) && ["bodyFooter", "commitTrailer", "commitAuthor", "prAuthor"].every((kind) => count(evidence[kind]) && evidence[kind] <= attributed);
+    validDimension(agents.providers, attributed) && validDimension(agents.harnesses, attributed) &&
+    record(evidence) && EVIDENCE_KINDS.every((kind) => count(evidence[kind]) && evidence[kind] <= attributed);
 }
 
 /** Validate the entire rendered shape and its denominators before trusting cached JSON. */
