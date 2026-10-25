@@ -20,6 +20,7 @@ import {
   cakeDayNotification,
   discordWebhookPayload,
   discordWebhookUrl,
+  mentionDiscordUsers,
   parseDiscordUserIds,
   type DiscordEmbed,
   type DiscordNotification,
@@ -1694,6 +1695,7 @@ export class LeaderState extends DurableObject<Env> {
 
   private async notify(notification: DiscordNotification): Promise<void> {
     if (!this.env.DISCORD_WEBHOOK_URL) return;
+    notification = mentionDiscordUsers(notification, this.notificationUserIds());
     const webhookUrl = discordWebhookUrl(this.env.DISCORD_WEBHOOK_URL, notification);
     const response = await fetch(webhookUrl, {
       method: "POST",
@@ -1703,7 +1705,7 @@ export class LeaderState extends DurableObject<Env> {
     if (!response.ok) throw new Error(`Discord rejected the notification (${response.status}).`);
   }
 
-  private cakeDayUserIds(): ReadonlyMap<string, string> {
+  private notificationUserIds(): ReadonlyMap<string, string> {
     if (this.discordUserIds) return this.discordUserIds;
     try {
       const { users, invalidLogins, duplicateLogins } = parseDiscordUserIds(
@@ -1711,14 +1713,14 @@ export class LeaderState extends DurableObject<Env> {
       );
       this.discordUserIds = users;
       if (invalidLogins.length > 0) {
-        console.warn("invalid cake-day Discord user mappings ignored", { logins: invalidLogins });
+        console.warn("invalid Discord user mappings ignored", { logins: invalidLogins });
       }
       if (duplicateLogins.length > 0) {
-        console.warn("duplicate cake-day GitHub logins ignored", { logins: duplicateLogins });
+        console.warn("duplicate Discord mapping GitHub logins ignored", { logins: duplicateLogins });
       }
     } catch (error) {
       this.discordUserIds = new Map();
-      console.warn("cake-day Discord user mapping ignored", {
+      console.warn("Discord user mapping ignored", {
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -1781,7 +1783,7 @@ export class LeaderState extends DurableObject<Env> {
   private async updateCakeDays(today: string, board: Board): Promise<void> {
     const previous = await this.ctx.storage.get<CakeDayState>("cake-days");
     const plan = planCakeDays(today, board, previous);
-    const userIds = this.cakeDayUserIds();
+    const userIds = this.notificationUserIds();
     await deliverCakeDays(
       plan,
       (event) => this.notify(cakeDayNotification(event, userIds)),

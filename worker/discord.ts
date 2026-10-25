@@ -46,7 +46,7 @@ export interface DiscordContainer {
 export interface DiscordComponentsNotification {
   kind: "components";
   components: DiscordContainer[];
-  mentionedUserId?: string;
+  mentionedUserIds: string[];
 }
 
 export type DiscordNotification = DiscordEmbedNotification | DiscordComponentsNotification;
@@ -128,9 +128,9 @@ export function discordUserReference(
     : { text: `[${login}](${githubUrl})` };
 }
 
-/** Keeps mentions disabled unless this particular notification names one user. */
-export function allowedMentions(userId?: string): AllowedMentions {
-  return userId ? { parse: [], users: [userId] } : { parse: [] };
+/** Allows only the users explicitly named by this notification. */
+export function allowedMentions(userIds: readonly string[] = []): AllowedMentions {
+  return userIds.length ? { parse: [], users: [...new Set(userIds)] } : { parse: [] };
 }
 
 /** Builds the mutually exclusive classic-embed or Components V2 webhook body. */
@@ -138,7 +138,7 @@ export function discordWebhookPayload(notification: DiscordNotification) {
   const common = {
     username: "git board",
     allowed_mentions: allowedMentions(
-      notification.kind === "components" ? notification.mentionedUserId : undefined,
+      notification.kind === "components" ? notification.mentionedUserIds : undefined,
     ),
   };
   return notification.kind === "components"
@@ -163,7 +163,29 @@ export function discordWebhookUrl(
   return url;
 }
 
-/** Keeps a pingable mention inside the same rich card as the cake-day copy. */
+/** Maps the profile links emitted by notification builders at the Discord boundary. */
+export function mentionDiscordUsers(
+  notification: DiscordNotification,
+  userIds: ReadonlyMap<string, string>,
+): DiscordNotification {
+  if (notification.kind !== "embed") return notification;
+  const { embed } = notification;
+  if (!embed.description || !embed.thumbnail) return notification;
+  const mentionedUserIds: string[] = [];
+  const description = embed.description.replace(
+    /\[([a-z\d-]+)\]\((https:\/\/github\.com\/\1)\)/gi,
+    (link, login: string, url: string) => {
+      const user = discordUserReference(login, url, userIds);
+      if (!user.userId) return link;
+      mentionedUserIds.push(user.userId);
+      return user.text;
+    },
+  );
+  return mentionedUserIds.length
+    ? discordCard({ ...embed, description, thumbnail: embed.thumbnail }, mentionedUserIds)
+    : notification;
+}
+
 export function cakeDayNotification(
   event: CakeDayEvent,
   userIds: ReadonlyMap<string, string>,
@@ -171,24 +193,35 @@ export function cakeDayNotification(
   const years = event.years === 1 ? "1 year" : `${event.years} years`;
   const user = discordUserReference(event.login, event.url, userIds);
   const description = `${user.text} has been on GitHub for **${years}** today, since ${formatDayYear(joinDay(event.createdAt))}.`;
+  return discordCard({
+    title: "🎂 Happy cake day!",
+    url: `${SITE}/u/${encodeURIComponent(event.login)}`,
+    description,
+    color: 0x58a6ff,
+    thumbnail: { url: event.avatarUrl },
+  }, user.userId ? [user.userId] : []);
+}
+
+/** Mentions must be in text components to ping from inside a rich card. */
+function discordCard(embed: Required<DiscordEmbed>, mentionedUserIds: string[]): DiscordComponentsNotification {
   return {
     kind: "components",
     components: [{
       type: 17,
-      accent_color: 0x58a6ff,
+      accent_color: embed.color,
       components: [{
         type: 9,
         components: [{
           type: 10,
-          content: `## [🎂 Happy cake day!](${SITE}/u/${encodeURIComponent(event.login)})\n${description}`,
+          content: `## [${embed.title}](${embed.url})\n${embed.description}`,
         }],
         accessory: {
           type: 11,
-          media: { url: event.avatarUrl },
+          media: { url: embed.thumbnail.url },
           description: "GitHub avatar",
         },
       }],
     }],
-    mentionedUserId: user.userId,
+    mentionedUserIds,
   };
 }

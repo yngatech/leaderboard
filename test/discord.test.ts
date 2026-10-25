@@ -6,6 +6,7 @@ import {
   discordUserReference,
   discordWebhookPayload,
   discordWebhookUrl,
+  mentionDiscordUsers,
   parseDiscordUserIds,
   type DiscordNotification,
 } from "../worker/discord.ts";
@@ -41,7 +42,7 @@ test("an unmapped cake-day user keeps their GitHub profile link", () => {
 
 test("only an explicitly named Discord user is allowed to be pinged", () => {
   assert.deepEqual(allowedMentions(), { parse: [] });
-  assert.deepEqual(allowedMentions("123456789012345678"), {
+  assert.deepEqual(allowedMentions(["123456789012345678"]), {
     parse: [],
     users: ["123456789012345678"],
   });
@@ -52,6 +53,26 @@ function componentText(notification: DiscordNotification): string {
   return notification.components[0]?.components[0]?.components[0]?.content ?? "";
 }
 
+test("embed profile links use mapped mentions while unmapped and unrelated links survive", () => {
+  const first = "[Example-User](https://github.com/example-user)";
+  const second = "[other-user](https://github.com/other-user)";
+  const unmapped = "[unmapped](https://github.com/unmapped)";
+  const repository = "[example-user](https://github.com/example-user/project)";
+  const notification: DiscordNotification = { kind: "embed", embed: {
+    title: "Position change", url: "https://board.example/2026", color: 0x58a6ff,
+    description: `${first} overtook ${second}. ${first} ${unmapped} ${repository}`,
+    thumbnail: { url: EVENT.avatarUrl },
+  } };
+  const users = parseDiscordUserIds('{"example-user":"123456789012345678","other-user":"234567890123456789"}').users;
+  const mapped = mentionDiscordUsers(notification, users);
+  assert.ok(componentText(mapped).includes(`<@123456789012345678> overtook <@234567890123456789>. <@123456789012345678> ${unmapped} ${repository}`));
+  assert.deepEqual(discordWebhookPayload(mapped).allowed_mentions,
+    { parse: [], users: ["123456789012345678", "234567890123456789"] });
+  assert.equal(discordWebhookUrl("https://discord.example/webhook", mapped).search, "?with_components=true");
+  assert.equal(mentionDiscordUsers(notification, new Map()), notification);
+  assert.equal(mentionDiscordUsers(mapped, users), mapped);
+});
+
 test("a mapped cake-day sentence is a pingable text component inside the card", () => {
   const { users } = parseDiscordUserIds('{"example-user":"123456789012345678"}');
   const notification = cakeDayNotification(EVENT, users);
@@ -60,9 +81,9 @@ test("a mapped cake-day sentence is a pingable text component inside the card", 
     componentText(notification),
     /^## \[🎂 Happy cake day!\]\(https:\/\/leaderboard\.ynga\.tech\/u\/example-user\)\n<@123456789012345678> has been/,
   );
-  assert.equal(
-    notification.kind === "components" ? notification.mentionedUserId : undefined,
-    "123456789012345678",
+  assert.deepEqual(
+    notification.kind === "components" ? notification.mentionedUserIds : undefined,
+    ["123456789012345678"],
   );
 });
 
@@ -73,9 +94,9 @@ test("an unmapped cake-day card keeps its GitHub profile link", () => {
     componentText(notification),
     /\n\[example-user\]\(https:\/\/github.com\/example-user\) has been/,
   );
-  assert.equal(
-    notification.kind === "components" ? notification.mentionedUserId : undefined,
-    undefined,
+  assert.deepEqual(
+    notification.kind === "components" ? notification.mentionedUserIds : undefined,
+    [],
   );
 });
 
