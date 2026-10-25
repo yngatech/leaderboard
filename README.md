@@ -29,7 +29,7 @@ and link each heatmap day to its breakdown.
 | `/api/all` | All-time JSON |
 | `/api/users/{login}` | One account's all-time totals and current-year daily JSON |
 | `/api/users/{login}/breakdown` | Contribution types and public repositories; optional `?date=YYYY-MM-DD` |
-| `/api/users/{login}/insights` | Cached current-year public PR style summary; 202 while awaiting background collection |
+| `/api/users/{login}/insights` | Durable Object current-year public PR style summary; 202 while awaiting cron collection |
 | `/.well-known/api-catalog` | RFC 9727 API catalogue as a JSON Linkset |
 
 ## Layout
@@ -212,6 +212,8 @@ partial board from GitHub leaves the last full one in place. If no snapshot is
 newer than 30 minutes (local development, preview builds, a stopped alarm), the
 site fetches the board from GitHub itself and caches it for 5 minutes.
 
+Computed PR insights also live in the same Durable Object, shared across Cloudflare locations and retained across Worker restarts and deploys. Profile HTML continues to use the existing rendered-page edge cache.
+
 The year in progress caches for 1 minute at the edge and in the browser.
 
 Finished years cache for 30 days at the edge, 1 day in the browser — they only
@@ -235,9 +237,9 @@ Intent uses a known title prefix (Conventional Commits or bracket tag), then a t
 
 Agent-attributed means a recognized disclosure in the PR body, a commit coauthor trailer, or a recognized agent author/coauthor identity. The summary retains those evidence categories separately, deduplicates repeated markers per PR, and shows overlapping agent-family counts. Dependabot and Renovate identities do not count. Commit inspection is bounded to the first 50 commits and first 5 authors each, with incomplete coverage reported. Markers can describe prose or inherited history; neither attribution nor its absence establishes who wrote the code. Only PR-contained commit metadata is inspected; there is no commit-history crawl.
 
-Every 10-minute cron also refreshes one due person's insights, at most once per day per cached summary. Only computed summaries enter the existing Cache API, retained for seven days; raw bodies, messages and author emails stay in collection memory. Failed attempts cool down for an hour. Page and JSON requests only read this cache and never initiate collection; a missing summary hides the panel and returns HTTP 202 from the JSON endpoint. JSON accepts GET/HEAD and uses the same canonical roster logins as other user APIs.
+Every 10-minute cron also refreshes one due person's insights, at most once per day per summary. The existing SQLite-backed `LeaderState` Durable Object stores only computed summaries under `insights:<year>:<primaryLogin>`, with a schema version field; raw bodies, messages and author emails stay in collection memory. Account changes and schema version mismatches treat the summary as missing. Refresh attempts are serialized separately from notifications and keep a timestamp under `insights-attempt:<year>:<primaryLogin>` for the one-hour failure cooldown. Collection failures preserve the last valid summary. Page and JSON requests only read the Durable Object and never initiate collection. Missing, malformed or unavailable summaries hide the panel and return HTTP 202 from the JSON endpoint. JSON accepts GET/HEAD and uses the same canonical roster logins as other user APIs.
 
-The Cache API is local to a Cloudflare location and may evict entries early. This prototype does not guarantee that a cron-populated summary reaches another location; those visitors see no panel. Preview deployments have no cron and therefore normally have no insights. A shared durable store would be needed for reliable global availability. Locally, `curl http://localhost:5173/cdn-cgi/handler/scheduled` runs one refresh tick; repeat after it finishes to populate the next person.
+Summaries have no automatic expiry and are available across Cloudflare locations through the shared object. Preview builds currently omit the Durable Object binding and cron, so they omit the panel; any environment with the binding can read its stored summaries without collecting on visits. Locally, `curl http://localhost:5173/cdn-cgi/handler/scheduled` runs one refresh tick; repeat after it finishes to populate the next person.
 
 ## Development
 

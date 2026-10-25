@@ -1,4 +1,5 @@
-import { cachedInsights, refreshInsights } from "./insights-cache";
+import { storedInsights, refreshInsights } from "./insights-storage";
+import type { PrInsights } from "./insights";
 import {
   breakdownTtl,
   dayWindow,
@@ -309,9 +310,18 @@ function yearOutOfRange(): string {
   return `Year must be a whole number between ${MIN_YEAR} and ${currentYear()}.`;
 }
 
-/** The Durable Object that holds notification checkpoints and the board snapshot. */
+/** The Durable Object that holds notification checkpoints, the board and insights. */
 function leaderState(env: Env): DurableObjectStub<LeaderState> {
   return env.LEADER_STATE.getByName("leaderboard");
+}
+
+async function userInsights(login: string, env: Env): Promise<PrInsights | null> {
+  try {
+    return await leaderState(env).insightsSummary(login, currentYear());
+  } catch {
+    console.error("insights unavailable", { login });
+    return null;
+  }
 }
 
 /**
@@ -1075,13 +1085,13 @@ async function handleAllPage(env: Env, ctx: ExecutionContext): Promise<Response>
   return withBrowserHeaders(fresh, state);
 }
 
-async function handleInsightsApi(requested: string, url: URL, readOnly: boolean): Promise<Response> {
+async function handleInsightsApi(requested: string, url: URL, readOnly: boolean, env: Env): Promise<Response> {
   if (!readOnly) return json({ error: "Use GET for user APIs.", status: 405 }, { status: 405, headers: { Allow: "GET, HEAD", "Cache-Control": "no-store" } });
   const login = rosterLogin(requested);
   if (!login) return json({ error: "Unknown leaderboard account.", status: 404 }, { status: 404, headers: { "Cache-Control": "no-store" } });
   if (url.pathname !== `/api/users/${login}/insights`) return Response.redirect(`${url.origin}/api/users/${login}/insights`, 308);
-  const summary = await cachedInsights(caches.default, login);
-  // An absent summary is a cache miss, never a reason to query GitHub on a visitor's request.
+  const summary = await userInsights(login, env);
+  // An absent summary never initiates collection on a visitor's request.
   return json(summary ?? { login, status: "pending" }, { status: summary ? 200 : 202, headers: { "Cache-Control": __IS_PREVIEW_BUILD__ || !summary ? "no-store" : "public, max-age=60" } });
 }
 
@@ -1210,7 +1220,7 @@ async function handleUserPage(
     allTimeJson(env, ctx, boardFetch),
     breakdownJson(login, yearWindow(currentYear(), new Date()), env, ctx),
     day ? breakdownJson(login, dayWindow(day), env, ctx) : Promise.resolve(null),
-    cachedInsights(caches.default, login),
+    userInsights(login, env),
   ]);
   if (!boardResult.response.ok) return pageFromFailure(boardResult.response);
   if (!allResult.response.ok) return pageFromFailure(allResult.response);
@@ -1735,8 +1745,8 @@ function standingOvertakeEmbed(
 }
 
 /**
- * Runs recurring board checks and stores their snapshot and notification
- * checkpoints in the existing object, preserving notification history.
+ * Runs recurring board checks and stores their snapshot, notification
+ * checkpoints and computed PR insights in the existing object.
  */
 export class LeaderState extends DurableObject<Env> {
   /** Parsed once per object instance. */
@@ -1924,6 +1934,15 @@ export class LeaderState extends DurableObject<Env> {
     const snapshot = await this.ctx.storage.get<BoardSnapshot>(BOARD_SNAPSHOT_KEY);
     return usableSnapshot(snapshot, year, Date.now());
   }
+
+  async insightsSummary(login: string, year: number): Promise<PrInsights | null> {
+    return storedInsights(this.ctx.storage, login, year);
+  }
+
+  async refreshInsights(): Promise<void> {
+    // GitHub fetches open the input gate. Serialize refreshes independently of notifications.
+    return this.insightsUpdates.run(() => refreshInsights(this.ctx.storage, this.env.GITHUB_TOKEN));
+  }
 }
 
 async function routeApi(
@@ -1963,7 +1982,7 @@ async function routeApi(
   }
 
   const insightsMatch = /^\/api\/users\/([A-Za-z0-9][A-Za-z0-9-]*)\/insights\/?$/.exec(url.pathname);
-  if (insightsMatch) return handleInsightsApi(insightsMatch[1], url, readOnly);
+  if (insightsMatch) return handleInsightsApi(insightsMatch[1], url, readOnly, env);
 
   const breakdownMatch = /^\/api\/users\/([A-Za-z0-9][A-Za-z0-9-]*)\/breakdown\/?$/.exec(
     url.pathname,
@@ -2226,7 +2245,7 @@ export default {
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
     const [board, insights] = await Promise.allSettled([
       refreshBoard(env),
-      refreshInsights(caches.default, env.GITHUB_TOKEN),
+      leaderState(env).refreshInsights(),
     ]);
     if (insights.status === "rejected") {
       console.error("insights refresh failed", {

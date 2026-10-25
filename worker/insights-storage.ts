@@ -2,15 +2,16 @@ import { PEOPLE } from "./github.ts";
 import { fetchInsights } from "./insights-fetch.ts";
 import { EVIDENCE_KINDS, INTENTS, SIZE_BUCKETS, type PrInsights } from "./insights.ts";
 
-// Separate source namespace survives deploys. Include the roster so account changes invalidate it.
-const PREFIX = `https://ynga-git-board.internal/insights/v8/${encodeURIComponent(JSON.stringify(PEOPLE))}/`;
+// Bump when the summary shape or classification rules change.
+export const INSIGHTS_SCHEMA_VERSION = 1;
 const DAY_MS = 86400_000;
-export interface InsightsCache {
-  match(key: Request): Promise<Response | undefined>;
-  put(key: Request, response: Response): Promise<unknown>;
+const COOLDOWN_MS = 3600_000;
+export interface InsightsStorage {
+  get<T = unknown>(key: string): Promise<T | undefined>;
+  put<T>(key: string, value: T): Promise<unknown>;
 }
-function key(login: string, year: number): Request {
-  return new Request(`${PREFIX}${year}/${login}`);
+function key(login: string, year: number): string {
+  return `insights:${year}:${login}`;
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -60,7 +61,7 @@ function validAgents(agents: unknown, total: number): boolean {
     record(evidence) && EVIDENCE_KINDS.every((kind) => count(evidence[kind]) && evidence[kind] <= attributed);
 }
 
-/** Validate the entire rendered shape and its denominators before trusting cached JSON. */
+/** Validate the rendered shape and denominators before trusting a stored summary. */
 function validSummary(value: unknown, login: string, year: number): value is PrInsights {
   return record(value) && value.login === login && value.year === year &&
     typeof value.generatedAt === "string" && Number.isFinite(Date.parse(value.generatedAt)) &&
@@ -68,35 +69,42 @@ function validSummary(value: unknown, login: string, year: number): value is PrI
     count(value.total) && validSize(value.size, value.total) && validIntent(value.intent, value.total) && validAgents(value.agents, value.total);
 }
 
-export async function cachedInsights(cache: InsightsCache, login: string, now = new Date()): Promise<PrInsights | null> {
+export async function storedInsights(storage: InsightsStorage, login: string, year: number): Promise<PrInsights | null> {
   try {
-    const year = now.getUTCFullYear();
-    const hit = await cache.match(key(login, year));
+    const hit = await storage.get(key(login, year));
     if (!hit) return null;
-    const summary: unknown = await hit.json();
+    if (!record(hit) || hit.schemaVersion !== INSIGHTS_SCHEMA_VERSION) return null;
+    const summary = hit.summary;
     if (!validSummary(summary, login, year)) throw new Error("Invalid insights summary");
+    // Account changes invalidate this person's summary without changing storage keys.
+    const accounts = PEOPLE.find((person) => person.accounts[0] === login)?.accounts;
+    if (accounts && (accounts.length !== summary.accounts.length || accounts.some((account, i) => account !== summary.accounts[i]))) return null;
     return summary;
   } catch {
-    // Optional panel: neither cache outages nor corrupt entries can take down a profile.
-    console.error("insights cache read failed", { login });
+    // Optional panel: neither storage outages nor corrupt entries can take down a profile.
+    console.error("insights storage read failed", { login });
     return null;
   }
 }
 
+export async function storeInsights(storage: InsightsStorage, summary: PrInsights): Promise<void> {
+  await storage.put(key(summary.login, summary.year), { schemaVersion: INSIGHTS_SCHEMA_VERSION, summary });
+}
+
 /** One due person per tick; failed fetches retain the old summary and cool down for an hour. */
-export async function refreshInsights(cache: InsightsCache, token: string, now = new Date()): Promise<void> {
+export async function refreshInsights(storage: InsightsStorage, token: string, now = new Date()): Promise<void> {
   if (!token) return;
+  const year = now.getUTCFullYear();
   for (const person of PEOPLE) {
     const login = person.accounts[0];
-    const summary = await cachedInsights(cache, login, now);
+    const summary = await storedInsights(storage, login, year);
     if (summary && now.getTime() - Date.parse(summary.generatedAt) < DAY_MS) continue;
-    const attemptKey = new Request(`${PREFIX}attempt/${now.getUTCFullYear()}/${login}`);
-    if (await cache.match(attemptKey)) continue;
-    await cache.put(attemptKey, new Response("attempted", { headers: { "Cache-Control": "public, max-age=3600" } }));
+    const attemptKey = `insights-attempt:${year}:${login}`;
+    const attemptedAt = await storage.get<number>(attemptKey);
+    if (typeof attemptedAt === "number" && now.getTime() - attemptedAt < COOLDOWN_MS) continue;
+    await storage.put(attemptKey, now.getTime());
     const fresh = await fetchInsights(token, login, person.accounts, now);
-    await cache.put(key(login, now.getUTCFullYear()), new Response(JSON.stringify(fresh), {
-      headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=604800" },
-    }));
+    await storeInsights(storage, fresh);
     return;
   }
 }

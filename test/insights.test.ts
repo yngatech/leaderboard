@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { aggregateInsights, agentEvidence, EVIDENCE_KINDS, classifyIntent, excludedPath, type InsightPullRequest } from "../worker/insights.ts";
 import { fetchInsights, insightMonths } from "../worker/insights-fetch.ts";
-import { cachedInsights, refreshInsights, type InsightsCache } from "../worker/insights-cache.ts";
+import { INSIGHTS_SCHEMA_VERSION, storedInsights, storeInsights, refreshInsights, type InsightsStorage } from "../worker/insights-storage.ts";
+import { PEOPLE } from "../worker/github.ts";
 
 function pr(overrides: Partial<InsightPullRequest> = {}): InsightPullRequest {
   return {
@@ -158,39 +159,71 @@ test("collector refuses silently truncated or errored search results", async (t)
   await assert.rejects(fetchInsights("synthetic-token", "example-user", ["example-user"], new Date("2026-01-31T00:00:00Z")), /complete/);
 });
 
-test("cache miss does no network work; cron stores only one summary and skips fresh people", async (t) => {
-  const entries = new Map<string, Response>();
-  const cache: InsightsCache = { match: async (key) => entries.get(key.url)?.clone(), put: async (key, response) => { entries.set(key.url, response.clone()); } };
+function memoryStorage() {
+  const entries = new Map<string, unknown>();
+  const storage: InsightsStorage = {
+    get: async <T>(key: string) => structuredClone(entries.get(key)) as T | undefined,
+    put: async (key, value) => { entries.set(key, structuredClone(value)); },
+  };
+  return { entries, storage };
+}
+
+function readSummary(value: unknown) {
+  const { entries, storage } = memoryStorage();
+  entries.set("insights:2026:example-user", { schemaVersion: INSIGHTS_SCHEMA_VERSION, summary: value });
+  return storedInsights(storage, "example-user", 2026);
+}
+
+test("stored summaries round trip by person and year; old versions and changed accounts are missing", async () => {
+  const { entries, storage } = memoryStorage();
+  const summary = summarize([pr()]);
+  await storeInsights(storage, summary);
+  assert.deepEqual(await storedInsights(storage, summary.login, 2026), summary);
+  assert.equal(await storedInsights(storage, "other-user", 2026), null);
+  assert.equal(await storedInsights(storage, summary.login, 2025), null);
+  entries.set("insights:2026:example-user", { schemaVersion: INSIGHTS_SCHEMA_VERSION - 1, summary });
+  assert.equal(await storedInsights(storage, summary.login, 2026), null);
+  const login = PEOPLE[1].accounts[0];
+  await storeInsights(storage, { ...summary, login, accounts: [login] });
+  assert.equal(await storedInsights(storage, login, 2026), null);
+});
+
+test("storage miss does no network work; cron stores one person per tick and refreshes only after a day", async (t) => {
+  const { entries, storage } = memoryStorage();
   let requests = 0;
   t.mock.method(globalThis, "fetch", async () => { requests += 1; return searchResponse([]); });
   const now = new Date("2026-01-10T12:00:00Z");
-  assert.equal(await cachedInsights(cache, "example-user", now), null);
+  assert.equal(await storedInsights(storage, "example-user", 2026), null);
+  await refreshInsights(storage, "", now);
   assert.equal(requests, 0);
-  await refreshInsights(cache, "synthetic-token", now);
-  assert.equal(requests, 1);
-  assert.equal([...entries.keys()].filter((key) => !key.includes("/attempt/")).length, 1);
-  await refreshInsights(cache, "synthetic-token", now);
-  // Second roster person combines two accounts.
-  assert.equal(requests, 3);
-  assert.equal([...entries.keys()].filter((key) => !key.includes("/attempt/")).length, 2);
+  for (let i = 0; i < PEOPLE.length; i++) {
+    await refreshInsights(storage, "synthetic-token", now);
+    assert.equal([...entries.keys()].filter((key) => key.startsWith("insights:")).length, i + 1);
+  }
+  const collected = PEOPLE.reduce((sum, person) => sum + person.accounts.length, 0);
+  assert.equal(requests, collected);
+  await refreshInsights(storage, "synthetic-token", new Date("2026-01-11T11:59:59Z"));
+  assert.equal(requests, collected);
+  await refreshInsights(storage, "synthetic-token", new Date("2026-01-11T12:00:00Z"));
+  assert.equal(requests, collected + 1);
+  assert.equal((await storedInsights(storage, PEOPLE[0].accounts[0], 2026))?.generatedAt, "2026-01-11T12:00:00.000Z");
 });
 
-test("a failed cron attempt preserves cached data and lets the next person refresh", async (t) => {
-  const entries = new Map<string, Response>();
-  const cache: InsightsCache = { match: async (key) => entries.get(key.url)?.clone(), put: async (key, response) => { entries.set(key.url, response.clone()); } };
-  const now = new Date("2026-01-10T12:00:00Z");
+test("a failed cron attempt preserves stored data, skips to the next person, and retries after an hour", async (t) => {
+  const { storage } = memoryStorage();
+  const login = PEOPLE[0].accounts[0];
   t.mock.method(globalThis, "fetch", async () => searchResponse([]));
-  await refreshInsights(cache, "synthetic-token", now);
-  const storedKey = [...entries.keys()].find((key) => !key.includes("/attempt/"))!;
-  const original = await entries.get(storedKey)!.clone().text();
-  // Simulate an expired cooldown while leaving the last summary available.
-  for (const key of entries.keys()) if (key.includes("/attempt/")) entries.delete(key);
+  await refreshInsights(storage, "synthetic-token", new Date("2026-01-10T12:00:00Z"));
+  const original = await storedInsights(storage, login, 2026);
   t.mock.method(globalThis, "fetch", async () => Response.json({ errors: [{ message: "unavailable" }] }));
-  await assert.rejects(refreshInsights(cache, "synthetic-token", new Date("2026-01-12T12:00:00Z")));
-  assert.equal(await entries.get(storedKey)!.clone().text(), original);
+  await assert.rejects(refreshInsights(storage, "synthetic-token", new Date("2026-01-12T12:00:00Z")));
+  assert.deepEqual(await storedInsights(storage, login, 2026), original);
   t.mock.method(globalThis, "fetch", async () => searchResponse([]));
-  await refreshInsights(cache, "synthetic-token", new Date("2026-01-12T12:05:00Z"));
-  assert.equal([...entries.keys()].filter((key) => !key.includes("/attempt/")).length, 2);
+  await refreshInsights(storage, "synthetic-token", new Date("2026-01-12T12:59:59Z"));
+  assert.deepEqual(await storedInsights(storage, login, 2026), original);
+  assert.ok(await storedInsights(storage, PEOPLE[1].accounts[0], 2026));
+  await refreshInsights(storage, "synthetic-token", new Date("2026-01-12T13:00:00Z"));
+  assert.equal((await storedInsights(storage, login, 2026))?.generatedAt, "2026-01-12T13:00:00.000Z");
 });
 
 test("secondary throttles back off for a minute before retrying; transient failures also retry", async (t) => {
@@ -507,11 +540,10 @@ test("inherited object keys stay unknown and never corrupt aggregation", () => {
   }
 });
 
-test("optional cache reads reject malformed shapes and isolate lookup/decode failures", async (t) => {
+test("optional storage reads reject malformed shapes and isolate lookup failures", async (t) => {
   const logged = t.mock.method(console, "error", () => {});
-  const now = new Date("2026-03-01T00:00:00Z");
   const valid = summarize([pr()]);
-  const read = (value: unknown) => cachedInsights({ match: async () => Response.json(value), put: async () => {} }, "example-user", now);
+  const read = readSummary;
   assert.deepEqual(await read(valid), valid);
   assert.deepEqual(await read(summarize([])), summarize([]));
   for (const value of [null, {}, { ...valid, accounts: null }, { ...valid, login: "other-user" }, { ...valid, year: 2025 },
@@ -521,9 +553,8 @@ test("optional cache reads reject malformed shapes and isolate lookup/decode fai
     { ...valid, agents: { ...valid.agents, evidence: null } },
     { ...valid, size: { ...valid.size, biggestNetDeletion: { url: "javascript:alert(1)", lines: 1 } } },
   ]) assert.equal(await read(value), null);
-  assert.equal(await cachedInsights({ match: async () => new Response("{"), put: async () => {} }, "example-user", now), null);
-  assert.equal(await cachedInsights({ match: async () => { throw new Error("synthetic outage"); }, put: async () => {} }, "example-user", now), null);
-  assert.equal(logged.mock.callCount(), 15);
+  assert.equal(await storedInsights({ get: async () => { throw new Error("synthetic outage"); }, put: async () => {} }, "example-user", 2026), null);
+  assert.equal(logged.mock.callCount(), 14);
 });
 
 
@@ -550,10 +581,10 @@ test("provider/harness counts deduplicate per PR while preserving evidence and u
   assert.ok(!noMarkers.includes("NaN") && !noMarkers.includes("Infinity"));
 });
 
-test("cache rejects old attribution schema and malformed provider or harness breakdowns", async (t) => {
+test("storage rejects old attribution schema and malformed provider or harness breakdowns", async (t) => {
   t.mock.method(console, "error", () => {});
   const valid = summarize([pr({ body: "Written by an agent (OpenCode, claude-opus-x)." })]);
-  const read = (value: unknown) => cachedInsights({ match: async () => Response.json(value), put: async () => {} }, "example-user", new Date("2026-03-01T00:00:00Z"));
+  const read = readSummary;
   assert.deepEqual(await read(valid), valid);
   for (const dimension of ["providers", "harnesses"] as const) {
     const entry = valid.agents[dimension][0];
