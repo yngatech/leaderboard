@@ -21,4 +21,5 @@ declare module "*.woff2?inline" {
 declare const __BUILD_COMMIT_SHA__: string;
 declare const __DEV__: boolean;
 declare const __IS_PREVIEW_BUILD__: boolean;
+declare const __LOCAL_DEVELOPMENT__: boolean;
 declare const __BOARD_ALARMS_ENABLED__: boolean;

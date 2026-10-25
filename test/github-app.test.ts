@@ -57,11 +57,12 @@ test("an installation token is reused until five minutes before it expires", asy
     });
   }) as typeof fetch;
 
-  assert.equal(await githubToken(app, () => clock, request), "token-1");
+  const options = { now: () => clock, request };
+  assert.equal(await githubToken(app, options), "token-1");
   clock += 54 * 60 * 1000;
-  assert.equal(await githubToken(app, () => clock, request), "token-1");
+  assert.equal(await githubToken(app, options), "token-1");
   clock += 2 * 60 * 1000;
-  assert.equal(await githubToken(app, () => clock, request), "token-2");
+  assert.equal(await githubToken(app, options), "token-2");
   assert.deepEqual(calls, [
     "https://api.github.com/app/installations/678/access_tokens",
     "https://api.github.com/app/installations/678/access_tokens",
@@ -77,7 +78,7 @@ test("concurrent requests share one token exchange", async () => {
     return Response.json({ token: "shared", expires_at: new Date(Date.now() + 3600e3).toISOString() });
   }) as typeof fetch;
 
-  const tokens = await Promise.all([1, 2, 3].map(() => githubToken(app, Date.now, request)));
+  const tokens = await Promise.all([1, 2, 3].map(() => githubToken(app, { request })));
   assert.deepEqual(tokens, ["shared", "shared", "shared"]);
   assert.equal(calls, 1);
 });
@@ -93,21 +94,30 @@ test("a rejected exchange surfaces as a GitHub error and is retried next time", 
   const error = console.error;
   console.error = () => {};
   try {
-    await assert.rejects(githubToken(app, Date.now, request), /app credentials \(401\)/);
+    await assert.rejects(githubToken(app, { request }), /app credentials \(401\)/);
   } finally {
     console.error = error;
   }
   fail = false;
-  assert.equal(await githubToken(app, Date.now, request), "recovered");
+  assert.equal(await githubToken(app, { request }), "recovered");
 });
 
-test("without every app secret the personal token is used", async () => {
-  resetGitHubTokenCache();
-  const request = (async () => assert.fail("no exchange expected")) as typeof fetch;
-  const partial = { GITHUB_TOKEN: "personal", GITHUB_APP_ID: "12345" };
-
-  assert.equal(await githubToken(partial, Date.now, request), "personal");
-  assert.equal(hasGitHubCredentials(partial), true);
-  assert.equal(hasGitHubCredentials({ GITHUB_APP_ID: "12345" }), false);
+test("credentials count only when every app secret is set", () => {
   assert.equal(hasGitHubCredentials(app), true);
+  assert.equal(hasGitHubCredentials({ ...app, GITHUB_APP_PRIVATE_KEY: undefined }), false);
+  assert.equal(hasGitHubCredentials({ ...app, GITHUB_APP_INSTALLATION_ID: "" }), false);
+  assert.equal(hasGitHubCredentials({}), false);
+});
+
+test("personal tokens require an explicit local-development allowance", async () => {
+  const request = (async () => assert.fail("no token exchange expected")) as typeof fetch;
+  const personal = { GITHUB_TOKEN: "synthetic-personal-token" };
+  const partial = { ...personal, GITHUB_APP_ID: "12345" };
+
+  for (const env of [personal, partial]) {
+    assert.equal(hasGitHubCredentials(env), false);
+    assert.equal(hasGitHubCredentials(env, { allowPersonalToken: true }), true);
+    await assert.rejects(githubToken(env, { request }), /missing its GitHub App credentials/);
+    assert.equal(await githubToken(env, { request, allowPersonalToken: true }), personal.GITHUB_TOKEN);
+  }
 });

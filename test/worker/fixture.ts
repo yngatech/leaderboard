@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { setTimeout } from "node:timers/promises";
@@ -6,7 +7,7 @@ import type { TestContext } from "node:test";
 import { Log, LogLevel, Miniflare, type Request as MiniflareRequest } from "miniflare";
 import type { BoardSnapshot } from "../../worker/board-snapshot.ts";
 import { PEOPLE } from "../../worker/github.ts";
-import type { StandingState } from "../../worker/notifications.ts";
+import type { MilestoneState, StandingState } from "../../worker/notifications.ts";
 
 const buildRoot = fileURLToPath(new URL("../../dist/leaderboard/", import.meta.url));
 const bundle = await readFile(`${buildRoot}index.js`, "utf8");
@@ -17,6 +18,14 @@ const localPreviewBundle = await readFile(
 export const config = JSON.parse(await readFile(`${buildRoot}wrangler.json`, "utf8"));
 const year = new Date().getUTCFullYear();
 const logins = PEOPLE.flatMap((person) => person.accounts);
+const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const appCredentials = {
+  GITHUB_APP_ID: "12345",
+  GITHUB_APP_INSTALLATION_ID: "678",
+  GITHUB_APP_PRIVATE_KEY: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+};
+const personalToken = "synthetic-personal-token";
+const installationToken = "synthetic-installation-token";
 
 // Only this test subclass exposes storage controls; the real alarm and RPC
 // methods run unchanged in workerd against SQLite storage and fake upstreams.
@@ -40,6 +49,7 @@ export class TestLeaderState extends LeaderState {
     if (action === "/wake") await this.ctx.storage.setAlarm(Date.now());
     if (action === "/stop") await this.ctx.storage.deleteAlarm();
     if (action === "/snapshot") await this.boardSnapshot(new Date().getUTCFullYear());
+    if (action === "/seed-milestones") await this.ctx.storage.put("milestones", await request.json());
     return Response.json({
       completed: this.completed,
       active: this.active,
@@ -57,12 +67,16 @@ export interface State {
   active: number;
   maxActive: number;
   alarm: number | null;
-  values: { "board-snapshot"?: BoardSnapshot; leader?: StandingState } & Record<string, unknown>;
+  values: { "board-snapshot"?: BoardSnapshot; leader?: StandingState; milestones?: MilestoneState } & Record<string, unknown>;
 }
 
 export async function setup(
   t: TestContext,
-  options: { credentials?: boolean; webhook?: boolean; localPreview?: boolean } = {},
+  options: {
+    credentials?: false | "app" | "personal" | "partial-app";
+    webhook?: boolean;
+    localPreview?: boolean;
+  } = {},
 ) {
   let mode: "ok" | "github-error" | "partial" | "discord-error" = "ok";
   let leadingCount = 10;
@@ -70,6 +84,13 @@ export async function setup(
   let attempts = 0;
   let discordPaused: Promise<void> | undefined;
   let resumeDiscord: (() => void) | undefined;
+  let exchanges = 0;
+  const personal = options.credentials === "personal" || options.credentials === "partial-app";
+  const credentials = options.credentials === false ? {} : {
+    app: { ...appCredentials, GITHUB_TOKEN: personalToken },
+    personal: { GITHUB_TOKEN: personalToken },
+    "partial-app": { GITHUB_TOKEN: personalToken, GITHUB_APP_ID: "12345" },
+  }[options.credentials ?? "app"];
   const posts: unknown[] = [];
   const mf = new Miniflare({
     name: "alarm-test",
@@ -84,12 +105,20 @@ export async function setup(
     compatibilityDate: config.compatibility_date,
     durableObjects: { LEADER_STATE: { className: "TestLeaderState", useSQLite: true } },
     bindings: {
-      ...(options.credentials !== false ? { GITHUB_TOKEN: "synthetic-test-token" } : {}),
+      ...credentials,
       ...(options.webhook !== false ? { DISCORD_WEBHOOK_URL: "https://discord.example/webhook" } : {}),
     },
     log: new Log(LogLevel.NONE),
     outboundService: async (request: MiniflareRequest) => {
       const url = new URL(request.url);
+      if (url.href === "https://api.github.com/app/installations/678/access_tokens") {
+        exchanges++;
+        assert.equal(request.method, "POST");
+        return Response.json({
+          token: installationToken,
+          expires_at: new Date(Date.now() + 3600000).toISOString(),
+        });
+      }
       if (url.hostname === "discord.example") {
         attempts++;
         await discordPaused;
@@ -99,6 +128,7 @@ export async function setup(
       }
       if (url.href === "https://api.github.com/graphql") {
         queries++;
+        assert.equal(request.headers.get("Authorization"), `Bearer ${personal ? personalToken : installationToken}`);
         if (mode === "github-error") return new Response("unavailable", { status: 503 });
         return Response.json({ data: Object.fromEntries(logins.map((login, i) => [
           `u${i}`,
@@ -149,11 +179,17 @@ export async function setup(
   }
   return {
     mf, state, until, refreshed, posts,
+    seedMilestones: async (milestones: MilestoneState) => {
+      await stub.fetch("https://alarm.test/seed-milestones", {
+        method: "POST", body: JSON.stringify(milestones),
+      });
+    },
     setMode: (next: typeof mode) => { mode = next; },
     setCount: (count: number) => { leadingCount = count; },
     queries: () => queries,
     attempts: () => attempts,
     pauseDiscord: () => { discordPaused = new Promise((resolve) => { resumeDiscord = resolve; }); },
     resumeDiscord: () => resumeDiscord?.(),
+    exchanges: () => exchanges,
   };
 }

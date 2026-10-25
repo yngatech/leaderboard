@@ -205,10 +205,26 @@ test("marks level totals and a solo board", () => {
 });
 
 test("drops the milestone goal past the top of the ladder", () => {
-  const board = rankedBoard([["alice", 60000]]);
+  const board = rankedBoard([["alice", 100000]]);
   const goals = userGoals(board, 0);
   assert.equal(goals.nextMilestone, null);
   assert.equal(goals.toMilestone, null);
+});
+
+test("yearly goals advance through the added intermediate and upper milestones", () => {
+  for (const [total, target, remaining] of [
+    [749, 750, 1],
+    [750, 1000, 250],
+    [12500, 13000, 500],
+    [13000, 14000, 1000],
+    [14000, 15000, 1000],
+    [60000, 75000, 15000],
+    [75000, 100000, 25000],
+  ]) {
+    const goals = userGoals(rankedBoard([["example-user", total]]), 0);
+    assert.equal(goals.nextMilestone, target);
+    assert.equal(goals.toMilestone, remaining);
+  }
 });
 
 test("tracks the board-wide goal from the summed totals", () => {

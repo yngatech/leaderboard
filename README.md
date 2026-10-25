@@ -118,6 +118,12 @@ milestone, it posts a rich message to Discord. Daily records and milestones
 restart each calendar year. Durable state prevents duplicate messages; the
 first run records a baseline without sending one.
 
+Yearly personal milestones run from 100 through 100,000, with intermediate
+steps including 750, 1,500, 2,000, 13,000, and 14,000. Goal displays and Discord
+use the same ladder. When expanding the ladder, pending notifications from
+the original ladder finish first, then newly introduced rungs already passed
+are recorded silently.
+
 The first live-board read that reaches the Durable Object starts the alarm
 chain; request `/api/board` after deploying to start it once any cached response
 expires. Each alarm saves the next run before fetching GitHub or sending
@@ -255,16 +261,27 @@ branch builds must remain limited to trusted contributors. A normal
 `npm run deploy` always targets `leaderboard` and rebuilds from the complete
 production config.
 
-In production the Worker reaches the contributions API as a GitHub App, so its
-rate limit is its own rather than shared with a person's token. The App needs
-no permissions, only an installation. Set three Worker secrets:
+Production and deployed PR previews authenticate GitHub API requests as a
+GitHub App, with its own rate limit. The App needs no permissions, only an
+installation. It reads three secrets:
 `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY`.
 The key must be PKCS#8; convert GitHub's download with
 `openssl pkcs8 -topk8 -nocrypt -in app.private-key.pem -out app.pk8.pem`.
 
-Without the App secrets the Worker falls back to a personal token with
-`read:user`. Locally that goes in `.dev.vars` as `GITHUB_TOKEN=...`. Neither
-credential is ever sent to the client.
+Set all three as Worker secrets on both `leaderboard` and
+`leaderboard-preview`, specifying the Worker name for each command, for example
+`wrangler secret put GITHUB_APP_PRIVATE_KEY --name leaderboard-preview < app.pk8.pem`.
+Deployed builds require every App secret and never fall back to a personal token.
+
+For local `npm run dev` and `npm run preview`, a personal token with `read:user`
+in the ignored `.dev.vars` file is enough:
+
+```sh
+GITHUB_TOKEN=...
+```
+
+Complete App credentials take precedence if configured locally. Neither
+credential is sent to the client.
 
 ## Adding a person or account
 

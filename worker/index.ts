@@ -34,7 +34,12 @@ import {
   staleCopy,
 } from "./cache-policy";
 import type { ArchiveTotals } from "./github";
-import { githubToken, hasGitHubCredentials, type GitHubCredentials } from "./github-app";
+import {
+  GITHUB_APP_CREDENTIALS_MISSING,
+  githubToken,
+  hasGitHubCredentials,
+  type GitHubCredentials,
+} from "./github-app";
 import {
   PEOPLE,
   currentYear,
@@ -156,8 +161,11 @@ const HTML_CACHE_PREFIX =
  */
 const AVATAR_CACHE_PREFIX = "https://ynga-git-board.internal/avatar/v1/";
 
-const TOKEN_MISSING =
-  "The board is missing its GitHub credentials. Set the GITHUB_APP_* secrets or GITHUB_TOKEN.";
+const TOKEN_MISSING = __LOCAL_DEVELOPMENT__
+  ? "The board is missing its GitHub credentials. Set GITHUB_TOKEN in .dev.vars."
+  : GITHUB_APP_CREDENTIALS_MISSING;
+const GITHUB_AUTH = { allowPersonalToken: __LOCAL_DEVELOPMENT__ };
+
 /** A fresh fetch, an edge cache entry, or the last good copy standing in. */
 type CacheState = "HIT" | "MISS" | "STALE";
 /**
@@ -369,7 +377,7 @@ async function boardJson(
     return { response: fresh, cache: "MISS" };
   }
 
-  if (!hasGitHubCredentials(env)) {
+  if (!hasGitHubCredentials(env, GITHUB_AUTH)) {
     return {
       response: json(
         { error: TOKEN_MISSING, status: 500 },
@@ -380,7 +388,7 @@ async function boardJson(
   }
 
   try {
-    const { board, missing } = await fetchBoard(await githubToken(env), year);
+    const { board, missing } = await fetchBoard(await githubToken(env, GITHUB_AUTH), year);
     const ttl = upstreamTtl(year);
     const fresh = boardResponse(board, year, new Date().toISOString(), missing, ttl);
     ctx.waitUntil(storeBoard(cacheKey, lastGoodKey, fresh, ttl));
@@ -1017,13 +1025,13 @@ async function breakdownJson(
   try {
     const hit = !__DEV__ ? await caches.default.match(key) : undefined;
     if (hit) return hit;
-    if (!hasGitHubCredentials(env))
+    if (!hasGitHubCredentials(env, GITHUB_AUTH))
       return json(
         { error: TOKEN_MISSING, status: 500 },
         { status: 500, headers: { "Cache-Control": "no-store" } },
       );
     const accounts = PEOPLE.find((person) => person.accounts[0] === login)!.accounts;
-    const data = await fetchBreakdown(await githubToken(env), login, accounts, window);
+    const data = await fetchBreakdown(await githubToken(env, GITHUB_AUTH), login, accounts, window);
     const response = json(data, {
       headers: {
         "Cache-Control": `public, max-age=${breakdownTtl(window, new Date())}`,
@@ -1496,7 +1504,7 @@ function withBrowserHeaders(
  */
 async function finishedBoard(env: Env, year: number): Promise<Board | null> {
   try {
-    const { board, missing } = await fetchBoard(await githubToken(env), year);
+    const { board, missing } = await fetchBoard(await githubToken(env, GITHUB_AUTH), year);
     if (shouldUpdateNotifications(missing)) return board;
     console.warn("finished-year board skipped while incomplete", { year, missing });
   } catch (error) {
@@ -1647,11 +1655,11 @@ export class LeaderState extends DurableObject<Env> {
 
   /** One fetch supplies both the site's snapshot and Discord notifications. */
   private async refreshBoard(): Promise<void> {
-    if (!hasGitHubCredentials(this.env)) throw new Error(TOKEN_MISSING);
+    if (!hasGitHubCredentials(this.env, GITHUB_AUTH)) throw new Error(TOKEN_MISSING);
 
     const year = currentYear();
     const generatedAt = new Date().toISOString();
-    const { board, missing } = await fetchBoard(await githubToken(this.env), year);
+    const { board, missing } = await fetchBoard(await githubToken(this.env, GITHUB_AUTH), year);
     // A partial fetch leaves the last complete board and checkpoints intact.
     if (!shouldUpdateNotifications(missing)) {
       console.warn("board refresh skipped for incomplete board", { year, missing });
@@ -1769,7 +1777,7 @@ export class LeaderState extends DurableObject<Env> {
   async boardSnapshot(year: number): Promise<BoardSnapshot | null> {
     // A live-board read starts the chain after deployment, or restarts it if
     // no alarm remains. Visitors never postpone an already scheduled check.
-    if (__BOARD_ALARMS_ENABLED__ && hasGitHubCredentials(this.env)) {
+    if (__BOARD_ALARMS_ENABLED__ && hasGitHubCredentials(this.env, GITHUB_AUTH)) {
       if ((await this.ctx.storage.getAlarm()) === null) {
         await this.ctx.storage.setAlarm(Date.now());
       }

@@ -869,7 +869,7 @@ function milestoneState(
   boardTotal: number,
   boardMilestone: number,
 ): MilestoneState {
-  return { year: 2026, personalTotals, personalMilestones, boardTotal, boardMilestone };
+  return { year: 2026, personalMilestonesVersion: 2, personalTotals, personalMilestones, boardTotal, boardMilestone };
 }
 
 function milestoneNotificationId(notification: MilestoneNotification): string {
@@ -886,7 +886,7 @@ test("seeds contribution milestones without backfilling notifications", () => {
   assert.equal(plan.boardMilestone, null);
   assert.deepEqual(plan.nextState, milestoneState(
     { alice: 12_000, bob: 900 },
-    { alice: 10_000, bob: 500 },
+    { alice: 12_000, bob: 750 },
     12_900,
     10_000,
   ));
@@ -896,7 +896,7 @@ test("detects one personal and board contribution milestone", () => {
   const plan = planMilestones(
     2026,
     [totalUser("alice", 100), totalUser("bob", 900)],
-    milestoneState({ alice: 99, bob: 900 }, { alice: 0, bob: 500 }, 999, 0),
+    milestoneState({ alice: 99, bob: 900 }, { alice: 0, bob: 750 }, 999, 0),
   );
 
   assert.deepEqual(plan.personalMilestones, [{
@@ -916,9 +916,103 @@ test("collapses multiple contribution milestones to the highest newly passed thr
   );
 
   assert.deepEqual(plan.personalMilestones.map(({ login, threshold }) => ({ login, threshold })), [
-    { login: "alice", threshold: 10_000 },
+    { login: "alice", threshold: 12_000 },
   ]);
   assert.deepEqual(plan.boardMilestone, { threshold: 10_000 });
+});
+
+test("expanding yearly milestones silently seeds the new rungs already passed", async () => {
+  let stored = milestoneState({ "example-user": 12_000 }, { "example-user": 10_000 }, 12_000, 10_000);
+  delete stored.personalMilestonesVersion;
+  const delivered: string[] = [];
+  const notify = async (notification: MilestoneNotification) => { delivered.push(milestoneNotificationId(notification)); };
+  const save = async (state: MilestoneState) => { stored = structuredClone(state); };
+
+  await deliverMilestones(planMilestones(2026, [totalUser("example-user", 12_000)], stored), notify, save);
+  assert.equal(delivered.length, 0);
+  assert.equal(stored.personalMilestones["example-user"], 12_000);
+  assert.equal(stored.personalMilestonesVersion, 2);
+
+  for (const total of [12_000, 12_499, 12_500, 12_999, 13_000, 13_999, 14_000, 14_000]) {
+    await deliverMilestones(planMilestones(2026, [totalUser("example-user", total)], stored), notify, save);
+  }
+  assert.deepEqual(delivered, [
+    "personal:example-user:12500",
+    "personal:example-user:13000",
+    "personal:example-user:14000",
+  ]);
+});
+
+test("a pending old-ladder post retries before the added yearly rungs are seeded", async () => {
+  let stored = milestoneState({ "example-user": 12_000 }, { "example-user": 7_500 }, 12_000, 10_000);
+  delete stored.personalMilestonesVersion;
+  const delivered: string[] = [];
+  let fail = true;
+  const notify = async (notification: MilestoneNotification) => {
+    if (fail) {
+      fail = false;
+      throw new Error("Discord unavailable");
+    }
+    delivered.push(milestoneNotificationId(notification));
+  };
+  const save = async (state: MilestoneState) => { stored = structuredClone(state); };
+  const board = [totalUser("example-user", 12_000)];
+
+  await assert.rejects(deliverMilestones(planMilestones(2026, board, stored), notify, save), /Discord unavailable/);
+  assert.equal(stored.personalMilestonesVersion, undefined);
+  assert.equal(stored.personalMilestones["example-user"], 7_500);
+
+  await deliverMilestones(planMilestones(2026, board, stored), notify, save);
+  await deliverMilestones(planMilestones(2026, board, stored), notify, save);
+  assert.deepEqual(delivered, ["personal:example-user:10000"]);
+  assert.equal(stored.personalMilestones["example-user"], 12_000);
+  assert.equal(stored.personalMilestonesVersion, 2);
+
+  fail = true;
+  const next = [totalUser("example-user", 12_500)];
+  await assert.rejects(deliverMilestones(planMilestones(2026, next, stored), notify, save), /Discord unavailable/);
+  await deliverMilestones(planMilestones(2026, next, stored), notify, save);
+  assert.equal(delivered.at(-1), "personal:example-user:12500");
+});
+
+test("a failed ladder migration checkpoint does not repeat a successful old-ladder post", async () => {
+  let stored = milestoneState({ "example-user": 12_000 }, { "example-user": 7_500 }, 12_000, 10_000);
+  delete stored.personalMilestonesVersion;
+  const delivered: string[] = [];
+  let failMigration = true;
+  const notify = async (notification: MilestoneNotification) => { delivered.push(milestoneNotificationId(notification)); };
+  const save = async (state: MilestoneState) => {
+    if (state.personalMilestonesVersion === 2 && failMigration) {
+      failMigration = false;
+      throw new Error("Storage unavailable");
+    }
+    stored = structuredClone(state);
+  };
+  const board = [totalUser("example-user", 12_000)];
+
+  await assert.rejects(deliverMilestones(planMilestones(2026, board, stored), notify, save), /Storage unavailable/);
+  assert.equal(stored.personalMilestonesVersion, undefined);
+  assert.equal(stored.personalMilestones["example-user"], 10_000);
+  await deliverMilestones(planMilestones(2026, board, stored), notify, save);
+  assert.deepEqual(delivered, ["personal:example-user:10000"]);
+  assert.equal(stored.personalMilestones["example-user"], 12_000);
+  assert.equal(stored.personalMilestonesVersion, 2);
+});
+
+test("yearly milestones announce the new early and upper rungs once", async () => {
+  let stored = planMilestones(2026, [totalUser("example-user", 749)]).nextState;
+  const delivered: MilestoneNotification[] = [];
+  for (const total of [749, 750, 750, 1_500, 60_000, 75_000, 75_000, 100_000, 100_001]) {
+    await deliverMilestones(
+      planMilestones(2026, [totalUser("example-user", total)], stored),
+      async (notification) => { delivered.push(notification); },
+      async (state) => { stored = structuredClone(state); },
+    );
+  }
+  assert.deepEqual(
+    delivered.filter((notification) => notification.type === "personal-milestone").map(({ event }) => event.threshold),
+    [750, 1_500, 50_000, 75_000, 100_000],
+  );
 });
 
 test("resets contribution milestone state silently on a year rollover", () => {
