@@ -1,0 +1,575 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { aggregateInsights, agentEvidence, EVIDENCE_KINDS, classifyIntent, excludedPath, type InsightPullRequest } from "../worker/insights.ts";
+import { fetchInsights, insightMonths } from "../worker/insights-fetch.ts";
+import { INSIGHTS_SCHEMA_VERSION, storedInsights, storeInsights, refreshInsights, type InsightsStorage } from "../worker/insights-storage.ts";
+import { PEOPLE } from "../worker/github.ts";
+
+function pr(overrides: Partial<InsightPullRequest> = {}): InsightPullRequest {
+  return {
+    id: "pr-1", title: "Update widget", url: "https://github.com/example/widgets/pull/1", headRefName: "topic/widget", createdAt: "2026-02-03T12:00:00Z", mergedAt: null, state: "OPEN",
+    additions: 20, deletions: 10, changedFiles: 1, body: "", author: { login: "example-user" }, repository: { nameWithOwner: "example/widgets", isPrivate: false },
+    files: { nodes: [{ path: "src/widget.ts", additions: 20, deletions: 10 }], pageInfo: { hasNextPage: false } },
+    commits: { totalCount: 1, nodes: [{ commit: { message: "Update widget", authors: { totalCount: 1, nodes: [{ name: "Example Developer", email: "developer@example.test", user: { login: "example-user" } }] } } }] },
+    ...overrides,
+  };
+}
+function summarize(prs: InsightPullRequest[]) {
+  return aggregateInsights("example-user", ["example-user", "example-alt"], 2026, prs, "2026-03-01T00:00:00Z");
+}
+
+test("adjusted sizes exclude lockfiles, generated paths and snapshots, keeping similarly named source", () => {
+  for (const path of ["package-lock.json", "nested/yarn.lock", "pnpm-lock.yaml", "Cargo.lock", "go.sum", "uv.lock", "poetry.lock", "bun.lock", "a/dist/main.js", "build/a", "vendor/a", "generated/a", "node_modules/a", "app.min.js", "app.js.map", "__snapshots__/a", "widget.snap"]) assert.ok(excludedPath(path), path);
+  for (const path of ["src/build.ts", "src/vendor-helper.ts", "distribution/a", "package.json", "src/map.ts"]) assert.ok(!excludedPath(path), path);
+  const data = summarize([pr({ changedFiles: 3, files: { nodes: [
+    { path: "src/widget.ts", additions: 10, deletions: 70 },
+    { path: "dist/widget.js", additions: 9000, deletions: 0 },
+    { path: "package-lock.json", additions: 8000, deletions: 0 },
+  ], pageInfo: { hasNextPage: false } } })]);
+  assert.equal(data.size.median, 80);
+  assert.deepEqual(data.size.biggestNetDeletion, { lines: 60, url: pr().url });
+});
+
+test("size boundaries, even medians, small share, and incomplete file lists have honest denominators", () => {
+  const prs = [0, 9, 10, 99, 100, 499, 500, 999, 1000, 1001].map((size, i) => pr({ id: String(i), files: { nodes: [{ path: "a.ts", additions: size, deletions: 0 }], pageInfo: { hasNextPage: false } } }));
+  const data = summarize([...prs, pr({ id: "missing", files: null }), pr({ id: "truncated", changedFiles: 101 }), pr({ id: "next", files: { ...pr().files!, pageInfo: { hasNextPage: true } } })]);
+  assert.equal(data.total, 13);
+  assert.equal(data.size.measured, 10);
+  assert.equal(data.size.incomplete, 3);
+  assert.equal(data.size.median, 299.5);
+  assert.equal(data.size.smallShare, 0.4);
+  assert.deepEqual(data.size.buckets.map((b) => b.count), [2, 2, 2, 2, 2]);
+  assert.equal(data.size.biggestNetDeletion, null);
+});
+
+test("merge accounts and dedupe PR IDs; exclude private, other-author and other-year PRs", () => {
+  const data = summarize([pr(), pr(), pr({ id: "alt", author: { login: "EXAMPLE-ALT" } }), pr({ id: "private", repository: { nameWithOwner: "example/private", isPrivate: true } }), pr({ id: "old", createdAt: "2025-01-01T00:00:00Z" }), pr({ id: "other", author: { login: "someone-else" } })]);
+  assert.equal(data.total, 2);
+  assert.equal(data.intent.mix.unknown, 2);
+  assert.equal(summarize([]).size.median, null);
+  assert.equal(summarize([]).agents.share, null);
+});
+
+test("intent precedence, scoped areas, tags, branch prefixes and complete exclusive paths", () => {
+  assert.equal(classifyIntent(pr({ title: "FIX(engine)!: repair widget", headRefName: "feat/widget" })).intent, "fix");
+  assert.equal(classifyIntent(pr({ title: "[deps] update packages" })).intent, "deps");
+  assert.deepEqual(classifyIntent(pr({ title: "board: add widget", headRefName: "fix/widget" })), { intent: "fix", source: "branch" });
+  assert.equal(classifyIntent(pr({ title: "[web] new screen" })).intent, "unknown");
+  assert.equal(classifyIntent(pr({ title: "board: update widget" })).intent, "unknown");
+  for (const [path, intent] of [["README.md", "docs"], ["docs/a.md", "docs"], ["src/a.test.ts", "test"], ["package-lock.json", "deps"], [".github/workflows/test.yml", "ci"]]) {
+    const input = pr({ files: { nodes: [{ path, additions: 1, deletions: 0 }], pageInfo: { hasNextPage: false } } });
+    assert.equal(classifyIntent(input).intent, intent);
+    assert.equal(classifyIntent({ ...input, changedFiles: 101 }).intent, "unknown");
+  }
+  assert.equal(classifyIntent(pr({ changedFiles: 0, files: { nodes: [], pageInfo: { hasNextPage: false } } })).intent, "unknown");
+});
+
+test("common intent scopes share categories without interpreting subsystem names", () => {
+  const groups = {
+    docs: ["docs", "doc", "documentation", "readme"], test: ["test", "tests", "e2e"],
+    deps: ["deps", "dependencies", "dependabot", "renovate"],
+    ci: ["ci", "workflows", "actions", "github-actions", "build", "bundle", "tooling"],
+    chore: ["release", "chore"], perf: ["perf"], fix: ["fix"], feat: ["feat"],
+  };
+  const rows: InsightPullRequest[] = [];
+  for (const [intent, aliases] of Object.entries(groups)) for (const alias of aliases) {
+    for (const title of [`${alias}: update widget`, `${alias}(board)!: update widget`, `[${alias}] update widget`]) {
+      assert.deepEqual(classifyIntent(pr({ title, headRefName: "refactor/widget" })), { intent, source: "title" }, title);
+    }
+    assert.deepEqual(classifyIntent(pr({ headRefName: `${alias}/widget` })), { intent, source: "branch" });
+    rows.push(pr({ id: alias, title: `${alias}: update widget` }));
+  }
+  for (const scope of ["board", "api", "generate", "codex-terminal", "makefile", "readme-badge", "neqmac, nitmac, docs"]) {
+    assert.deepEqual(classifyIntent(pr({ title: `${scope}: update widget` })), { intent: "unknown", source: "unknown" });
+  }
+  assert.equal(classifyIntent(pr({ title: "board: update widget", headRefName: "fix-widget" })).intent, "fix");
+  const { mix } = summarize(rows).intent;
+  assert.equal(mix.ci, groups.ci.length);
+  assert.equal(mix.deps, groups.deps.length);
+  assert.ok(!("build" in mix));
+  assert.equal(Object.values(mix).reduce((n, count) => n + count, 0), rows.length);
+});
+
+test("attribution preserves body vs trailers and counts each PR/agent once despite repeated trailers", () => {
+  const input = pr({ body: "Description\n\n---\nWritten by an agent (Codex, example-model).", commits: { totalCount: 1, nodes: [{ commit: { message: "Update widget\n\nCo-authored-by: Claude (Example Model) <noreply@anthropic.com>\nCo-Authored-By: Claude <noreply@anthropic.com>", authors: { totalCount: 1, nodes: [{ name: "Claude", email: "noreply@anthropic.com", user: null }] } } }] } });
+  assert.deepEqual(agentEvidence(input), {
+    providers: { bodyFooter: ["OpenAI"], commitTrailer: ["Anthropic"], commitAuthor: ["Anthropic"], prAuthor: [] },
+    harnesses: { bodyFooter: ["Codex"], commitTrailer: [], commitAuthor: [], prAuthor: [] },
+  });
+  const data = summarize([input]);
+  assert.equal(data.agents.attributed, 1);
+  assert.equal(data.agents.share, 1);
+  assert.deepEqual(data.agents.providers.map(({ name, count }) => ({ name, count })), [{ name: "Anthropic", count: 1 }, { name: "OpenAI", count: 1 }]);
+  assert.deepEqual(data.agents.providers[0].evidence, { bodyFooter: 0, commitTrailer: 1, commitAuthor: 1, prAuthor: 0 });
+  assert.deepEqual(data.agents.harnesses, [{ name: "Codex", count: 1, evidence: { bodyFooter: 1, commitTrailer: 0, commitAuthor: 0, prAuthor: 0 } }]);
+  assert.ok(!JSON.stringify(data).includes("noreply@"));
+  assert.ok(!JSON.stringify(data).includes("example-model"));
+});
+
+test("agent identities, generated-with links, generic disclosures and bounded commit evidence", () => {
+  assert.deepEqual(agentEvidence(pr({ body: "🤖 Generated with [Claude Code](https://example.test/tool)" })).harnesses.bodyFooter, ["Claude Code"]);
+  assert.deepEqual(agentEvidence(pr({ body: "Written by an agent (Example Client, example-model)." })).harnesses.bodyFooter, ["unknown harness"]);
+  for (const [login, agent] of [["copilot-swe-agent[bot]", "Copilot"], ["chatgpt-codex-connector[bot]", "Codex"], ["devin-ai-integration[bot]", "Devin"], ["google-labs-jules[bot]", "Jules"]]) assert.deepEqual(agentEvidence(pr({ author: { login } })).harnesses.prAuthor, [agent]);
+  const input = pr();
+  input.commits.totalCount = 51;
+  input.commits.nodes[0].commit.authors.totalCount = 6;
+  assert.equal(summarize([input]).agents.incompleteCommits, 1);
+});
+
+test("ordinary agent mentions, quoted/fenced examples and dependency bots are not attribution", () => {
+  const body = "Discuss Claude Code and Codex.\n> Generated with Claude Code\n\n```text\nWritten by an agent (Codex, example).\n```\n\n    Generated with Claude Code";
+  assert.deepEqual(agentEvidence(pr({ body })).harnesses.bodyFooter, []);
+  for (const login of ["dependabot[bot]", "renovate[bot]", "github-actions[bot]"]) assert.deepEqual(agentEvidence(pr({ author: { login } })).harnesses.prAuthor, []);
+  const input = pr();
+  input.commits.nodes[0].commit.message = "Document trailers\n\n```text\nCo-authored-by: Codex <noreply@openai.com>\n```";
+  assert.deepEqual(agentEvidence(input).harnesses.commitTrailer, []);
+});
+
+test("month windows include leap days and exclude future months", () => {
+  assert.deepEqual(insightMonths(new Date("2024-03-02T10:00:00Z")), [
+    { from: "2024-01-01", to: "2024-01-31" }, { from: "2024-02-01", to: "2024-02-29" }, { from: "2024-03-01", to: "2024-03-02" },
+  ]);
+});
+
+function searchResponse(nodes: InsightPullRequest[], issueCount = nodes.length, hasNextPage = false, endCursor: string | null = null) {
+  return Response.json({ data: { search: { nodes, issueCount, pageInfo: { hasNextPage, endCursor } } } });
+}
+
+test("collector paginates and splits capped windows without dropping fork PRs or merging account medians", async (t) => {
+  const queries: string[] = [];
+  t.mock.method(globalThis, "fetch", async (_url: unknown, init: RequestInit) => {
+    const { variables } = JSON.parse(String(init.body));
+    queries.push(variables.q);
+    if (variables.q.includes("01-01..2026-01-31")) return searchResponse([], 1001);
+    if (variables.q.includes("01-01..2026-01-16")) {
+      return variables.after ? searchResponse([pr({ id: "second", createdAt: "2026-01-03T00:00:00Z" })], 2) : searchResponse([pr({ createdAt: "2026-01-02T00:00:00Z" })], 2, true, "cursor");
+    }
+    return searchResponse([]);
+  });
+  const data = await fetchInsights("synthetic-token", "example-user", ["example-user"], new Date("2026-01-31T10:00:00Z"));
+  assert.equal(data.total, 2);
+  assert.equal(queries.length, 4);
+  assert.ok(queries.every((q) => q.includes("is:public") && !q.includes("fork:false")));
+});
+
+test("collector refuses silently truncated or errored search results", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => searchResponse([pr()], 2));
+  await assert.rejects(fetchInsights("synthetic-token", "example-user", ["example-user"], new Date("2026-01-31T00:00:00Z")), /coverage/);
+  t.mock.method(globalThis, "fetch", async () => Response.json({ data: { search: null }, errors: [{ message: "partial result" }] }));
+  await assert.rejects(fetchInsights("synthetic-token", "example-user", ["example-user"], new Date("2026-01-31T00:00:00Z")), /complete/);
+});
+
+function memoryStorage() {
+  const entries = new Map<string, unknown>();
+  const storage: InsightsStorage = {
+    get: async <T>(key: string) => structuredClone(entries.get(key)) as T | undefined,
+    put: async (key, value) => { entries.set(key, structuredClone(value)); },
+  };
+  return { entries, storage };
+}
+
+function readSummary(value: unknown) {
+  const { entries, storage } = memoryStorage();
+  entries.set("insights:2026:example-user", { schemaVersion: INSIGHTS_SCHEMA_VERSION, summary: value });
+  return storedInsights(storage, "example-user", 2026);
+}
+
+test("stored summaries round trip by person and year; old versions and changed accounts are missing", async () => {
+  const { entries, storage } = memoryStorage();
+  const summary = summarize([pr()]);
+  await storeInsights(storage, summary);
+  assert.deepEqual(await storedInsights(storage, summary.login, 2026), summary);
+  assert.equal(await storedInsights(storage, "other-user", 2026), null);
+  assert.equal(await storedInsights(storage, summary.login, 2025), null);
+  entries.set("insights:2026:example-user", { schemaVersion: INSIGHTS_SCHEMA_VERSION - 1, summary });
+  assert.equal(await storedInsights(storage, summary.login, 2026), null);
+  const login = PEOPLE[1].accounts[0];
+  await storeInsights(storage, { ...summary, login, accounts: [login] });
+  assert.equal(await storedInsights(storage, login, 2026), null);
+});
+
+test("storage miss does no network work; refresh stores one person per tick and refreshes only after a day", async (t) => {
+  const { entries, storage } = memoryStorage();
+  let requests = 0;
+  t.mock.method(globalThis, "fetch", async () => { requests += 1; return searchResponse([]); });
+  const now = new Date("2026-01-10T12:00:00Z");
+  assert.equal(await storedInsights(storage, "example-user", 2026), null);
+  await refreshInsights(storage, "", now);
+  assert.equal(requests, 0);
+  for (let i = 0; i < PEOPLE.length; i++) {
+    await refreshInsights(storage, "synthetic-token", now);
+    assert.equal([...entries.keys()].filter((key) => key.startsWith("insights:")).length, i + 1);
+  }
+  const collected = PEOPLE.reduce((sum, person) => sum + person.accounts.length, 0);
+  assert.equal(requests, collected);
+  await refreshInsights(storage, "synthetic-token", new Date("2026-01-11T11:59:59Z"));
+  assert.equal(requests, collected);
+  await refreshInsights(storage, "synthetic-token", new Date("2026-01-11T12:00:00Z"));
+  assert.equal(requests, collected + 1);
+  assert.equal((await storedInsights(storage, PEOPLE[0].accounts[0], 2026))?.generatedAt, "2026-01-11T12:00:00.000Z");
+});
+
+test("a failed refresh attempt preserves stored data, skips to the next person, and retries after an hour", async (t) => {
+  const { storage } = memoryStorage();
+  const login = PEOPLE[0].accounts[0];
+  t.mock.method(globalThis, "fetch", async () => searchResponse([]));
+  await refreshInsights(storage, "synthetic-token", new Date("2026-01-10T12:00:00Z"));
+  const original = await storedInsights(storage, login, 2026);
+  t.mock.method(globalThis, "fetch", async () => Response.json({ errors: [{ message: "unavailable" }] }));
+  await assert.rejects(refreshInsights(storage, "synthetic-token", new Date("2026-01-12T12:00:00Z")));
+  assert.deepEqual(await storedInsights(storage, login, 2026), original);
+  t.mock.method(globalThis, "fetch", async () => searchResponse([]));
+  await refreshInsights(storage, "synthetic-token", new Date("2026-01-12T12:59:59Z"));
+  assert.deepEqual(await storedInsights(storage, login, 2026), original);
+  assert.ok(await storedInsights(storage, PEOPLE[1].accounts[0], 2026));
+  await refreshInsights(storage, "synthetic-token", new Date("2026-01-12T13:00:00Z"));
+  assert.equal((await storedInsights(storage, login, 2026))?.generatedAt, "2026-01-12T13:00:00.000Z");
+});
+
+test("secondary throttles back off for a minute before retrying; transient failures also retry", async (t) => {
+  const { githubGraphql } = await import("../worker/github.ts");
+  const { setImmediate } = await import("node:timers/promises");
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    calls += 1;
+    return calls === 1 ? Response.json({ message: "You have exceeded a secondary rate limit." }, { status: 403 }) : Response.json({ data: { ok: true } });
+  });
+  const pending = githubGraphql("synthetic-token", { query: "query { example }" }, true);
+  await setImmediate();
+  assert.equal(calls, 1);
+  t.mock.timers.tick(59_999);
+  await setImmediate();
+  assert.equal(calls, 1);
+  t.mock.timers.tick(1);
+  assert.deepEqual(await pending, { data: { ok: true } });
+  assert.equal(calls, 2);
+  calls = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    calls += 1;
+    return calls === 1 ? new Response("upstream unavailable", { status: 502 }) : Response.json({ data: { ok: true } });
+  });
+  const transient = githubGraphql("synthetic-token", {}, true);
+  await setImmediate();
+  t.mock.timers.tick(1000);
+  assert.deepEqual(await transient, { data: { ok: true } });
+});
+
+test("panel suppresses tiny cohorts and tiny size subsets while keeping larger-cohort intent visible", async () => {
+  const { insightsHtml } = await import("../worker/views/insights.ts");
+  const rows = Array.from({ length: 10 }, (_, i) => pr({ id: String(i) }));
+  const tiny = String(insightsHtml(summarize(rows.slice(0, 9))));
+  assert.ok(!tiny.includes('<dl'));
+  assert.ok(!tiny.includes('aria-label="Model providers"'));
+  const mixed = summarize(rows.map((row, i) => i ? row : { ...row, files: null }));
+  const rendered = String(insightsHtml(mixed));
+  assert.ok(!rendered.includes('aria-label="PR size histogram"'));
+  assert.ok(rendered.includes('10</strong>'));
+  assert.ok(!rendered.includes('aria-label="Model providers"'));
+  assert.ok(String(insightsHtml(summarize(rows))).includes('aria-label="PR size histogram"'));
+});
+
+test("human names and lookalike emails are not agent identities in trailers or authors", () => {
+  for (const name of ["Devin Example", "Claude Example", "Jules Example", "Devin", "Claude", "Jules", "Codex", "Cursor Agent", "Copilot", "aider (example-model)", "Amp"]) {
+    for (const email of ["human@example.test", "noreply@anthropic.com.example.test", "noreply@openai.com.example.test", "cursoragent@cursor.com.example.test", "aider@aider.chat.example.test", "amp@ampcode.com.example.test", "aider@not-aider.chat", "amp@not-ampcode.com"]) {
+      const input = pr();
+      input.commits.nodes[0].commit = {
+        message: `Update widget\n\nCo-authored-by: ${name} <${email}>`,
+        authors: { totalCount: 1, nodes: [{ name, email, user: { login: "example-human" } }] },
+      };
+      assert.deepEqual(agentEvidence(input), { providers: { bodyFooter: [], commitTrailer: [], commitAuthor: [], prAuthor: [] }, harnesses: { bodyFooter: [], commitTrailer: [], commitAuthor: [], prAuthor: [] } }, `${name} <${email}>`);
+    }
+  }
+});
+
+test("trailers and commit authors share exact known email and GitHub bot identities", () => {
+  for (const [name, email, agent] of [
+    ["Claude (Example Model)", "noreply@anthropic.com", "Claude Code"],
+    ["Codex", "noreply@openai.com", "Codex"],
+    ["Cursor Agent", "cursoragent@cursor.com", "Cursor"],
+    ["Cursor Agent", "12345+cursoragent@users.noreply.github.com", "Cursor"],
+    ["Copilot", "copilot@github.com", "Copilot"],
+    ["Copilot", "12345+Copilot@users.noreply.github.com", "Copilot"],
+    ["aider (example-model)", "aider@aider.chat", "Aider"],
+    ["Amp", "amp@ampcode.com", "Amp"],
+    ["Example bot", "12345+chatgpt-codex-connector[bot]@users.noreply.github.com", "Codex"],
+  ]) {
+    const input = pr();
+    input.commits.nodes[0].commit = {
+      message: `Update widget\n\nCo-authored-by: ${name} <${email}>`,
+      authors: { totalCount: 1, nodes: [{ name, email, user: null }] },
+    };
+    const found = agentEvidence(input);
+    assert.deepEqual(found.harnesses.commitTrailer, [agent], email);
+    assert.deepEqual(found.harnesses.commitAuthor, [agent], email);
+  }
+  const input = pr();
+  input.commits.nodes[0].commit.authors.nodes[0] = { name: null, email: null, user: { login: "google-labs-jules[bot]" } };
+  assert.deepEqual(agentEvidence(input).harnesses.commitAuthor, ["Jules"]);
+});
+
+test("disclosures separate model providers from client harnesses, including multi-agent markers", () => {
+  for (const [fields, providers, harnesses] of [
+    ["Claude Code, claude-opus-x", ["Anthropic"], ["Claude Code"]],
+    ["Codex, gpt-6-example", ["OpenAI"], ["Codex"]],
+    ["styal, gpt-6.1-sol", ["OpenAI"], ["styal"]],
+    ["T3 Code, claude-opus-x", ["Anthropic"], ["T3 Code"]],
+    ["OpenCode, claude-opus-x", ["Anthropic"], ["OpenCode"]],
+    ["Codex, claude-opus-x", ["Anthropic"], ["Codex"]],
+    ["Claude Code, claude-opus-x; Codex, gpt-6.1-sol", ["Anthropic", "OpenAI"], ["Claude Code", "Codex"]],
+    ["Example Client, example-model", ["unknown model"], ["unknown harness"]],
+    ["styal", ["unknown model"], ["styal"]],
+    ["claude-opus-x", ["Anthropic"], ["unknown harness"]],
+    ["Claude Code", ["Anthropic"], ["Claude Code"]],
+    ["Codex", ["OpenAI"], ["Codex"]],
+    ["Gemini CLI", ["Google"], ["Gemini CLI"]],
+    ["Jules", ["Google"], ["Jules"]],
+  ] as const) {
+    const found = agentEvidence(pr({ body: `Written by an agent (${fields}).` }));
+    assert.deepEqual(found.providers.bodyFooter, providers, fields);
+    assert.deepEqual(found.harnesses.bodyFooter, harnesses, fields);
+  }
+  const found = agentEvidence(pr({ body: "Written by an agent (styal, gpt-6-example); revised by an agent (Claude Code, claude-opus-x)." }));
+  assert.deepEqual(found.providers.bodyFooter, ["Anthropic", "OpenAI"]);
+  assert.deepEqual(found.harnesses.bodyFooter, ["Claude Code", "styal"]);
+});
+
+test("model ids identify additional vendors without guessing a harness", () => {
+  for (const [model, provider] of [
+    ["claude-opus-4-6", "Anthropic"], ["claude-fable-5", "Anthropic"], ["gpt-6.1-sol", "OpenAI"], ["o3-mini", "OpenAI"], ["codex-mini-latest", "OpenAI"],
+    ["gemini-2.5-pro", "Google"], ["grok-4", "xAI"], ["grok-code-fast-1", "xAI"],
+    ["mistral-large-latest", "Mistral"], ["codestral-2508", "Mistral"], ["devstral-small-2507", "Mistral"],
+    ["deepseek-r1", "DeepSeek"], ["opencode/deepseek-v4-flash-free", "DeepSeek"], ["anthropic/claude-opus-x", "Anthropic"], ["deepseek-v3.2", "DeepSeek"], ["kimi-k2.5", "Moonshot/Kimi"],
+    ["moonshot-v1-128k", "Moonshot/Kimi"], ["qwen3-coder", "Qwen/Alibaba"], ["qwen-max", "Qwen/Alibaba"],
+    ["glm-4.6", "Zhipu/GLM"], ["llama-3.3-70b-instruct", "Meta"],
+  ]) {
+    const found = agentEvidence(pr({ body: `Written by an agent (Example Client, ${model}).` }));
+    assert.deepEqual(found.providers.bodyFooter, [provider], model);
+    assert.deepEqual(found.harnesses.bodyFooter, ["unknown harness"], model);
+  }
+  for (const harness of ["Copilot", "Cursor", "OpenCode", "Devin", "Aider", "Amp", "T3 Code", "styal", "Antigravity"]) {
+    const found = agentEvidence(pr({ body: `Written by an agent (${harness}).` }));
+    assert.deepEqual(found.providers.bodyFooter, ["unknown model"]);
+    assert.deepEqual(found.harnesses.bodyFooter, [harness]);
+  }
+  const bot = agentEvidence(pr({ author: { login: "copilot-swe-agent[bot]" } }));
+  assert.deepEqual(bot.providers.prAuthor, ["unknown model"]);
+  assert.deepEqual(bot.harnesses.prAuthor, ["Copilot"]);
+});
+
+test("disclosures bound client/model fields and generated tool labels without scanning prose or links", () => {
+  for (const body of [
+    "Generated with gpt-tokenizer fixtures; no language model was used.",
+    "Generated with [gpt-tokenizer](https://example.test/gpt-6).",
+    "Generated with [Example Tool](https://example.test/Codex/gpt-6).",
+    "Generated with [Example Tool](https://example.test/tool). This updates gpt-6 and Claude fixtures.",
+    "Generated with fixtures for gpt-6 and Codex.",
+    "Generated with https://example.test/gpt-6.",
+    "Generated with gpt-6.invalid fixtures.",
+    "Generated with gpt-6-tokenizer.invalid fixtures.",
+  ]) {
+    const found = agentEvidence(pr({ body }));
+    assert.deepEqual(found.providers.bodyFooter, [], body);
+    assert.deepEqual(found.harnesses.bodyFooter, [], body);
+  }
+  for (const suffix of [
+    "This changes the gpt-tokenizer dependency.", "This changes gpt-6 fixtures and Claude dependencies.",
+    "[gpt-6](https://example.test/Codex)",
+  ]) {
+    const found = agentEvidence(pr({ body: `Written by an agent (Example Client, example-model). ${suffix}` }));
+    assert.deepEqual(found.providers.bodyFooter, ["unknown model"]);
+    assert.deepEqual(found.harnesses.bodyFooter, ["unknown harness"]);
+  }
+  assert.deepEqual(agentEvidence(pr({ body: "Written by an agent ([Example Client](https://example.test/Codex), [example-model](https://example.test/gpt-6))." })).harnesses.bodyFooter, ["unknown harness"]);
+  assert.deepEqual(agentEvidence(pr({ body: "Generated with [Claude Code](https://example.test/gpt-6). Also updates Codex fixtures." })).harnesses.bodyFooter, []);
+  for (const model of ["gpt-6", "gpt-6.1-sol", "GPT-6.1 Sol"]) {
+    assert.deepEqual(agentEvidence(pr({ body: `Generated with ${model} via the example harness.` })).providers.bodyFooter, ["OpenAI"]);
+  }
+});
+
+test("compound client fields and generated client clauses preserve every bounded harness", () => {
+  for (const client of ["Codex in styal", "styal through the Codex harness", "styal via Codex", "Codex using styal", "styal/Codex", "styal / Codex harness", "styal + Codex agent", "styal Codex harness"]) {
+    const found = agentEvidence(pr({ body: `Written by an agent (${client}, gpt-6).` }));
+    assert.deepEqual(found.providers.bodyFooter, ["OpenAI"], client);
+    assert.deepEqual(found.harnesses.bodyFooter, ["Codex", "styal"], client);
+  }
+  for (const [model, client, harnesses] of [
+    ["GPT-5.6-sol", "the Codex harness", ["Codex"]],
+    ["GPT-5.6 Sol", "the T3 Code Codex harness", ["Codex", "T3 Code"]],
+    ["gpt-5.6-terra", "Codex in T3 Code", ["Codex", "T3 Code"]],
+    ["GPT-5.6 Sol", "the Codex harness in T3 Code", ["Codex", "T3 Code"]],
+    ["gpt-6", "example harness", ["unknown harness"]],
+  ] as const) for (const verb of ["Generated with", "Generated by", "Created with", "Created by", "Made with"]) {
+    for (const connector of ["via", "using", "in", "through"]) {
+      const body = `${verb} ${model} ${connector} ${client}.`;
+      const found = agentEvidence(pr({ body }));
+      assert.deepEqual(found.providers.bodyFooter, ["OpenAI"], body);
+      assert.deepEqual(found.harnesses.bodyFooter, harnesses, body);
+    }
+  }
+  const linked = agentEvidence(pr({ body: "Generated with [gpt-6](https://example.test/Claude) via [Codex](https://example.test/Cursor) in styal." }));
+  assert.deepEqual(linked.providers.bodyFooter, ["OpenAI"]);
+  assert.deepEqual(linked.harnesses.bodyFooter, ["Codex", "styal"]);
+  for (const [model, provider, client] of [["gpt-6", "OpenAI", "Codex"], ["claude-opus-x", "Anthropic", "Claude Code"]]) {
+    const found = agentEvidence(pr({ body: `Written by an agent (T3 Code, ${model} via the ${client} harness).` }));
+    assert.deepEqual(found.providers.bodyFooter, [provider]);
+    assert.deepEqual(found.harnesses.bodyFooter, [client, "T3 Code"]);
+  }
+  const antigravity = agentEvidence(pr({ body: "Written by an agent (Antigravity, gemini-3.8-flash-high)." }));
+  assert.deepEqual(antigravity.providers.bodyFooter, ["Google"]);
+  assert.deepEqual(antigravity.harnesses.bodyFooter, ["Antigravity"]);
+});
+
+test("semicolon groups infer named, single-vendor and unknown providers independently", () => {
+  for (const [groups, providers, harnesses] of [
+    ["OpenCode, claude-opus-x; Codex", ["Anthropic", "OpenAI"], ["Codex", "OpenCode"]],
+    ["OpenCode, claude-opus-x; Cursor", ["Anthropic", "unknown model"], ["Cursor", "OpenCode"]],
+    ["Cursor; OpenCode, claude-opus-x", ["Anthropic", "unknown model"], ["Cursor", "OpenCode"]],
+    ["OpenCode, claude-opus-x; Example Client, example-model", ["Anthropic", "unknown model"], ["OpenCode", "unknown harness"]],
+    ["Codex, claude-opus-x; styal, gpt-6; Cursor", ["Anthropic", "OpenAI", "unknown model"], ["Codex", "Cursor", "styal"]],
+  ] as const) {
+    const body = `Written by an agent (${groups}).`;
+    const found = agentEvidence(pr({ body }));
+    assert.deepEqual(found.providers.bodyFooter, providers, body);
+    assert.deepEqual(found.harnesses.bodyFooter, harnesses, body);
+    const separate = agentEvidence(pr({ body: `Written by an agent (${groups.replaceAll("; ", "); revised by an agent (")}).` }));
+    assert.deepEqual(found, separate);
+  }
+});
+
+test("generated attribution consumes the whole subject and never leading prose or link targets", () => {
+  for (const body of [
+    "Generated with o1 fixtures; no language model was used.",
+    "Generated with claude fixtures; no language model was used.",
+    "Generated with Claude Code fixtures; no language model was used.",
+    "Generated with gpt-6 via Codex fixtures.",
+    "Generated with gpt-6 via Codex. Also changed Cursor fixtures.",
+    "Generated with gpt-6 via the Codex harness for testing.",
+    "Generated with gpt-6 via https://example.test/Codex.",
+    "Generated with gpt-6 via [example fixtures](https://example.test/Codex).",
+    "Generated with [o1 fixtures](https://example.test/Codex).",
+    "Generated with claude.",
+  ]) {
+    assert.deepEqual(agentEvidence(pr({ body })).providers.bodyFooter, [], body);
+    assert.equal(summarize([pr({ body })]).agents.attributed, 0, body);
+  }
+  const ambiguous = agentEvidence(pr({ body: "Written by an agent (claude, example-model)." }));
+  assert.deepEqual(ambiguous.providers.bodyFooter, ["unknown model"]);
+  assert.deepEqual(ambiguous.harnesses.bodyFooter, ["unknown harness"]);
+  for (const client of ["Claude Code", "claude-code"]) {
+    assert.deepEqual(agentEvidence(pr({ body: `Generated with ${client}.` })).harnesses.bodyFooter, ["Claude Code"]);
+  }
+  for (const [model, provider] of [["o3", "OpenAI"], ["codex-mini", "OpenAI"], ["claude-3-5-sonnet", "Anthropic"], ["gemini-2.5-pro", "Google"], ["grok-4", "xAI"]]) {
+    for (const body of [`Written by an agent (${model}).`, `Generated with ${model}.`]) {
+      const found = agentEvidence(pr({ body }));
+      assert.deepEqual(found.providers.bodyFooter, [provider], body);
+      assert.deepEqual(found.harnesses.bodyFooter, ["unknown harness"], body);
+    }
+  }
+  const bounded = agentEvidence(pr({ body: "Written by an agent (Codex in styal, gpt-6). Changed Cursor fixtures and [Claude Code](https://example.test/claude-opus-x)." }));
+  assert.deepEqual(bounded.providers.bodyFooter, ["OpenAI"]);
+  assert.deepEqual(bounded.harnesses.bodyFooter, ["Codex", "styal"]);
+});
+
+test("vendor email harness inference is a PR-wide fallback, retaining provider evidence", () => {
+  for (const [email, provider, harness] of [["noreply@anthropic.com", "Anthropic", "Claude Code"], ["noreply@openai.com", "OpenAI", "Codex"]]) {
+    for (const client of [null, "OpenCode", "T3 Code", "styal", "Example Client"]) {
+      const input = pr({ body: client ? `Written by an agent (${client}, claude-opus-x).` : "" });
+      input.commits.nodes[0].commit = {
+        message: `Update widget\n\nCo-authored-by: Example Agent <${email}>`,
+        authors: { totalCount: 1, nodes: [{ name: "Example Agent", email, user: null }] },
+      };
+      const found = agentEvidence(input);
+      for (const kind of ["commitTrailer", "commitAuthor"] as const) {
+        assert.deepEqual(found.providers[kind], [provider]);
+        assert.deepEqual(found.harnesses[kind], client ? [] : [harness]);
+      }
+      assert.deepEqual(summarize([input]).agents.harnesses.map(({ name }) => name), [client === "Example Client" ? "unknown harness" : client ?? harness]);
+    }
+    // Explicit identities found after the vendor trailer also suppress inference.
+    const input = pr();
+    input.commits.nodes[0].commit.message += `\n\nCo-authored-by: Example Agent <${email}>`;
+    input.commits.nodes[0].commit.authors.nodes[0] = { name: null, email: "aider@aider.chat", user: null };
+    const found = agentEvidence(input);
+    assert.deepEqual(found.providers.commitTrailer, [provider]);
+    assert.deepEqual(found.harnesses.commitTrailer, []);
+    assert.deepEqual(found.harnesses.commitAuthor, ["Aider"]);
+    const modelOnly = pr({ body: "Written by an agent (claude-opus-x)." });
+    modelOnly.commits.nodes[0].commit.message += `\n\nCo-authored-by: Example Agent <${email}>`;
+    assert.deepEqual(agentEvidence(modelOnly).harnesses.commitTrailer, [harness]);
+  }
+});
+
+test("inherited object keys stay unknown and never corrupt aggregation", () => {
+  for (const key of ["constructor", "__proto__"]) {
+    for (const overrides of [{ title: `${key}: handle missing argument` }, { title: `[${key}] update widget` }, { headRefName: `${key}/repair` }]) {
+      const input = pr(overrides);
+      assert.equal(classifyIntent(input).intent, "unknown");
+      const summary = summarize([input]);
+      assert.equal(summary.intent.mix.unknown, 1);
+      assert.equal(Object.values(summary.intent.mix).reduce((n, count) => n + count, 0), summary.total);
+    }
+    const input = pr({ author: { login: key }, body: "Written by an agent (Codex, example-model)." });
+    input.commits.nodes[0].commit.authors.nodes[0].user = { login: key };
+    assert.deepEqual(agentEvidence(input), { providers: { bodyFooter: ["OpenAI"], commitAuthor: [], commitTrailer: [], prAuthor: [] }, harnesses: { bodyFooter: ["Codex"], commitAuthor: [], commitTrailer: [], prAuthor: [] } });
+    const summary = aggregateInsights(key, [key], 2026, [input], "2026-03-01T00:00:00Z");
+    assert.deepEqual(summary.agents.providers.map(({ name, count }) => ({ name, count })), [{ name: "OpenAI", count: 1 }]);
+  }
+});
+
+test("optional storage reads reject malformed shapes and isolate lookup failures", async (t) => {
+  const logged = t.mock.method(console, "error", () => {});
+  const valid = summarize([pr()]);
+  const read = readSummary;
+  assert.deepEqual(await read(valid), valid);
+  assert.deepEqual(await read(summarize([])), summarize([]));
+  for (const value of [null, {}, { ...valid, accounts: null }, { ...valid, login: "other-user" }, { ...valid, year: 2025 },
+    { ...valid, generatedAt: "invalid" }, { ...valid, total: -1 }, { ...valid, size: { ...valid.size, median: null } },
+    { ...valid, size: { ...valid.size, buckets: [] } }, { ...valid, intent: { ...valid.intent, mix: { constructor: 1 } } },
+    { ...valid, agents: { ...valid.agents, providers: [{ name: {}, count: 1 }] } },
+    { ...valid, agents: { ...valid.agents, evidence: null } },
+    { ...valid, size: { ...valid.size, biggestNetDeletion: { url: "javascript:alert(1)", lines: 1 } } },
+  ]) assert.equal(await read(value), null);
+  assert.equal(await storedInsights({ get: async () => { throw new Error("synthetic outage"); }, put: async () => {} }, "example-user", 2026), null);
+  assert.equal(logged.mock.callCount(), 14);
+});
+
+
+test("provider/harness counts deduplicate per PR while preserving evidence and unknown coverage", async () => {
+  const { insightsHtml } = await import("../worker/views/insights.ts");
+  const rows = Array.from({ length: 10 }, (_, i) => pr({ id: String(i), body: i < 4 ? "Written by an agent (OpenCode, claude-opus-x; styal, gpt-6.1-sol)." : i < 6 ? "Written by an agent (Copilot)." : "" }));
+  const summary = summarize(rows);
+  assert.equal(summary.agents.attributed, 6);
+  assert.equal(summary.agents.share, 0.6);
+  assert.deepEqual(summary.agents.providers.map(({ name, count }) => [name, count]), [["Anthropic", 4], ["OpenAI", 4], ["unknown model", 2]]);
+  assert.deepEqual(summary.agents.harnesses.map(({ name, count }) => [name, count]), [["OpenCode", 4], ["styal", 4], ["Copilot", 2]]);
+  for (const dimension of [summary.agents.providers, summary.agents.harnesses]) for (const entry of dimension) {
+    assert.equal(entry.evidence.bodyFooter, entry.count);
+    assert.equal(EVIDENCE_KINDS.reduce((sum, kind) => sum + entry.evidence[kind], 0), entry.count);
+  }
+  const output = String(insightsHtml(summary));
+  const bar = /role="img"[^>]*>([\s\S]*?)<\/div>/.exec(output)!;
+  assert.ok(bar[1].includes("flex:4 1 0%"));
+  assert.ok(bar[1].includes("flex:2 1 0%"));
+  assert.ok(output.includes('aria-label="Agent harnesses"'));
+  assert.equal((output.match(/role="img"/g) ?? []).length, 1);
+  const noMarkers = String(insightsHtml(summarize(rows.map((row) => ({ ...row, body: "" })))));
+  assert.ok(!noMarkers.includes('role="img"'));
+  assert.ok(!noMarkers.includes("NaN") && !noMarkers.includes("Infinity"));
+});
+
+test("storage rejects old attribution schema and malformed provider or harness breakdowns", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const valid = summarize([pr({ body: "Written by an agent (OpenCode, claude-opus-x)." })]);
+  const read = readSummary;
+  assert.deepEqual(await read(valid), valid);
+  for (const dimension of ["providers", "harnesses"] as const) {
+    const entry = valid.agents[dimension][0];
+    for (const values of [null, [], [entry, entry], [{ ...entry, count: 2 }], [{ ...entry, count: 0 }],
+      [{ ...entry, evidence: null }], [{ ...entry, evidence: { ...entry.evidence, bodyFooter: 2 } }],
+      [{ ...entry, evidence: { ...entry.evidence, bodyFooter: 0 } }],
+    ]) assert.equal(await read({ ...valid, agents: { ...valid.agents, [dimension]: values } }), null);
+  }
+  const { providers: _providers, harnesses: _harnesses, ...legacy } = valid.agents;
+  assert.equal(await read({ ...valid, agents: { ...legacy, agents: [{ name: "Claude", count: 1 }] } }), null);
+});

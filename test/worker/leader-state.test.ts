@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PEOPLE } from "../../worker/github.ts";
+import type { PrInsights } from "../../worker/insights.ts";
 import viteConfig from "../../vite.config.ts";
 import { config, workerPreviewConfig, setup, type State } from "./fixture.ts";
 
@@ -90,7 +91,8 @@ test("GitHub failures and incomplete boards preserve the last full board and kee
   for (const mode of ["github-error", "partial"] as const) {
     app.setMode(mode);
     const failed = await app.refreshed();
-    assert.deepEqual(failed.values, first.values);
+    assert.deepEqual(failed.values["board-snapshot"], first.values["board-snapshot"]);
+    assert.deepEqual(failed.values.leader, first.values.leader);
     assertNextRun(failed);
   }
   app.setMode("ok");
@@ -136,6 +138,7 @@ test("an alarm due during a Discord post waits without duplicating notifications
   assert.equal(finished.maxActive, 1);
   assert.ok(app.posts.length > 0);
   assert.equal(new Set(app.posts.map((post) => JSON.stringify(post))).size, app.posts.length);
+  assert.equal(new Set(app.insightQueries).size, app.insightQueries.length);
   assertNextRun(finished);
 });
 
@@ -175,6 +178,12 @@ test("a native preview retains isolated DO configuration and runs alarms without
   assertNextRun(first);
   assert.equal(first.values["board-snapshot"]?.board.length, PEOPLE.length);
 
+  const collected = app.insightQueries.length;
+  assert.ok(collected > 0);
+  const insights = await app.mf.dispatchFetch(`https://board.test/api/users/${PEOPLE[0].accounts[0]}/insights`);
+  assert.equal(insights.status, 200);
+  assert.equal(app.insightQueries.length, collected);
+
   app.setCount(42);
   const second = await app.refreshed();
   assertNextRun(second);
@@ -184,4 +193,55 @@ test("a native preview retains isolated DO configuration and runs alarms without
   assert.equal(second.values["all-time-milestones"], undefined);
   assert.equal(app.attempts(), 0);
   assert.ok(app.exchanges() > 0);
+});
+
+test("alarms populate one due person's insights per run and JSON reads do not collect", async (t) => {
+  const app = await setup(t, { webhook: false });
+  const firstPerson = PEOPLE[0];
+  const secondPerson = PEOPLE[1];
+  const url = `https://board.test/api/users/${firstPerson.accounts[0]}/insights`;
+  assert.equal((await app.mf.dispatchFetch(url)).status, 202);
+  assert.equal(app.insightQueries.length, 0);
+  assert.equal((await app.state()).alarm, null);
+
+  const first = await app.refreshed();
+  assertNextRun(first);
+  const response = await app.mf.dispatchFetch(url);
+  assert.equal(response.status, 200);
+  const summary = await response.json() as PrInsights;
+  assert.equal(summary.login, firstPerson.accounts[0]);
+  assert.deepEqual(summary.accounts, firstPerson.accounts);
+  assert.equal(summary.year, new Date().getUTCFullYear());
+  assert.equal(summary.total, 0);
+  assert.ok(Date.now() - Date.parse(summary.generatedAt) < 5000);
+  assert.equal((await app.mf.dispatchFetch(`https://board.test/api/users/${secondPerson.accounts[0]}/insights`)).status, 202);
+  const months = new Date().getUTCMonth() + 1;
+  assert.equal(app.insightQueries.length, firstPerson.accounts.length * months);
+
+  await app.refreshed();
+  const next = await app.mf.dispatchFetch(`https://board.test/api/users/${secondPerson.accounts[0]}/insights`);
+  assert.equal(next.status, 200);
+  assert.deepEqual((await next.json() as PrInsights).accounts, secondPerson.accounts);
+  assert.equal(app.insightQueries.length, (firstPerson.accounts.length + secondPerson.accounts.length) * months);
+  assert.deepEqual(await (await app.mf.dispatchFetch(url)).json(), summary);
+});
+
+test("insights and board failures leave the other refresh and next alarm intact", async (t) => {
+  const app = await setup(t, { webhook: false });
+  app.setMode("insights-error");
+  const first = await app.refreshed();
+  assert.equal(first.values["board-snapshot"]?.board.length, PEOPLE.length);
+  assertNextRun(first);
+  assert.equal((await app.mf.dispatchFetch(`https://board.test/api/users/${PEOPLE[0].accounts[0]}/insights`)).status, 202);
+  assert.ok(app.insightQueries.length > 0);
+  assert.ok(app.insightQueries.every((query) => query.startsWith(`author:${PEOPLE[0].accounts[0]} `)));
+
+  // The failed person is cooling down; the next person can still be collected.
+  app.setMode("board-error");
+  const second = await app.refreshed();
+  assert.deepEqual(second.values["board-snapshot"], first.values["board-snapshot"]);
+  assertNextRun(second);
+  const response = await app.mf.dispatchFetch(`https://board.test/api/users/${PEOPLE[1].accounts[0]}/insights`);
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json() as PrInsights).accounts, PEOPLE[1].accounts);
 });

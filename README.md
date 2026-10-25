@@ -29,6 +29,7 @@ and link each heatmap day to its breakdown.
 | `/api/all` | All-time JSON |
 | `/api/users/{login}` | One account's all-time totals and current-year daily JSON |
 | `/api/users/{login}/breakdown` | Contribution types and public repositories; optional `?date=YYYY-MM-DD` |
+| `/api/users/{login}/insights` | Durable Object current-year public PR style summary; 202 while awaiting alarm collection |
 | `/.well-known/api-catalog` | RFC 9727 API catalogue as a JSON Linkset |
 
 ## Layout
@@ -211,6 +212,8 @@ partial board from GitHub leaves the last full one in place. If no snapshot is
 newer than 30 minutes (local development, preview builds, a stopped alarm), the
 site fetches the board from GitHub itself and caches it for 5 minutes.
 
+Computed PR insights also live in the same Durable Object, shared across Cloudflare locations and retained across Worker restarts and deploys. Profile HTML continues to use the existing rendered-page edge cache.
+
 The year in progress caches for 1 minute at the edge and in the browser.
 
 Finished years cache for 30 days at the edge, 1 day in the browser — they only
@@ -223,6 +226,20 @@ it is live (it includes today, or ended less than a day ago), a day caches for
 about a minute and the year so far for 30 minutes, since GitHub takes a couple
 of seconds to answer it. Private repositories are never named; private work
 appears only as a count.
+
+## PR style prototype
+
+User pages show a public-PR panel once at least 10 qualifying PRs are available. The cohort is PRs authored by any of the person's accounts and opened in the current UTC year, in public repositories, including forks and every PR state. GraphQL search runs in disjoint monthly windows, subdividing busy months before the 1,000-result search cap; PR node IDs are deduplicated across accounts. Search errors or incomplete search coverage leave the previous summary intact.
+
+Adjusted size is additions plus deletions from complete file lists, excluding the small shared path heuristic in `worker/insights.ts`: common lockfiles, dist/build/vendor/generated/node_modules directories, minified JavaScript, source maps and snapshots. The first 100 files are inspected; PRs with missing or longer file lists are excluded from size statistics and counted in the coverage note. Size statistics need 10 measured PRs. Buckets are XS 0–9, S 10–99, M 100–499, L 500–999 and XL 1,000+ lines; small means fewer than 100. Biggest net deletion uses deletions minus additions with the same exclusions. These are workflow descriptors, not productivity scores.
+
+Intent uses a known title prefix (Conventional Commits or bracket tag), then a typed branch prefix, then complete, nonempty docs-only/tests-only/dependencies-only/CI-only path lists. Each PR has one primary intent. Scoped Commits area prefixes are recorded separately and do not invent feature/fix intent. Unknown remains in the denominator and display. Title signals take precedence when signals disagree.
+
+Agent-attributed means a recognized disclosure in the PR body, a commit coauthor trailer, or a recognized agent author/coauthor identity. The summary retains those evidence categories separately, deduplicates repeated markers per PR, and shows overlapping agent-family counts. Dependabot and Renovate identities do not count. Commit inspection is bounded to the first 50 commits and first 5 authors each, with incomplete coverage reported. Markers can describe prose or inherited history; neither attribution nor its absence establishes who wrote the code. Only PR-contained commit metadata is inspected; there is no commit-history crawl.
+
+Every 10-minute alarm also refreshes one due person's insights, at most once per day per summary. Board and insights refreshes run independently; a failure in either leaves the other refresh and the next alarm intact. The existing SQLite-backed `LeaderState` Durable Object stores only computed summaries under `insights:<year>:<primaryLogin>`, with a schema version field; raw bodies, messages and author emails stay in collection memory. Account changes and schema version mismatches treat the summary as missing. Alarm callbacks serialize refresh attempts, which keep a timestamp under `insights-attempt:<year>:<primaryLogin>` for the one-hour failure cooldown. Collection failures preserve the last valid summary. Page and JSON requests only read the Durable Object and never initiate collection. Missing, malformed or unavailable summaries hide the panel and return HTTP 202 from the JSON endpoint. JSON accepts GET/HEAD and uses the same canonical roster logins as other user APIs.
+
+Summaries have no automatic expiry and are available across Cloudflare locations through the shared object. Native PR previews collect and store insights in their isolated Durable Object. Local development and `npm run preview` disable alarm startup and execution; environments with the binding can still read previously stored summaries without collecting on visits. `npm run test:worker` exercises alarm-driven collection with synthetic GitHub responses in workerd.
 
 ## Development
 

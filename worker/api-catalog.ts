@@ -40,6 +40,11 @@ export function apiCatalog(origin: string, logins: readonly string[]): ApiCatalo
               type: "application/json" as const,
               title: `Contribution breakdown for ${login}; accepts an optional date query parameter`,
             },
+            {
+              href: `${base}/api/users/${login}/insights`,
+              type: "application/json" as const,
+              title: `Cached public PR style insights for ${login}; pending until a background refresh`,
+            },
           ]),
         ],
       },

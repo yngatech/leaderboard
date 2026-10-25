@@ -98,10 +98,11 @@ export async function setup(
     workerPreview?: boolean;
   } = {},
 ) {
-  let mode: "ok" | "github-error" | "partial" | "partial-secondary" | "discord-error" | "yearly-discord-error" |
+  let mode: "ok" | "github-error" | "board-error" | "insights-error" | "partial" | "partial-secondary" | "discord-error" | "yearly-discord-error" |
     "lifetime-discord-error" | "archive-error" | "archive-partial" = "ok";
   let leadingCount = 10;
   let queries = 0;
+  const insightQueries: string[] = [];
   let attempts = 0;
   let discordPaused: Promise<void> | undefined;
   let resumeDiscord: (() => void) | undefined;
@@ -115,6 +116,33 @@ export async function setup(
   const posts: unknown[] = [];
   const discordFailure = (lifetime: boolean) => mode === "discord-error" ||
     mode === (lifetime ? "lifetime-discord-error" : "yearly-discord-error");
+  async function graphqlResponse(request: MiniflareRequest): Promise<Response> {
+    assert.equal(request.headers.get("Authorization"), `Bearer ${personal ? personalToken : installationToken}`);
+    const body = await request.json() as { query: string; variables?: { q: string } };
+    if (body.query.includes("query PrInsights")) {
+      insightQueries.push(body.variables!.q);
+      if (mode === "github-error" || mode === "insights-error") return new Response("unavailable", { status: 503 });
+      return Response.json({ data: { search: {
+        nodes: [], issueCount: 0, pageInfo: { hasNextPage: false, endCursor: null },
+      } } });
+    }
+    queries++;
+    if (mode === "github-error" || mode === "board-error") return new Response("unavailable", { status: 503 });
+    return Response.json({ data: Object.fromEntries(logins.map((login, i) => [
+      `u${i}`,
+      ((mode === "partial" && i === 0) ||
+        (mode === "partial-secondary" && login === PEOPLE.find((person) => person.accounts.length > 1)!.accounts[1])) ? null : {
+        login,
+        name: "Test contributor",
+        url: `https://github.com/${login}`,
+        avatarUrl: "https://avatars.example/contributor.png",
+        // Yesterday's anniversary avoids cake-day messages in the baseline.
+        createdAt: new Date(Date.now() - 86400000).toISOString().replace(/^\d{4}/, "2020"),
+        followers: { totalCount: 0 },
+        following: { totalCount: 0 },
+      },
+    ])) });
+  }
   const mf = new Miniflare(convertV4MiniflareOptions({
     log: new Log(LogLevel.NONE),
     name: "alarm-test",
@@ -155,23 +183,7 @@ export async function setup(
         return new Response(null, { status: 204 });
       }
       if (url.href === "https://api.github.com/graphql") {
-        queries++;
-        assert.equal(request.headers.get("Authorization"), `Bearer ${personal ? personalToken : installationToken}`);
-        if (mode === "github-error") return new Response("unavailable", { status: 503 });
-        return Response.json({ data: Object.fromEntries(logins.map((login, i) => [
-          `u${i}`,
-          ((mode === "partial" && i === 0) ||
-            (mode === "partial-secondary" && login === PEOPLE.find((person) => person.accounts.length > 1)!.accounts[1])) ? null : {
-            login,
-            name: "Test contributor",
-            url: `https://github.com/${login}`,
-            avatarUrl: "https://avatars.example/contributor.png",
-            // Yesterday's anniversary avoids cake-day messages in the baseline.
-            createdAt: new Date(Date.now() - 86400000).toISOString().replace(/^\d{4}/, "2020"),
-            followers: { totalCount: 0 },
-            following: { totalCount: 0 },
-          },
-        ])) });
+        return graphqlResponse(request);
       }
       assert.equal(url.hostname, "github.com");
       assert.match(url.pathname, /^\/users\/[^/]+\/contributions$/);
@@ -217,7 +229,7 @@ export async function setup(
     return until((current) => current.completed > previous.completed);
   }
   return {
-    mf, state, until, refreshed, posts,
+    mf, state, until, refreshed, posts, insightQueries,
     seedMilestones: async (milestones: MilestoneState) => {
       await stub.fetch("https://alarm.test/seed-milestones", {
         method: "POST", body: JSON.stringify(milestones),

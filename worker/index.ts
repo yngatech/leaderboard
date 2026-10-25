@@ -1,3 +1,5 @@
+import { storedInsights, refreshInsights } from "./insights-storage";
+import type { PrInsights } from "./insights";
 import {
   breakdownTtl,
   dayWindow,
@@ -308,9 +310,18 @@ function yearOutOfRange(): string {
   return `Year must be a whole number between ${MIN_YEAR} and ${currentYear()}.`;
 }
 
-/** The Durable Object that holds notification checkpoints and the board snapshot. */
+/** The Durable Object that holds notification checkpoints, the board and insights. */
 function leaderState(env: Env): DurableObjectStub<LeaderState> {
   return env.LEADER_STATE.getByName("leaderboard");
+}
+
+async function userInsights(login: string, env: Env): Promise<PrInsights | null> {
+  try {
+    return await leaderState(env).insightsSummary(login, currentYear());
+  } catch {
+    console.error("insights unavailable", { login });
+    return null;
+  }
 }
 
 /**
@@ -1074,6 +1085,16 @@ async function handleAllPage(env: Env, ctx: ExecutionContext): Promise<Response>
   return withBrowserHeaders(fresh, state);
 }
 
+async function handleInsightsApi(requested: string, url: URL, readOnly: boolean, env: Env): Promise<Response> {
+  if (!readOnly) return json({ error: "Use GET for user APIs.", status: 405 }, { status: 405, headers: { Allow: "GET, HEAD", "Cache-Control": "no-store" } });
+  const login = rosterLogin(requested);
+  if (!login) return json({ error: "Unknown leaderboard account.", status: 404 }, { status: 404, headers: { "Cache-Control": "no-store" } });
+  if (url.pathname !== `/api/users/${login}/insights`) return Response.redirect(`${url.origin}/api/users/${login}/insights`, 308);
+  const summary = await userInsights(login, env);
+  // An absent summary never initiates collection on a visitor's request.
+  return json(summary ?? { login, status: "pending" }, { status: summary ? 200 : 202, headers: { "Cache-Control": __IS_PREVIEW_BUILD__ || !summary ? "no-store" : "public, max-age=60" } });
+}
+
 async function handleBreakdownApi(
   requested: string,
   url: URL,
@@ -1194,11 +1215,12 @@ async function handleUserPage(
   // One fetch of the year in progress, awaited by both feeds. Starting it
   // before the all-time feed keeps the two running side by side.
   const boardFetch = boardJson(currentYear(), env, ctx);
-  const [boardResult, allResult, yearBreakdownResponse, dayBreakdownResponse] = await Promise.all([
+  const [boardResult, allResult, yearBreakdownResponse, dayBreakdownResponse, insights] = await Promise.all([
     boardFetch,
     allTimeJson(env, ctx, boardFetch),
     breakdownJson(login, yearWindow(currentYear(), new Date()), env, ctx),
     day ? breakdownJson(login, dayWindow(day), env, ctx) : Promise.resolve(null),
+    userInsights(login, env),
   ]);
   if (!boardResult.response.ok) return pageFromFailure(boardResult.response);
   if (!allResult.response.ok) return pageFromFailure(allResult.response);
@@ -1220,6 +1242,7 @@ async function handleUserPage(
   const breakdownOk =
     yearBreakdownResponse.ok && (!dayBreakdownResponse || dayBreakdownResponse.ok);
   const page = userPageHtml({
+    insights,
     day,
     breakdown: yearBreakdownResponse.ok
       ? ((await yearBreakdownResponse.json()) as ContributionBreakdown)
@@ -1722,8 +1745,8 @@ function standingOvertakeEmbed(
 }
 
 /**
- * Runs recurring board checks and stores their snapshot and notification
- * checkpoints in the existing object, preserving notification history.
+ * Runs recurring board checks and stores their snapshot, notification
+ * checkpoints and computed PR insights in the existing object.
  */
 export class LeaderState extends DurableObject<Env> {
   /** Parsed once per object instance. */
@@ -1739,11 +1762,18 @@ export class LeaderState extends DurableObject<Env> {
     // Persist the next run before external I/O. An upstream outage must not
     // exhaust alarm retries and leave the board permanently stopped.
     await this.ctx.storage.setAlarm(Date.now() + BOARD_REFRESH_INTERVAL_MS);
-    try {
-      await this.refreshBoard();
-    } catch (error) {
+    const [board, insights] = await Promise.allSettled([
+      this.refreshBoard(),
+      this.refreshInsights(),
+    ]);
+    if (board.status === "rejected") {
       console.error("board alarm refresh failed", {
-        error: error instanceof Error ? error.message : String(error),
+        error: board.reason instanceof Error ? board.reason.message : String(board.reason),
+      });
+    }
+    if (insights.status === "rejected") {
+      console.error("insights alarm refresh failed", {
+        error: insights.reason instanceof Error ? insights.reason.message : String(insights.reason),
       });
     }
   }
@@ -1911,6 +1941,15 @@ export class LeaderState extends DurableObject<Env> {
     const snapshot = await this.ctx.storage.get<BoardSnapshot>(BOARD_SNAPSHOT_KEY);
     return usableSnapshot(snapshot, year, Date.now());
   }
+
+  async insightsSummary(login: string, year: number): Promise<PrInsights | null> {
+    return storedInsights(this.ctx.storage, login, year);
+  }
+
+  private async refreshInsights(): Promise<void> {
+    if (!hasGitHubCredentials(this.env, GITHUB_AUTH)) return;
+    await refreshInsights(this.ctx.storage, await githubToken(this.env, GITHUB_AUTH));
+  }
 }
 
 async function routeApi(
@@ -1948,6 +1987,9 @@ async function routeApi(
       );
     }
   }
+
+  const insightsMatch = /^\/api\/users\/([A-Za-z0-9][A-Za-z0-9-]*)\/insights\/?$/.exec(url.pathname);
+  if (insightsMatch) return handleInsightsApi(insightsMatch[1], url, readOnly, env);
 
   const breakdownMatch = /^\/api\/users\/([A-Za-z0-9][A-Za-z0-9-]*)\/breakdown\/?$/.exec(
     url.pathname,
