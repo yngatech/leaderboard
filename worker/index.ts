@@ -11,6 +11,8 @@ import { DurableObject } from "cloudflare:workers";
 import { featuredYear, todayIso, userGrid, userProfile, yearShape } from "../shared/board";
 import { formatDayYear } from "../shared/format";
 import { nextMilestone, PERSONAL_MILESTONES } from "../shared/milestones";
+import { achievementsForYear } from "../shared/achievements";
+import { achievementsPageHtml } from "./views/achievements";
 import { badgeSvg, type BadgeInput, type BadgeKind } from "./views/badge";
 import { absentCardSvg, cardSvg } from "./views/card";
 import { apiCatalog } from "./api-catalog";
@@ -931,12 +933,9 @@ async function handleYearPage(year: number, env: Env, ctx: ExecutionContext): Pr
   const hit = await renderedPageHit(cacheKey);
   if (hit) return withBrowserHeaders(hit, "HIT", year);
 
-  const { response, cache: feed } = await boardJson(year, env, ctx);
-  if (!response.ok) return pageFromFailure(response);
-
-  const generatedAt = response.headers.get("X-Board-Generated") ?? new Date().toISOString();
-  const missing = (response.headers.get("X-Board-Missing") ?? "").split(",").filter(Boolean);
-  const board = (await response.json()) as Board;
+  const result = await achievementYearData(year, env, ctx);
+  if (!result.ok) return pageFromFailure(result.response);
+  const { board, generatedAt, missing, achievements, state } = result;
 
   const page = yearPageHtml({
     chrome: siteChrome(),
@@ -945,6 +944,7 @@ async function handleYearPage(year: number, env: Env, ctx: ExecutionContext): Pr
     today: todayIso(),
     generatedAt,
     missing,
+    achievements,
   });
 
   const fresh = html(page, {
@@ -956,9 +956,91 @@ async function handleYearPage(year: number, env: Env, ctx: ExecutionContext): Pr
     },
   });
 
-  const state = renderedState(feed);
   cacheRenderedPage(ctx, cacheKey, fresh.clone(), state);
   return withBrowserHeaders(fresh, state, year);
+}
+
+/** A single selected calendar plus cached yearly totals keeps historical browsing bounded. */
+async function achievementYearData(year: number, env: Env, ctx: ExecutionContext) {
+  const [source, archive] = await Promise.all([boardJson(year, env, ctx), archiveTotals(ctx, true)]);
+  if (!source.response.ok) return { ok: false as const, response: source.response };
+  const board = await source.response.json() as Board;
+  const missing = (source.response.headers.get("X-Board-Missing") ?? "").split(",").filter(Boolean);
+  const historyAvailable = archive.ok && !archive.stale && archive.archive.missing.length === 0;
+  const complete = missing.length === 0;
+  const today = todayIso();
+  return {
+    ok: true as const, board, missing,
+    generatedAt: source.response.headers.get("X-Board-Generated") ?? new Date().toISOString(),
+    state: renderedState(source.cache, historyAvailable && complete ? "HIT" : "STALE"),
+    achievements: {
+      events: achievementsForYear({
+        board: completeAchievementAccounts(board, source.response), year, today, complete,
+        history: historyAvailable ? archive.archive.users : undefined,
+      }),
+      year, today, historyAvailable, complete,
+    },
+  };
+}
+
+async function handleAchievementsPage(
+  year: number, login: string | undefined, env: Env, ctx: ExecutionContext,
+): Promise<Response> {
+  const cacheKey = new Request(`${HTML_CACHE_PREFIX}${currentYear()}/achievements/${year}/${login ?? "all"}`);
+  const hit = await renderedPageHit(cacheKey);
+  if (hit) return withBrowserHeaders(hit, "HIT", year);
+  const result = await achievementYearData(year, env, ctx);
+  if (!result.ok) return pageFromFailure(result.response);
+  const page = achievementsPageHtml({
+    ...result.achievements, login, chrome: siteChrome(), generatedAt: result.generatedAt,
+    logins: PEOPLE.map((person) => person.accounts[0]),
+  });
+  const fresh = html(page, {
+    headers: {
+      "Cache-Control": `public, max-age=${edgeTtl(year)}`,
+      "X-Board-Generated": result.generatedAt,
+      "X-Board-Year": String(year),
+    },
+  });
+  cacheRenderedPage(ctx, cacheKey, fresh.clone(), result.state);
+  return withBrowserHeaders(fresh, result.state, year);
+}
+
+function handleAchievementsRequest(url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const year = parseYear(url.searchParams.get("year"));
+  const person = url.searchParams.get("person") || undefined;
+  const login = person ? rosterLogin(person) : undefined;
+  if (year === null || (person && !login)) {
+    return servePage(url, async () => html(notFoundPageHtml(siteChrome()), {
+      status: 404, headers: { "Cache-Control": "no-store" },
+    }));
+  }
+  return servePage(url, () => handleAchievementsPage(year, login, env, ctx));
+}
+
+function profileAchievements(
+  board: Board, users: AllTimeUser[], login: string,
+  source: Awaited<BoardFetch>, allSource: Awaited<BoardFetch>,
+) {
+  const complete = !(source.response.headers.get("X-Board-Missing") ?? "");
+  const historyAvailable = !(allSource.response.headers.get("X-Board-Missing") ?? "") && allSource.cache !== "STALE";
+  const year = currentYear();
+  const today = todayIso();
+  return {
+    events: achievementsForYear({
+      board: completeAchievementAccounts(board, source.response), year, today, complete,
+      history: historyAvailable ? users : undefined,
+    }),
+    year, today, login, complete, historyAvailable,
+  };
+}
+
+/** A missing secondary account makes its whole person's calendar incomplete. */
+function completeAchievementAccounts(board: Board, response: Response): Board {
+  const missing = (response.headers.get("X-Board-Missing") ?? "").split(",").filter(Boolean);
+  const incomplete = new Set(PEOPLE.filter((person) => person.accounts.some((login) => missing.includes(login)))
+    .map((person) => person.accounts[0]));
+  return board.filter((user) => !incomplete.has(user.login));
 }
 
 async function handleAllPage(env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -1152,6 +1234,7 @@ async function handleUserPage(
     year: currentYear(),
     today: todayIso(),
     generatedAt,
+    achievements: profileAchievements(board, data.users, login, boardResult, allResult),
   });
 
   const fresh = html(page, {
@@ -2044,6 +2127,9 @@ async function routePage(
   }
   if (url.pathname === "/all" || url.pathname === "/all/") {
     return servePage(url, () => handleAllPage(env, ctx));
+  }
+  if (url.pathname === "/achievements" || url.pathname === "/achievements/") {
+    return handleAchievementsRequest(url, env, ctx);
   }
 
   const yearMatch = /^\/(\d{4})\/?$/.exec(url.pathname);

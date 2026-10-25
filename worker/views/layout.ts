@@ -33,7 +33,7 @@ export interface PageOptions {
   title: string;
   description: string;
   /** Which view the header nav describes; null renders no nav at all. */
-  nav: { kind: "year"; year: number } | { kind: "all" } | { kind: "user" } | null;
+  nav: { kind: "year" | "achievements"; year: number } | { kind: "all" } | { kind: "user" } | null;
   /** ISO timestamp the data was generated, shown as footer freshness metadata. */
   generatedAt?: string | null;
   /** Live pages refresh every ten minutes; archived years sit still. */
@@ -64,7 +64,7 @@ function navHtml(options: PageOptions): Html | null {
     items = html`<a class="${NAV_LINK}" href="/" aria-label="Show ${thisYear}"
         >← ${thisYear}</a
       ><span class="${NAV_CURRENT}">all time</span>`;
-  } else if (nav.kind === "user") {
+  } else if (nav.kind === "user" || nav.kind === "achievements") {
     items = html`<a class="${NAV_LINK}" href="/" aria-label="Show ${thisYear}">← board</a
       ><a class="${NAV_LINK}" href="/all">all time</a>`;
   } else {
@@ -109,7 +109,7 @@ function navHtml(options: PageOptions): Html | null {
 function arrowTargets(options: PageOptions): { previous?: string; next?: string } {
   const nav = options.nav;
   const { thisYear } = options.chrome;
-  if (nav === null || nav.kind === "user") return {};
+  if (nav === null || nav.kind === "user" || nav.kind === "achievements") return {};
   if (nav.kind === "all") return { previous: hrefForYear(thisYear, thisYear) };
   return {
     previous: nav.year - 1 >= MIN_PAGE_YEAR ? hrefForYear(nav.year - 1, thisYear) : undefined,
@@ -160,7 +160,7 @@ const SOURCE_PANEL =
 function sourceNoteHtml(options: PageOptions): Html {
   const cadence = options.liveCopy
     ? "Data refreshes about every 10 minutes."
-    : `${options.nav?.kind === "year" ? options.nav.year : "This year"} is final, so data is cached for 7 days.`;
+    : `${options.nav && "year" in options.nav ? options.nav.year : "This year"} is final, so data is cached for 7 days.`;
   // Only the pages that actually include today can be behind on today.
   const provisional = options.provisionalToday
     ? html`<p class="mt-[0.4rem]">Today's counts may lag GitHub activity.</p>`
