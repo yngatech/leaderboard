@@ -244,10 +244,16 @@ branch builds must remain limited to trusted contributors. A normal
 `npm run deploy` always targets `leaderboard` and rebuilds from the complete
 production config.
 
-The Worker needs a GitHub token with `read:user` to reach the contributions API.
-Locally that goes in `.dev.vars` as `GITHUB_TOKEN=...`; in production it is a
-Worker secret (`wrangler secret put GITHUB_TOKEN`). It is never sent to the
-client.
+In production the Worker reaches the contributions API as a GitHub App, so its
+rate limit is its own rather than shared with a person's token. The App needs
+no permissions, only an installation. Set three Worker secrets:
+`GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY`.
+The key must be PKCS#8; convert GitHub's download with
+`openssl pkcs8 -topk8 -nocrypt -in app.private-key.pem -out app.pk8.pem`.
+
+Without the App secrets the Worker falls back to a personal token with
+`read:user`. Locally that goes in `.dev.vars` as `GITHUB_TOKEN=...`. Neither
+credential is ever sent to the client.
 
 ## Adding a person or account
 
