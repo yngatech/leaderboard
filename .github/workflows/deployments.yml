@@ -1,6 +1,6 @@
 name: Deployments
 
-# Workers Builds reports each upload only as a check run. Mirror it as a GitHub
+# Workers Builds reports each deployment as a check run. Mirror it as a GitHub
 # deployment so pull requests link their preview and the repository lists the
 # production site.
 on:
@@ -8,14 +8,46 @@ on:
     types: [completed]
 
 permissions:
+  checks: read
   deployments: write
 
 jobs:
-  production:
+  target:
     if: >-
       github.event.check_run.app.slug == 'cloudflare-workers-and-pages' &&
       github.event.check_run.name == 'Workers Builds: leaderboard' &&
       github.event.check_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.classify.outputs.environment }}
+    steps:
+      - id: classify
+        name: Identify the deployment environment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CHECK_SUITE_ID: ${{ github.event.check_run.check_suite.id }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SUMMARY: ${{ github.event.check_run.output.summary }}
+        run: |
+          # A Preview URL always identifies a preview, even if branch metadata
+          # is missing or the same commit also exists on the default branch.
+          if grep -qE '^Preview (Alias )?URL: https://' <<< "$SUMMARY"; then
+            echo 'environment=preview' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          branch=$(gh api "repos/$GH_REPO/check-suites/$CHECK_SUITE_ID" --jq .head_branch)
+          if [[ -z "$branch" || "$branch" == null ]]; then
+            echo 'Cannot identify the build branch; no deployment will be recorded.' >&2
+            exit 1
+          fi
+          environment=preview
+          if [[ "$branch" == "$DEFAULT_BRANCH" ]]; then environment=production; fi
+          echo "environment=$environment" >> "$GITHUB_OUTPUT"
+
+  production:
+    needs: target
+    if: needs.target.outputs.environment == 'production'
     runs-on: ubuntu-latest
     steps:
       - name: Record deployment
@@ -34,10 +66,8 @@ jobs:
             gh api "repos/$GH_REPO/deployments/$id/statuses" --input - --silent
 
   preview:
-    if: >-
-      github.event.check_run.app.slug == 'cloudflare-workers-and-pages' &&
-      github.event.check_run.name == 'Workers Builds: leaderboard-preview' &&
-      github.event.check_run.conclusion == 'success'
+    needs: target
+    if: needs.target.outputs.environment == 'preview'
     runs-on: ubuntu-latest
     steps:
       - name: Record deployment
@@ -50,6 +80,8 @@ jobs:
         run: |
           url=$(grep -oP '^Preview Alias URL: \Khttps://\S+' <<< "$SUMMARY" ||
             grep -oP '^Preview URL: \Khttps://\S+' <<< "$SUMMARY")
+          # The first live-board read starts the preview's isolated alarm chain.
+          curl --fail --silent --show-error --max-time 120 "$url/api/board" --output /dev/null
           id=$(jq -n --arg ref "$SHA" '{ref: $ref, environment: "preview",
             auto_merge: false, required_contexts: [],
             transient_environment: true, production_environment: false}' |

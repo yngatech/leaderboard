@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PEOPLE } from "../../worker/github.ts";
 import viteConfig from "../../vite.config.ts";
-import { config, setup, type State } from "./fixture.ts";
+import { config, workerPreviewConfig, setup, type State } from "./fixture.ts";
 
 const interval = 10 * 60 * 1000;
 
@@ -55,6 +55,24 @@ test("dev and local preview configure the same disabled alarm guard", async () =
   }
   const dev = await viteConfig({ command: "serve", mode: "development" });
   assert.equal(dev.define?.__BOARD_ALARMS_ENABLED__, "false");
+});
+
+test("the shared Worker selects preview behavior from the Builds branch", async (t) => {
+  const keys = ["WORKERS_CI", "WORKERS_CI_BRANCH", "WRANGLER_CI_OVERRIDE_NAME"] as const;
+  const previous = keys.map((key) => process.env[key]);
+  t.after(() => keys.forEach((key, i) => {
+    if (previous[i] === undefined) delete process.env[key];
+    else process.env[key] = previous[i];
+  }));
+  process.env.WORKERS_CI = "1";
+  process.env.WRANGLER_CI_OVERRIDE_NAME = "leaderboard";
+  for (const [branch, preview] of [["main", "false"], ["feature/example", "true"]] as const) {
+    process.env.WORKERS_CI_BRANCH = branch;
+    const config = await viteConfig({ command: "build", mode: "production" });
+    assert.equal(config.define?.__IS_PREVIEW_BUILD__, preview);
+    assert.equal(config.define?.__BOARD_ALARMS_ENABLED__, "true");
+    assert.equal(config.define?.__LOCAL_DEVELOPMENT__, "false");
+  }
 });
 
 test("an existing alarm in a disabled local build stops without fetching or posting", async (t) => {
@@ -129,4 +147,38 @@ test("without a webhook an alarm still refreshes the site's snapshot", async (t)
   assert.equal(result.values["board-snapshot"]?.board.length, PEOPLE.length);
   assert.equal(result.values.leader, undefined);
   assert.equal(app.attempts(), 0);
+});
+
+test("a native preview retains isolated DO configuration and runs alarms without notifying Discord", async (t) => {
+  assert.equal(workerPreviewConfig.name, "leaderboard");
+  assert.deepEqual(workerPreviewConfig.previews.durable_objects.bindings,
+    [{ name: "LEADER_STATE", class_name: "LeaderState" }]);
+  assert.deepEqual(workerPreviewConfig.durable_objects.bindings,
+    [{ name: "LEADER_STATE", class_name: "LeaderState" }]);
+  assert.deepEqual(workerPreviewConfig.migrations, config.migrations);
+  // Routes stay at the top level; native Previews do not take them over.
+  assert.deepEqual(workerPreviewConfig.routes, config.routes);
+  const preview = await viteConfig({ command: "build", mode: "worker-preview" });
+  assert.equal(preview.define?.__BOARD_ALARMS_ENABLED__, "true");
+  assert.equal(preview.define?.__IS_PREVIEW_BUILD__, "true");
+  assert.equal(preview.define?.__LOCAL_DEVELOPMENT__, "false");
+
+  // Supply a webhook deliberately: the build must suppress notifications itself.
+  const app = await setup(t, { workerPreview: true, history: 17480 });
+  const response = await app.mf.dispatchFetch("https://board.test/api/board");
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Cache-Control"), "no-store");
+  const first = await app.until((state) => state.completed === 1);
+  assertNextRun(first);
+  assert.equal(first.values["board-snapshot"]?.board.length, PEOPLE.length);
+
+  app.setCount(42);
+  const second = await app.refreshed();
+  assertNextRun(second);
+  assert.equal(second.values["board-snapshot"]?.board[0].totalContributions, 42);
+  assert.equal(second.values.leader, undefined);
+  assert.equal(second.values.milestones, undefined);
+  assert.equal(second.values["all-time-milestones"], undefined);
+  assert.equal(app.attempts(), 0);
+  assert.ok(app.exchanges() > 0);
 });

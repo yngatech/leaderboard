@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { setTimeout } from "node:timers/promises";
 import type { TestContext } from "node:test";
-import { Log, LogLevel, Miniflare, type Request as MiniflareRequest } from "miniflare";
+import { convertV4MiniflareOptions, Log, LogLevel, Miniflare, type Request as MiniflareRequest } from "miniflare";
 import type { BoardSnapshot } from "../../worker/board-snapshot.ts";
 import { archiveCachePrefix } from "../../worker/cache-policy.ts";
 import { PEOPLE } from "../../worker/github.ts";
@@ -16,6 +16,9 @@ const localPreviewBundle = await readFile(
   new URL("../../dist/alarm-local-preview/leaderboard/index.js", import.meta.url),
   "utf8",
 );
+const workerPreviewRoot = new URL("../../dist/worker-preview/leaderboard/", import.meta.url);
+const workerPreviewBundle = await readFile(new URL("index.js", workerPreviewRoot), "utf8");
+export const workerPreviewConfig = JSON.parse(await readFile(new URL("wrangler.json", workerPreviewRoot), "utf8"));
 export const config = JSON.parse(await readFile(`${buildRoot}wrangler.json`, "utf8"));
 const year = new Date().getUTCFullYear();
 const logins = PEOPLE.flatMap((person) => person.accounts);
@@ -91,6 +94,7 @@ export async function setup(
     webhook?: boolean;
     localPreview?: boolean;
     history?: number;
+    workerPreview?: boolean;
   } = {},
 ) {
   let mode: "ok" | "github-error" | "partial" | "discord-error" | "yearly-discord-error" |
@@ -110,14 +114,15 @@ export async function setup(
   const posts: unknown[] = [];
   const discordFailure = (lifetime: boolean) => mode === "discord-error" ||
     mode === (lifetime ? "lifetime-discord-error" : "yearly-discord-error");
-  const mf = new Miniflare({
+  const mf = new Miniflare(convertV4MiniflareOptions({
+    log: new Log(LogLevel.NONE),
     name: "alarm-test",
     modulesRoot: buildRoot,
     modules: [
       { type: "ESModule", path: `${buildRoot}alarm-test.js`, contents: driver },
       {
         type: "ESModule", path: `${buildRoot}index.js`,
-        contents: options.localPreview ? localPreviewBundle : bundle,
+        contents: options.localPreview ? localPreviewBundle : options.workerPreview ? workerPreviewBundle : bundle,
       },
     ],
     compatibilityDate: config.compatibility_date,
@@ -126,7 +131,6 @@ export async function setup(
       ...credentials,
       ...(options.webhook !== false ? { DISCORD_WEBHOOK_URL: "https://discord.example/webhook" } : {}),
     },
-    log: new Log(LogLevel.NONE),
     outboundService: async (request: MiniflareRequest) => {
       const url = new URL(request.url);
       if (url.href === "https://api.github.com/app/installations/678/access_tokens") {
@@ -184,7 +188,7 @@ export async function setup(
         <td data-date="${date}" data-level="1" id="contribution-day-component-0-0"></td>
         <tool-tip for="contribution-day-component-0-0">${count} contributions on January 1.</tool-tip>`);
     },
-  });
+  }));
   t.after(() => {
     resumeDiscord?.();
     return mf.dispose();
