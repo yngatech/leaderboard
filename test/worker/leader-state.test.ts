@@ -150,6 +150,9 @@ test("without a webhook an alarm still refreshes the site's snapshot", async (t)
 });
 
 test("a native preview retains isolated DO configuration and runs alarms without notifying Discord", async (t) => {
+  // The production deployment enables the parent Worker's native preview hosts.
+  assert.equal(config.preview_urls, true);
+  assert.equal(workerPreviewConfig.preview_urls, true);
   assert.equal(workerPreviewConfig.name, "leaderboard");
   assert.deepEqual(workerPreviewConfig.previews.durable_objects.bindings,
     [{ name: "LEADER_STATE", class_name: "LeaderState" }]);

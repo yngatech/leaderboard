@@ -267,6 +267,11 @@ accesses it through `env`. Do not add `script_name`: the class must belong to
 this Worker for automatic isolation. Assets stay at the top level. Production
 routes and cron triggers do not target native previews.
 
+The top-level `preview_urls: true` enables native `workers.dev` Preview URLs.
+Apply this setting through a production deployment of `main`; deploying a branch
+preview does not change the parent Worker's URL settings. Setting it to `false`
+leaves native previews with no active URL unless a preview custom domain is configured.
+
 `npm run deploy:preview` builds in `worker-preview` mode and runs
 `wrangler preview --worker-name leaderboard`. The preview name defaults
 to the current branch. Workers Builds also selects preview behavior from

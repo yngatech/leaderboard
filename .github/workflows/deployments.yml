@@ -29,10 +29,12 @@ jobs:
           CHECK_SUITE_ID: ${{ github.event.check_run.check_suite.id }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           SUMMARY: ${{ github.event.check_run.output.summary }}
+          BUILD_URL: ${{ github.event.check_run.details_url }}
         run: |
-          # A Preview URL always identifies a preview, even if branch metadata
-          # is missing or the same commit also exists on the default branch.
-          if grep -qE '^Preview (Alias )?URL: https://' <<< "$SUMMARY"; then
+          # Native build links identify previews even when the summary omits
+          # their URL or the same commit also exists on the default branch.
+          if grep -qE '^Preview (Alias )?URL: https://' <<< "$SUMMARY" ||
+            [[ "$BUILD_URL" =~ ^https://dash[.]cloudflare[.]com/[^/]+/workers/services/view/leaderboard/production/previews/ ]]; then
             echo 'environment=preview' >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -77,9 +79,19 @@ jobs:
           SHA: ${{ github.event.check_run.head_sha }}
           SUMMARY: ${{ github.event.check_run.output.summary }}
           BUILD_URL: ${{ github.event.check_run.details_url }}
+          PREVIEW_HOST_SUFFIX: -leaderboard.yngatech.workers.dev
         run: |
           url=$(grep -oP '^Preview Alias URL: \Khttps://\S+' <<< "$SUMMARY" ||
-            grep -oP '^Preview URL: \Khttps://\S+' <<< "$SUMMARY")
+            grep -oP '^Preview URL: \Khttps://\S+' <<< "$SUMMARY") || true
+          # Native Builds currently report their preview slug in details_url,
+          # but omit the URL from the check summary. Use that canonical slug.
+          if [[ -z "$url" && "$BUILD_URL" =~ ^https://dash[.]cloudflare[.]com/[^/]+/workers/services/view/leaderboard/production/previews/([a-z0-9-]+)/builds/ ]]; then
+            url="https://${BASH_REMATCH[1]}${PREVIEW_HOST_SUFFIX}"
+          fi
+          if [[ -z "$url" ]]; then
+            echo 'Cloudflare reported neither a preview URL nor a native preview build link.' >&2
+            exit 1
+          fi
           # The first live-board read starts the preview's isolated alarm chain.
           curl --fail --silent --show-error --max-time 120 "$url/api/board" --output /dev/null
           id=$(jq -n --arg ref "$SHA" '{ref: $ref, environment: "preview",
