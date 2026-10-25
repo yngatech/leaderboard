@@ -835,7 +835,7 @@ export function userPageHtml(options: UserPageOptions): string {
     ${options.achievements ? recentAchievementsHtml(options.achievements) : null}
     ${sectionRuleHtml("where contributions came from")}
     ${yearBreakdown ? breakdownHtml(yearBreakdown) : html`<p class="text-[0.75rem] text-muted">Breakdown unavailable right now.</p>`}
-    ${options.insights ? html`${sectionRuleHtml("PR style")}${insightsHtml(options.insights)}` : null}
+    ${options.insights ? insightsHtml(options.insights) : null}
     ${cardSectionHtml(user.login)}`;
 
   return pageHtml({

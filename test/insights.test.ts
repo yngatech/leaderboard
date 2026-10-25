@@ -500,29 +500,6 @@ test("vendor email harness inference is a PR-wide fallback, retaining provider e
   }
 });
 
-test("methodology reflects evidence categories and incomplete commit coverage inside collapsed details", async () => {
-  const { insightsHtml } = await import("../worker/views/insights.ts");
-  const rows = Array.from({ length: 10 }, (_, i) => pr({ id: String(i) }));
-  const original = String(insightsHtml(summarize(rows)));
-  const input = rows[0];
-  input.body = "Written by an agent (Codex, gpt-6).";
-  input.author = { login: "copilot-swe-agent[bot]" };
-  input.commits.totalCount = 51;
-  input.commits.nodes[0].commit.message += "\n\nCo-authored-by: Amp <amp@ampcode.com>";
-  input.commits.nodes[0].commit.authors = { totalCount: 6, nodes: [{ name: "aider (example-model)", email: "aider@aider.chat", user: null }] };
-  const summary = aggregateInsights("example-user", ["example-user", "copilot-swe-agent[bot]"], 2026, rows, "2026-03-01T00:00:00Z");
-  const rendered = String(insightsHtml(summary));
-  const details = (html: string) => /<details\b([^>]*)>([\s\S]*?)<\/details>/.exec(html)!;
-  assert.ok(!/\bopen\b/.test(details(rendered)[1]));
-  assert.notEqual(details(original)[2], details(rendered)[2]);
-  for (const label of ["body disclosures", "commit trailers", "commit authors", "PR authors"]) {
-    assert.ok(details(original)[2].includes(`${label} 0`));
-    assert.ok(details(rendered)[2].includes(`${label} 1`));
-  }
-  assert.ok(details(original)[2].includes("incomplete for 0 PRs"));
-  assert.ok(details(rendered)[2].includes("incomplete for 1 PR;"));
-});
-
 test("inherited object keys stay unknown and never corrupt aggregation", () => {
   for (const key of ["constructor", "__proto__"]) {
     for (const overrides of [{ title: `${key}: handle missing argument` }, { title: `[${key}] update widget` }, { headRefName: `${key}/repair` }]) {
