@@ -158,7 +158,7 @@ const HTML_CACHE_PREFIX =
 const AVATAR_CACHE_PREFIX = "https://ynga-git-board.internal/avatar/v1/";
 
 const TOKEN_MISSING =
-  "The board is missing its GitHub credentials. Set the GITHUB_APP_* secrets or GITHUB_TOKEN.";
+  "The board is missing its GitHub App credentials. Set the GITHUB_APP_* secrets.";
 /** A fresh fetch, an edge cache entry, or the last good copy standing in. */
 type CacheState = "HIT" | "MISS" | "STALE";
 /**

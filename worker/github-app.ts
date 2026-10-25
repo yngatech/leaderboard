@@ -1,12 +1,11 @@
 import { GitHubError } from "./github.ts";
 
 /**
- * Either a GitHub App installation, whose tokens have their own rate limit, or
- * a personal token, which shares its owner's limit with everything else they
- * run. The App wins when both are configured.
+ * The GitHub App installation the board reads GitHub as. Its tokens have their
+ * own rate limit, unlike a personal token, which shares its owner's limit with
+ * everything else they run.
  */
 export interface GitHubCredentials {
-  GITHUB_TOKEN?: string;
   GITHUB_APP_ID?: string;
   GITHUB_APP_INSTALLATION_ID?: string;
   /** PKCS#8 PEM (`BEGIN PRIVATE KEY`), as WebCrypto cannot import PKCS#1. */
@@ -26,10 +25,6 @@ let cached: InstallationToken | null = null;
 let minting: Promise<InstallationToken> | null = null;
 
 export function hasGitHubCredentials(env: GitHubCredentials): boolean {
-  return Boolean(appConfigured(env) || env.GITHUB_TOKEN);
-}
-
-function appConfigured(env: GitHubCredentials): boolean {
   return Boolean(env.GITHUB_APP_ID && env.GITHUB_APP_INSTALLATION_ID && env.GITHUB_APP_PRIVATE_KEY);
 }
 
@@ -39,7 +34,6 @@ export async function githubToken(
   now: () => number = Date.now,
   request: typeof fetch = fetch,
 ): Promise<string> {
-  if (!appConfigured(env)) return env.GITHUB_TOKEN ?? "";
   if (cached && cached.expiresAt - REFRESH_MARGIN_MS > now()) return cached.token;
   // Concurrent requests share one exchange rather than each minting a token.
   minting ??= mintInstallationToken(env, now(), request).finally(() => {

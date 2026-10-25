@@ -101,13 +101,9 @@ test("a rejected exchange surfaces as a GitHub error and is retried next time", 
   assert.equal(await githubToken(app, Date.now, request), "recovered");
 });
 
-test("without every app secret the personal token is used", async () => {
-  resetGitHubTokenCache();
-  const request = (async () => assert.fail("no exchange expected")) as typeof fetch;
-  const partial = { GITHUB_TOKEN: "personal", GITHUB_APP_ID: "12345" };
-
-  assert.equal(await githubToken(partial, Date.now, request), "personal");
-  assert.equal(hasGitHubCredentials(partial), true);
-  assert.equal(hasGitHubCredentials({ GITHUB_APP_ID: "12345" }), false);
+test("credentials count only when every app secret is set", () => {
   assert.equal(hasGitHubCredentials(app), true);
+  assert.equal(hasGitHubCredentials({ ...app, GITHUB_APP_PRIVATE_KEY: undefined }), false);
+  assert.equal(hasGitHubCredentials({ ...app, GITHUB_APP_INSTALLATION_ID: "" }), false);
+  assert.equal(hasGitHubCredentials({}), false);
 });
