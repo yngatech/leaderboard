@@ -71,13 +71,13 @@ function achievementRows(events: readonly Achievement[], today: string): Html {
     return html`<li class="grid grid-cols-[1.8rem_minmax(0,1fr)_auto] items-start gap-x-3 py-4 max-phone:grid-cols-[1.6rem_minmax(0,1fr)] max-phone:gap-x-2.5"
       data-achievement="${event.id}">
       <span class="flex size-7 items-center justify-center rounded-lg bg-heat-0 text-accent max-phone:size-6">${marker(event)}</span>
-      <div class="min-w-0 text-[0.76rem] leading-[1.7] text-public">
+      <div class="min-w-0 text-[0.78rem] leading-[1.7] text-secondary">
         <p>${copy.title}</p>
-        <p class="mt-0.5 text-[0.65rem] text-dimmer">${copy.detail}${event.provisional
+        <p class="mt-0.5 text-[0.72rem] text-muted">${copy.detail}${event.provisional
           ? html` <span class="ml-2 text-heat-3">Still counting</span>` : null}</p>
       </div>
       <time datetime="${event.date}" title="${formatDayYear(event.date)}"
-        class="pt-1 text-[0.65rem] whitespace-nowrap text-dim max-phone:col-start-2 max-phone:mt-1 max-phone:pt-0">${event.date === today ? "Today" : formatDayShort(event.date)}</time>
+        class="pt-1 text-[0.72rem] whitespace-nowrap text-muted max-phone:col-start-2 max-phone:mt-1 max-phone:pt-0">${event.date === today ? "Today" : formatDayShort(event.date)}</time>
     </li>`;
   })}</ol>`;
 }
@@ -96,17 +96,17 @@ export function recentAchievementsHtml(options: RecentAchievementsOptions): Html
   return html`<section id="achievements" class="mt-8 scroll-mt-4" aria-labelledby="achievements-heading">
     <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 border-b border-line pb-3">
       <h2 id="achievements-heading" class="font-display text-[1.25rem] font-semibold tracking-[-0.025em] text-ink">Recent achievements</h2>
-      <a class="text-[0.68rem] text-dim underline decoration-line underline-offset-4 hover:text-accent"
+      <a class="text-[0.72rem] font-medium text-secondary underline decoration-line underline-offset-4 hover:text-accent"
         href="${achievementsHref(options.year, options.login)}">View achievements</a>
     </div>
-    ${events.length > 0 ? achievementRows(events, options.today) : html`<p class="py-5 text-[0.75rem] leading-[1.7] text-dim">No achievements in ${options.year}.</p>`}
+    ${events.length > 0 ? achievementRows(events, options.today) : html`<p class="py-5 text-[0.78rem] leading-[1.7] text-secondary">No achievements in ${options.year}.</p>`}
     ${availabilityNote(options)}
   </section>`;
 }
 
 function availabilityNote(options: Pick<RecentAchievementsOptions, "historyAvailable" | "complete">): Html | null {
   if (options.historyAvailable !== false && options.complete !== false) return null;
-  return html`<p class="mt-3 text-[0.68rem] leading-[1.7] text-dim">${options.historyAvailable === false
+  return html`<p class="mt-3 text-[0.72rem] leading-[1.7] text-secondary">${options.historyAvailable === false
     ? "Lifetime achievements are unavailable while the contribution archive is incomplete. " : ""}${options.complete === false
     ? "Achievements for incomplete accounts and the board are unavailable while some contribution data is missing." : ""}</p>`;
 }
@@ -120,28 +120,28 @@ export interface AchievementsPageOptions extends RecentAchievementsOptions {
 export function achievementsPageHtml(options: AchievementsPageOptions): string {
   const { chrome, year, login, today } = options;
   const events = achievementFeed(options.events, login);
-  const selectClass = "mt-2 w-full rounded-lg border border-line bg-panel px-3 py-2.5 font-mono text-[0.75rem] text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+  const selectClass = "mt-2 w-full rounded-lg border border-line bg-panel px-3 py-2.5 font-mono text-[0.78rem] text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
   const main = html`<main class="mt-[clamp(2.5rem,6vw,4rem)] max-w-[850px]">
     <h2 class="font-display text-[clamp(2rem,5vw,3rem)] font-extrabold tracking-[-0.04em]">Achievements</h2>
-    <p class="mt-3 max-w-[65ch] text-[0.78rem] leading-[1.8] text-dim">Contribution milestones, record days and GitHub anniversaries.</p>
+    <p class="mt-3 max-w-[65ch] text-[0.78rem] leading-[1.8] text-secondary">Contribution milestones, record days and GitHub anniversaries.</p>
     <form action="/achievements" method="get" class="mt-6 grid grid-cols-[8rem_minmax(0,1fr)_auto] items-end gap-3 max-phone:grid-cols-[6rem_minmax(0,1fr)]">
-      <label class="text-[0.68rem] text-dim">Year<select class="${selectClass}" name="year">${Array.from(
+      <label class="text-[0.72rem] text-secondary">Year<select class="${selectClass}" name="year">${Array.from(
         { length: chrome.thisYear - MIN_PAGE_YEAR + 1 }, (_, index) => chrome.thisYear - index,
       ).map((value) => html`<option value="${value}"${value === year ? html` selected` : null}>${value}</option>`)}</select></label>
-      <label class="min-w-0 text-[0.68rem] text-dim">Account<select class="${selectClass}" name="person">
+      <label class="min-w-0 text-[0.72rem] text-secondary">Account<select class="${selectClass}" name="person">
         <option value="">Everyone</option>${options.logins.map((value) => html`<option value="${value}"${value === login ? html` selected` : null}>${value}</option>`)}
       </select></label>
-      <button class="cursor-pointer rounded-lg border border-accent/50 px-4 py-2.5 text-[0.75rem] text-accent transition-colors hover:bg-accent/10 max-phone:col-span-2 max-phone:justify-self-start" type="submit">Show achievements</button>
+      <button class="cursor-pointer rounded-lg border border-accent/50 px-4 py-2.5 text-[0.78rem] font-medium text-accent transition-colors hover:bg-accent/10 max-phone:col-span-2 max-phone:justify-self-start" type="submit">Show achievements</button>
     </form>
     <section class="mt-8" aria-label="${year} achievements${login ? ` for ${login}` : ""}">
       <div class="flex flex-wrap items-baseline justify-between gap-3 border-b border-line pb-3">
         <h3 class="font-display text-xl font-semibold tracking-[-0.025em]">${year}${login ? html` / ${personLink(login)}` : null}</h3>
-        <span class="text-[0.65rem] text-dimmer">${formatNumber(events.length)} achievements</span>
+        <span class="text-[0.72rem] text-muted">${formatNumber(events.length)} achievements</span>
       </div>
-      ${events.length ? achievementRows(events.slice(0, 20), today) : html`<p class="py-8 text-[0.78rem] leading-[1.8] text-dim">No achievements in ${year}${login ? ` for ${login}` : ""}.
+      ${events.length ? achievementRows(events.slice(0, 20), today) : html`<p class="py-8 text-[0.78rem] leading-[1.8] text-secondary">No achievements in ${year}${login ? ` for ${login}` : ""}.
         <a class="${LINK}" href="${hrefForYear(year, chrome.thisYear)}">Explore the contribution board</a>.</p>`}
       ${events.length > 20 ? html`<details class="mt-3">
-        <summary class="w-fit cursor-pointer rounded-lg border border-line px-4 py-2.5 text-[0.72rem] text-dim hover:text-accent">Show ${formatNumber(events.length - 20)} earlier ${events.length === 21 ? "achievement" : "achievements"}</summary>
+        <summary class="w-fit cursor-pointer rounded-lg border border-line px-4 py-2.5 text-[0.75rem] font-medium text-secondary hover:text-accent">Show ${formatNumber(events.length - 20)} earlier ${events.length === 21 ? "achievement" : "achievements"}</summary>
         ${achievementRows(events.slice(20), today)}</details>` : null}
       ${availabilityNote(options)}
     </section>
