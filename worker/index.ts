@@ -34,6 +34,7 @@ import {
   staleCopy,
 } from "./cache-policy";
 import type { ArchiveTotals } from "./github";
+import { githubToken, hasGitHubCredentials, type GitHubCredentials } from "./github-app";
 import {
   PEOPLE,
   currentYear,
@@ -82,9 +83,7 @@ import {
   type YearBoard,
 } from "./notifications";
 
-export interface Env {
-  /** Worker secret in production, `.dev.vars` locally. Never sent to the client. */
-  GITHUB_TOKEN: string;
+export interface Env extends GitHubCredentials {
   /** Optional locally; production cron checks are enabled when this secret exists. */
   DISCORD_WEBHOOK_URL?: string;
   /** Optional encrypted JSON map from GitHub logins to Discord user IDs. */
@@ -158,7 +157,8 @@ const HTML_CACHE_PREFIX =
  */
 const AVATAR_CACHE_PREFIX = "https://ynga-git-board.internal/avatar/v1/";
 
-const TOKEN_MISSING = "The board is missing its GitHub token. Set the GITHUB_TOKEN secret.";
+const TOKEN_MISSING =
+  "The board is missing its GitHub credentials. Set the GITHUB_APP_* secrets or GITHUB_TOKEN.";
 /** A fresh fetch, an edge cache entry, or the last good copy standing in. */
 type CacheState = "HIT" | "MISS" | "STALE";
 /**
@@ -368,7 +368,7 @@ async function boardJson(
     return { response: fresh, cache: "MISS" };
   }
 
-  if (!env.GITHUB_TOKEN) {
+  if (!hasGitHubCredentials(env)) {
     return {
       response: json(
         { error: TOKEN_MISSING, status: 500 },
@@ -379,7 +379,7 @@ async function boardJson(
   }
 
   try {
-    const { board, missing } = await fetchBoard(env.GITHUB_TOKEN, year);
+    const { board, missing } = await fetchBoard(await githubToken(env), year);
     const ttl = upstreamTtl(year);
     const fresh = boardResponse(board, year, new Date().toISOString(), missing, ttl);
     ctx.waitUntil(storeBoard(cacheKey, lastGoodKey, fresh, ttl));
@@ -1016,13 +1016,13 @@ async function breakdownJson(
   try {
     const hit = !__DEV__ ? await caches.default.match(key) : undefined;
     if (hit) return hit;
-    if (!env.GITHUB_TOKEN)
+    if (!hasGitHubCredentials(env))
       return json(
         { error: TOKEN_MISSING, status: 500 },
         { status: 500, headers: { "Cache-Control": "no-store" } },
       );
     const accounts = PEOPLE.find((person) => person.accounts[0] === login)!.accounts;
-    const data = await fetchBreakdown(env.GITHUB_TOKEN, login, accounts, window);
+    const data = await fetchBreakdown(await githubToken(env), login, accounts, window);
     const response = json(data, {
       headers: {
         "Cache-Control": `public, max-age=${breakdownTtl(window, new Date())}`,
@@ -1493,11 +1493,11 @@ function withBrowserHeaders(
  * progress from, and the notifications Discord is sent from it.
  */
 async function refreshBoard(env: Env): Promise<void> {
-  if (!env.GITHUB_TOKEN) throw new Error(TOKEN_MISSING);
+  if (!hasGitHubCredentials(env)) throw new Error(TOKEN_MISSING);
 
   const year = currentYear();
   const generatedAt = new Date().toISOString();
-  const { board, missing } = await fetchBoard(env.GITHUB_TOKEN, year);
+  const { board, missing } = await fetchBoard(await githubToken(env), year);
   // A partial board would drop people from the site; the last full one stands
   // in until it ages out, and notifications wait for the same full board.
   if (!shouldUpdateNotifications(missing)) {
@@ -1513,9 +1513,9 @@ async function refreshBoard(env: Env): Promise<void> {
  * pushes landing on 31 December are still seen. Null when the fetch fails or
  * comes back incomplete: that year's records wait for the next check.
  */
-async function finishedBoard(token: string, year: number): Promise<Board | null> {
+async function finishedBoard(env: Env, year: number): Promise<Board | null> {
   try {
-    const { board, missing } = await fetchBoard(token, year);
+    const { board, missing } = await fetchBoard(await githubToken(env), year);
     if (shouldUpdateNotifications(missing)) return board;
     console.warn("finished-year board skipped while incomplete", { year, missing });
   } catch (error) {
@@ -1710,7 +1710,7 @@ export class LeaderState extends DurableObject<Env> {
       },
       // Fetched here, inside the queued notification work, so the live board
       // is already saved for the site and never waits on the finished year.
-      (year) => finishedBoard(this.env.GITHUB_TOKEN, year),
+      (year) => finishedBoard(this.env, year),
       (year, notification) =>
         this.notify({ kind: "embed", embed: dailyRecordEmbed(year, notification) }),
     );
