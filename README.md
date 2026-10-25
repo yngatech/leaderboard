@@ -288,6 +288,12 @@ Prepare these settings on `leaderboard-preview` when adopting this change:
    previews on `leaderboard-preview`; it needs Workers Scripts edit access.
    There is no need to grant access to production routes.
 
+If a build still logs `Executing user deploy command: npx wrangler versions upload`,
+the Builds connection is using its saved legacy command. With the Durable
+Object retained, that command fails on the pending migration. Complete the
+switch and set the Preview command above, then retry the build. The native
+`wrangler preview` command applies migrations within the isolated preview.
+
 Set Preview Base credentials before creating previews. Later Base secret
 changes affect newly created previews; update an existing preview's secrets
 explicitly when needed. Keep secret values out of the repository.
