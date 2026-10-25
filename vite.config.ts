@@ -28,7 +28,7 @@ function isWorkersPreviewBuild(): boolean {
   return env.WORKERS_CI_BRANCH !== undefined && env.WORKERS_CI_BRANCH !== "main";
 }
 
-export default defineConfig(({ command }) => ({
+export default defineConfig(({ command, mode }) => ({
   // The Worker runs inside the dev server in workerd, so every route — the
   // rendered pages included — is handled for real rather than proxied.
   plugins: [
@@ -38,8 +38,8 @@ export default defineConfig(({ command }) => ({
         if (!isWorkersPreviewBuild()) return;
 
         // Cloudflare cannot create preview URLs for versions with Durable
-        // Object bindings. Notification state is only used by the scheduled
-        // handler, so PR previews can safely leave both out.
+        // Object bindings. PR previews fetch the board directly and do not
+        // run the alarm, so they can safely leave notification state out.
         const previewConfig: Partial<typeof workerConfig> = workerConfig;
         previewConfig.name = "leaderboard-preview";
         previewConfig.workers_dev = false;
@@ -54,6 +54,9 @@ export default defineConfig(({ command }) => ({
     __BUILD_COMMIT_SHA__: JSON.stringify(buildCommitSha()),
     __DEV__: JSON.stringify(command === "serve"),
     __IS_PREVIEW_BUILD__: JSON.stringify(isWorkersPreviewBuild()),
+    __BOARD_ALARMS_ENABLED__: JSON.stringify(
+      command === "build" && mode !== "local-preview" && !isWorkersPreviewBuild(),
+    ),
   },
   build: {
     emptyOutDir: true,
