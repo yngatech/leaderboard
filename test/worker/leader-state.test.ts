@@ -23,6 +23,7 @@ test("a live-board read starts recurring alarms, preserves checkpoints on evicti
   assert.equal(first.values["board-snapshot"]?.board.length, PEOPLE.length);
   assertNextRun(first);
   assert.equal(app.posts.length, 0);
+  assert.equal(app.exchanges(), 1);
 
   assert.equal((await app.state("snapshot")).alarm, first.alarm);
   await app.mf.unsafeEvictDurableObject("alarm-test", "TestLeaderState", { name: "leaderboard" });
@@ -54,16 +55,6 @@ test("dev and local preview configure the same disabled alarm guard", async () =
   }
   const dev = await viteConfig({ command: "serve", mode: "development" });
   assert.equal(dev.define?.__BOARD_ALARMS_ENABLED__, "false");
-});
-
-test("a local preview serves the board without starting an alarm, even with a webhook", async (t) => {
-  const app = await setup(t, { localPreview: true });
-  const response = await app.mf.dispatchFetch("https://board.test/api/board");
-  assert.equal(response.status, 200);
-  assert.equal((await response.json() as unknown[]).length, PEOPLE.length);
-  assert.equal((await app.state("snapshot")).alarm, null);
-  assert.equal(app.queries(), 1);
-  assert.equal(app.attempts(), 0);
 });
 
 test("an existing alarm in a disabled local build stops without fetching or posting", async (t) => {

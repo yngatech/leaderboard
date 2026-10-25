@@ -242,7 +242,7 @@ Object. When Workers Builds identifies the connected Worker as
 `leaderboard-preview`, `vite.config.ts` therefore removes the
 Durable Object, migration and production route from the generated
 deployment config. The production Worker build retains all three. The preview
-Worker has its own read-only GitHub token, but no Discord webhook; it cannot run
+Worker has its own GitHub App secrets, but no Discord webhook; it cannot run
 notifications or change their state.
 
 The root `wrangler.jsonc` intentionally remains named `leaderboard`. The Vite
@@ -262,16 +262,27 @@ branch builds must remain limited to trusted contributors. A normal
 `npm run deploy` always targets `leaderboard` and rebuilds from the complete
 production config.
 
-In production the Worker reaches the contributions API as a GitHub App, so its
-rate limit is its own rather than shared with a person's token. The App needs
-no permissions, only an installation. Set three Worker secrets:
+Production and deployed PR previews authenticate GitHub API requests as a
+GitHub App, with its own rate limit. The App needs no permissions, only an
+installation. It reads three secrets:
 `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY`.
 The key must be PKCS#8; convert GitHub's download with
 `openssl pkcs8 -topk8 -nocrypt -in app.private-key.pem -out app.pk8.pem`.
 
-Without the App secrets the Worker falls back to a personal token with
-`read:user`. Locally that goes in `.dev.vars` as `GITHUB_TOKEN=...`. Neither
-credential is ever sent to the client.
+Set all three as Worker secrets on both `leaderboard` and
+`leaderboard-preview`, specifying the Worker name for each command, for example
+`wrangler secret put GITHUB_APP_PRIVATE_KEY --name leaderboard-preview < app.pk8.pem`.
+Deployed builds require every App secret and never fall back to a personal token.
+
+For local `npm run dev` and `npm run preview`, a personal token with `read:user`
+in the ignored `.dev.vars` file is enough:
+
+```sh
+GITHUB_TOKEN=...
+```
+
+Complete App credentials take precedence if configured locally. Neither
+credential is sent to the client.
 
 ## Adding a person or account
 
