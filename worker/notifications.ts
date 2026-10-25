@@ -1,5 +1,10 @@
 import { cakeDayYears } from "../shared/cakeday.ts";
-import { BOARD_MILESTONES, milestoneFor, PERSONAL_MILESTONES } from "../shared/milestones.ts";
+import {
+  BOARD_MILESTONES,
+  LEGACY_PERSONAL_MILESTONES,
+  milestoneFor,
+  PERSONAL_MILESTONES,
+} from "../shared/milestones.ts";
 import type { Board, BoardUser } from "../shared/types";
 
 export interface DailyPeak {
@@ -80,6 +85,8 @@ export type DailyRecordNotification =
 /** Durable state for contribution milestones in one leaderboard year. */
 export interface MilestoneState {
   year: number;
+  /** Absent for the original yearly ladder. */
+  personalMilestonesVersion?: 2;
   personalTotals: Record<string, number>;
   personalMilestones: Record<string, number>;
   boardTotal: number;
@@ -526,6 +533,7 @@ function milestoneBaseline(year: number, board: Board): MilestoneState {
   );
   return {
     year,
+    personalMilestonesVersion: 2,
     personalTotals,
     personalMilestones: Object.fromEntries(
       board.map((user) => [
@@ -563,6 +571,10 @@ export function planMilestones(
   }
 
   const stateBeforeEvents = milestoneStateSnapshot(previous);
+  // Finish pending old-ladder posts before quietly seeding the extra rungs.
+  const personalThresholds = previous.personalMilestonesVersion === 2
+    ? PERSONAL_MILESTONES
+    : LEGACY_PERSONAL_MILESTONES;
   const newAccounts = new Set<string>();
   let needsPreparation = false;
 
@@ -571,7 +583,7 @@ export function planMilestones(
       stateBeforeEvents.personalTotals[user.login] = user.totalContributions;
       stateBeforeEvents.personalMilestones[user.login] = milestoneFor(
         user.totalContributions,
-        PERSONAL_MILESTONES,
+        personalThresholds,
       );
       newAccounts.add(user.login);
       needsPreparation = true;
@@ -585,7 +597,7 @@ export function planMilestones(
     if (!Object.hasOwn(stateBeforeEvents.personalMilestones, user.login)) {
       stateBeforeEvents.personalMilestones[user.login] = milestoneFor(
         user.totalContributions,
-        PERSONAL_MILESTONES,
+        personalThresholds,
       );
       newAccounts.add(user.login);
       needsPreparation = true;
@@ -600,7 +612,7 @@ export function planMilestones(
 
   const personalMilestones = board.flatMap<PersonalMilestoneEvent>((user) => {
     if (newAccounts.has(user.login)) return [];
-    const threshold = milestoneFor(user.totalContributions, PERSONAL_MILESTONES);
+    const threshold = milestoneFor(user.totalContributions, personalThresholds);
     return threshold > stateBeforeEvents.personalMilestones[user.login]
       ? [{ login: user.login, url: user.url, avatarUrl: user.avatarUrl, threshold }]
       : [];
@@ -614,6 +626,15 @@ export function planMilestones(
     nextState.personalMilestones[event.login] = event.threshold;
   }
   if (boardMilestone) nextState.boardMilestone = boardMilestone.threshold;
+  if (nextState.personalMilestonesVersion !== 2) {
+    for (const [login, total] of Object.entries(nextState.personalTotals)) {
+      nextState.personalMilestones[login] = Math.max(
+        nextState.personalMilestones[login] ?? 0,
+        milestoneFor(total, PERSONAL_MILESTONES),
+      );
+    }
+    nextState.personalMilestonesVersion = 2;
+  }
 
   return {
     baseline: false,
@@ -652,6 +673,9 @@ export async function deliverMilestones(
     await notify({ type: "board-milestone", event: plan.boardMilestone });
     progress.boardMilestone = plan.boardMilestone.threshold;
     await save(milestoneStateSnapshot(progress));
+  }
+  if (progress.personalMilestonesVersion !== plan.nextState.personalMilestonesVersion) {
+    await save(milestoneStateSnapshot(plan.nextState));
   }
 }
 
