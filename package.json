@@ -8,10 +8,10 @@
     "build": "npm run lint && npm run typecheck && vite build",
     "lint": "oxlint .",
     "test": "node --test test/*.test.ts",
-    "test:worker": "vite build --mode local-preview --outDir dist/alarm-local-preview && vite build && node --test --test-timeout=30000 test/worker/*.test.ts",
+    "test:worker": "vite build --mode local-preview --outDir dist/alarm-local-preview && npm run build && node --test --test-timeout=30000 test/worker/*.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:ui": "node test/browser/run-ui.ts",
-    "test:all": "npm test && npm run test:e2e && npm run build && npm run test:worker",
+    "test:all": "npm test && npm run test:e2e && npm run test:worker",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p worker/tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit",
     "deploy": "npm run build && wrangler deploy",
     "deploy:preview": "WRANGLER_CI_GENERATE_PREVIEW_ALIAS=true wrangler versions upload"

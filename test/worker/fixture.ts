@@ -24,9 +24,16 @@ const driver = `
 import worker, { LeaderState } from "./index.js";
 export class TestLeaderState extends LeaderState {
   completed = 0;
+  active = 0;
+  maxActive = 0;
   async alarm() {
-    await super.alarm();
-    this.completed++;
+    this.maxActive = Math.max(this.maxActive, ++this.active);
+    try {
+      await super.alarm();
+    } finally {
+      this.active--;
+      this.completed++;
+    }
   }
   async fetch(request) {
     const action = new URL(request.url).pathname;
@@ -35,6 +42,8 @@ export class TestLeaderState extends LeaderState {
     if (action === "/snapshot") await this.boardSnapshot(new Date().getUTCFullYear());
     return Response.json({
       completed: this.completed,
+      active: this.active,
+      maxActive: this.maxActive,
       alarm: await this.ctx.storage.getAlarm(),
       values: Object.fromEntries(await this.ctx.storage.list()),
     });
@@ -45,6 +54,8 @@ export default worker;
 
 export interface State {
   completed: number;
+  active: number;
+  maxActive: number;
   alarm: number | null;
   values: { "board-snapshot"?: BoardSnapshot; leader?: StandingState } & Record<string, unknown>;
 }
@@ -57,6 +68,8 @@ export async function setup(
   let leadingCount = 10;
   let queries = 0;
   let attempts = 0;
+  let discordPaused: Promise<void> | undefined;
+  let resumeDiscord: (() => void) | undefined;
   const posts: unknown[] = [];
   const mf = new Miniflare({
     name: "alarm-test",
@@ -79,6 +92,7 @@ export async function setup(
       const url = new URL(request.url);
       if (url.hostname === "discord.example") {
         attempts++;
+        await discordPaused;
         if (mode === "discord-error") return new Response("unavailable", { status: 503 });
         posts.push(await request.json());
         return new Response(null, { status: 204 });
@@ -109,7 +123,10 @@ export async function setup(
         <tool-tip for="contribution-day-component-0-0">${count} contributions on January 1.</tool-tip>`);
     },
   });
-  t.after(() => mf.dispose());
+  t.after(() => {
+    resumeDiscord?.();
+    return mf.dispose();
+  });
   const namespace = await mf.getDurableObjectNamespace("LEADER_STATE");
   const stub = namespace.getByName("leaderboard");
   async function state(action = "status"): Promise<State> {
@@ -136,5 +153,7 @@ export async function setup(
     setCount: (count: number) => { leadingCount = count; },
     queries: () => queries,
     attempts: () => attempts,
+    pauseDiscord: () => { discordPaused = new Promise((resolve) => { resumeDiscord = resolve; }); },
+    resumeDiscord: () => resumeDiscord?.(),
   };
 }

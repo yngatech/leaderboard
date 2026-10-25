@@ -14,7 +14,6 @@ import {
   planDailyRecords,
   planMilestones,
   planStandings,
-  SerialTaskQueue,
   shouldUpdateNotifications,
   updateDailyRecordYears,
   type CakeDayEvent,
@@ -303,41 +302,6 @@ test("checkpoints a year rollover before sending and resumes mid-cycle", async (
   assert.deepEqual(delivered, ["pb:alice", "pb:bob", "record:alice"]);
 });
 
-test("serialises overlapping updates so they cannot post duplicate alerts", async () => {
-  const board = updatedBoard();
-  const queue = new SerialTaskQueue();
-  let stored = priorState();
-  let active = 0;
-  let highestConcurrency = 0;
-  const delivered: string[] = [];
-
-  const update = () =>
-    queue.run(async () => {
-      active += 1;
-      highestConcurrency = Math.max(highestConcurrency, active);
-      try {
-        const plan = planDailyRecords(2026, TODAY, board, stored);
-        await deliverDailyRecords(
-          plan,
-          async (notification) => {
-            await Promise.resolve();
-            delivered.push(notificationId(notification));
-          },
-          async (state) => {
-            stored = structuredClone(state);
-          },
-        );
-      } finally {
-        active -= 1;
-      }
-    });
-
-  await Promise.all([update(), update()]);
-
-  assert.equal(highestConcurrency, 1);
-  assert.deepEqual(delivered, ["pb:alice", "pb:bob", "record:alice"]);
-});
-
 test("steady state sends no notifications and performs no storage writes", async () => {
   let notifications = 0;
   let writes = 0;
@@ -390,7 +354,7 @@ test("preserves a missing person's PB and compares against it when they return",
   );
 });
 
-/** Runs scheduled checks in order, returning every post they made. */
+/** Runs notification checks in order, returning every post they made. */
 async function runChecks(
   checks: Array<[today: string, board: Board]>,
   start: DailyRecordState | undefined = priorState(),
@@ -702,7 +666,7 @@ function memoryStorage(entries: Record<string, StoredDailyRecords> = {}) {
 }
 
 /**
- * Runs scheduled checks across a year end, returning `year:post` for each
+ * Runs notification checks across a year end, returning `year:post` for each
  * post and the years the finished board was loaded for. A check's finished
  * board of null stands for a failed or incomplete fetch.
  */
@@ -1685,7 +1649,7 @@ test("a fresh Durable Object still announces a cake day landing on it", () => {
   assert.equal(plan.events.length, 1);
 });
 
-test("the half-hourly re-check does not repeat the day's announcement", async () => {
+test("a re-check does not repeat the day's announcement", async () => {
   let stored: CakeDayState | undefined;
   const delivered: string[] = [];
   const notify = async (event: CakeDayEvent) => {

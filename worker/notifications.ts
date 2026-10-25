@@ -113,20 +113,6 @@ export type MilestoneNotification =
   | { type: "personal-milestone"; event: PersonalMilestoneEvent }
   | { type: "board-milestone"; event: BoardMilestoneEvent };
 
-/**
- * Serialises work without poisoning later calls when one task rejects. Durable
- * Object requests can interleave while an external webhook fetch is pending.
- */
-export class SerialTaskQueue {
-  private tail: Promise<void> = Promise.resolve();
-
-  run(task: () => Promise<void>): Promise<void> {
-    const pending = this.tail.then(task);
-    this.tail = pending.catch(() => undefined);
-    return pending;
-  }
-}
-
 function peakFor(user: BoardUser, year: number): DailyPeak | null {
   const first = `${year}-01-01`;
   const last = `${year}-12-31`;
@@ -687,7 +673,7 @@ function cakeDayStateSnapshot(state: CakeDayState): CakeDayState {
 
 /**
  * Finds the accounts whose anniversary is `today`. Unlike the other planners
- * this has no quiet baseline: state exists only to stop the scheduled check
+ * this has no quiet baseline: state exists only to stop the recurring check
  * repeating itself, so a cake day landing on a fresh Durable Object is still
  * announced. The stored year is what makes the next one fire.
  */

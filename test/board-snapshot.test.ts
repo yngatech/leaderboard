@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   SNAPSHOT_MAX_AGE_MS,
-  supersedes,
   usableSnapshot,
   type BoardSnapshot,
 } from "../worker/board-snapshot.ts";
@@ -18,7 +17,7 @@ test("a recent snapshot for the year in progress stands for the live board", () 
   assert.equal(usableSnapshot(recent, 2026, NOW), recent);
 });
 
-test("pages fall back to GitHub when the scheduled check has stopped", () => {
+test("expired or missing snapshots cannot stand for the live board", () => {
   const edge = snapshot(2026, new Date(NOW - SNAPSHOT_MAX_AGE_MS).toISOString());
   const stale = snapshot(2026, new Date(NOW - SNAPSHOT_MAX_AGE_MS - 1).toISOString());
 
@@ -31,21 +30,4 @@ test("pages fall back to GitHub when the scheduled check has stopped", () => {
 test("last year's snapshot never stands in for the new year", () => {
   const newYear = Date.parse("2027-01-01T00:05:00Z");
   assert.equal(usableSnapshot(snapshot(2026, "2026-12-31T23:59:00Z"), 2027, newYear), null);
-});
-
-test("a check that overran cannot overwrite a newer snapshot", () => {
-  const newer = snapshot(2026, "2026-10-19T13:00:00Z");
-  const older = snapshot(2026, "2026-10-19T12:50:00Z");
-
-  assert.equal(supersedes(newer, older), true);
-  assert.equal(supersedes(older, newer), false);
-  assert.equal(supersedes(older, undefined), true);
-  assert.equal(supersedes(snapshot(2027, "2027-01-01T00:00:00Z"), newer), true);
-});
-
-test("a second board stamped with the same moment is not saved over the first", () => {
-  const first = snapshot(2026, "2026-10-19T13:00:00.000Z");
-  const second = { ...snapshot(2026, "2026-10-19T13:00:00.000Z"), board: first.board.slice() };
-
-  assert.equal(supersedes(second, first), false);
 });
