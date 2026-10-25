@@ -6,7 +6,7 @@ import type { TestContext } from "node:test";
 import { Log, LogLevel, Miniflare, type Request as MiniflareRequest } from "miniflare";
 import type { BoardSnapshot } from "../../worker/board-snapshot.ts";
 import { PEOPLE } from "../../worker/github.ts";
-import type { StandingState } from "../../worker/notifications.ts";
+import type { MilestoneState, StandingState } from "../../worker/notifications.ts";
 
 const buildRoot = fileURLToPath(new URL("../../dist/leaderboard/", import.meta.url));
 const bundle = await readFile(`${buildRoot}index.js`, "utf8");
@@ -33,6 +33,7 @@ export class TestLeaderState extends LeaderState {
     if (action === "/wake") await this.ctx.storage.setAlarm(Date.now());
     if (action === "/stop") await this.ctx.storage.deleteAlarm();
     if (action === "/snapshot") await this.boardSnapshot(new Date().getUTCFullYear());
+    if (action === "/seed-milestones") await this.ctx.storage.put("milestones", await request.json());
     return Response.json({
       completed: this.completed,
       alarm: await this.ctx.storage.getAlarm(),
@@ -46,7 +47,7 @@ export default worker;
 export interface State {
   completed: number;
   alarm: number | null;
-  values: { "board-snapshot"?: BoardSnapshot; leader?: StandingState } & Record<string, unknown>;
+  values: { "board-snapshot"?: BoardSnapshot; leader?: StandingState; milestones?: MilestoneState } & Record<string, unknown>;
 }
 
 export async function setup(
@@ -132,6 +133,11 @@ export async function setup(
   }
   return {
     mf, state, until, refreshed, posts,
+    seedMilestones: async (milestones: MilestoneState) => {
+      await stub.fetch("https://alarm.test/seed-milestones", {
+        method: "POST", body: JSON.stringify(milestones),
+      });
+    },
     setMode: (next: typeof mode) => { mode = next; },
     setCount: (count: number) => { leadingCount = count; },
     queries: () => queries,

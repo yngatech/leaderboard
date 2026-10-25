@@ -118,6 +118,12 @@ milestone, it posts a rich message to Discord. Daily records and milestones
 restart each calendar year. Durable state prevents duplicate messages; the
 first run records a baseline without sending one.
 
+Yearly personal milestones run from 100 through 100,000, with intermediate
+steps including 750, 1,500, 2,000, 13,000, and 14,000. Goal displays and Discord
+use the same ladder. When expanding the ladder, pending notifications from
+the original ladder finish first, then newly introduced rungs already passed
+are recorded silently.
+
 The first live-board read that reaches the Durable Object starts the alarm
 chain; request `/api/board` after deploying to start it once any cached response
 expires. Each alarm saves the next run before fetching GitHub or sending
