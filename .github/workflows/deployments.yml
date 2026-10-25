@@ -1,6 +1,6 @@
 name: Deployments
 
-# Workers Builds reports each upload only as a check run. Mirror it as a GitHub
+# Workers Builds reports each deployment as a check run. Mirror it as a GitHub
 # deployment so pull requests link their preview and the repository lists the
 # production site.
 on:
@@ -50,6 +50,8 @@ jobs:
         run: |
           url=$(grep -oP '^Preview Alias URL: \Khttps://\S+' <<< "$SUMMARY" ||
             grep -oP '^Preview URL: \Khttps://\S+' <<< "$SUMMARY")
+          # The first live-board read starts the preview's isolated alarm chain.
+          curl --fail --silent --show-error --max-time 120 "$url/api/board" --output /dev/null
           id=$(jq -n --arg ref "$SHA" '{ref: $ref, environment: "preview",
             auto_merge: false, required_contexts: [],
             transient_environment: true, production_environment: false}' |

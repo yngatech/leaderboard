@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PEOPLE } from "../../worker/github.ts";
 import viteConfig from "../../vite.config.ts";
-import { config, setup, type State } from "./fixture.ts";
+import { config, workerPreviewConfig, setup, type State } from "./fixture.ts";
 
 const interval = 10 * 60 * 1000;
 
@@ -129,4 +129,36 @@ test("without a webhook an alarm still refreshes the site's snapshot", async (t)
   assert.equal(result.values["board-snapshot"]?.board.length, PEOPLE.length);
   assert.equal(result.values.leader, undefined);
   assert.equal(app.attempts(), 0);
+});
+
+test("a native preview retains isolated DO configuration and runs alarms without notifying Discord", async (t) => {
+  assert.equal(workerPreviewConfig.name, "leaderboard-preview");
+  assert.deepEqual(workerPreviewConfig.previews.durable_objects.bindings,
+    [{ name: "LEADER_STATE", class_name: "LeaderState" }]);
+  assert.deepEqual(workerPreviewConfig.durable_objects.bindings,
+    [{ name: "LEADER_STATE", class_name: "LeaderState" }]);
+  assert.deepEqual(workerPreviewConfig.migrations, config.migrations);
+  assert.deepEqual(workerPreviewConfig.routes ?? [], []);
+  const preview = await viteConfig({ command: "build", mode: "worker-preview" });
+  assert.equal(preview.define?.__BOARD_ALARMS_ENABLED__, "true");
+  assert.equal(preview.define?.__IS_PREVIEW_BUILD__, "true");
+  assert.equal(preview.define?.__LOCAL_DEVELOPMENT__, "false");
+
+  // Supply a webhook deliberately: the build must suppress notifications itself.
+  const app = await setup(t, { workerPreview: true });
+  const response = await app.mf.dispatchFetch("https://board.test/api/board");
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("Cache-Control"), "no-store");
+  const first = await app.until((state) => state.completed === 1);
+  assertNextRun(first);
+  assert.equal(first.values["board-snapshot"]?.board.length, PEOPLE.length);
+
+  app.setCount(42);
+  const second = await app.refreshed();
+  assertNextRun(second);
+  assert.equal(second.values["board-snapshot"]?.board[0].totalContributions, 42);
+  assert.equal(second.values.leader, undefined);
+  assert.equal(second.values.milestones, undefined);
+  assert.equal(app.attempts(), 0);
+  assert.ok(app.exchanges() > 0);
 });

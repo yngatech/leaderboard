@@ -97,7 +97,7 @@ export interface Env extends GitHubCredentials {
   DISCORD_WEBHOOK_URL?: string;
   /** Optional encrypted JSON map from GitHub logins to Discord user IDs. */
   DISCORD_USER_IDS?: string;
-  /** Omitted from preview versions, which do not run background checks. */
+  /** Native previews provision a separate namespace for each branch. */
   LEADER_STATE: DurableObjectNamespace<LeaderState>;
   ASSETS: Fetcher;
 }
@@ -1678,7 +1678,7 @@ export class LeaderState extends DurableObject<Env> {
     }
     const today = todayIso();
     await this.ctx.storage.put(BOARD_SNAPSHOT_KEY, { year, board, generatedAt });
-    if (!this.env.DISCORD_WEBHOOK_URL) return;
+    if (!this.env.DISCORD_WEBHOOK_URL || __IS_PREVIEW_BUILD__) return;
 
     // Alarm handlers run one at a time. Save the board before posting so a
     // slow or failed webhook does not hold back the site's snapshot.

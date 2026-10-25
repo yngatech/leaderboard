@@ -8,30 +8,31 @@
     "build": "npm run lint && npm run typecheck && vite build",
     "lint": "oxlint .",
     "test": "node --test test/*.test.ts",
-    "test:worker": "vite build --mode local-preview --outDir dist/alarm-local-preview && npm run build && node --test --test-timeout=30000 test/worker/*.test.ts",
+    "test:worker": "vite build --mode local-preview --outDir dist/alarm-local-preview && vite build --mode worker-preview --outDir dist/worker-preview && npm run build && node --test --test-timeout=30000 test/worker/*.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:ui": "node test/browser/run-ui.ts",
     "test:all": "npm test && npm run test:e2e && npm run test:worker",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p worker/tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit",
     "deploy": "npm run build && wrangler deploy",
-    "deploy:preview": "WRANGLER_CI_GENERATE_PREVIEW_ALIAS=true wrangler versions upload"
+    "deploy:preview": "npm run build -- --mode worker-preview && wrangler preview --worker-name leaderboard-preview",
+    "delete:preview": "wrangler preview delete --worker-name leaderboard-preview"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "^1.51.1",
+    "@cloudflare/vite-plugin": "^1.56.0",
     "@cloudflare/workers-types": "^5.20260722.1",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.13.3",
-    "miniflare": "5.20260801.1-alpha",
+    "miniflare": "5.20260918.0-alpha",
     "oxlint": "^1.80.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.2.0",
-    "wrangler": "^4.120.0"
+    "wrangler": "^4.135.0"
   },
   "allowScripts": {
     "esbuild@0.28.1": true,
-    "workerd@1.20260801.1": true
+    "workerd@1.20260918.1": true
   },
   "dependencies": {
     "hono": "^4.13.1"

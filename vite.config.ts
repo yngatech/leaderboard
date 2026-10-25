@@ -15,7 +15,8 @@ function buildCommitSha(): string {
   }
 }
 
-function isWorkersPreviewBuild(): boolean {
+function isWorkersPreviewBuild(mode: string): boolean {
+  if (mode === "worker-preview") return true;
   if (env.WORKERS_CI !== "1") return false;
 
   // A connected Workers Builds project pins uploads to its own Worker. Prefer
@@ -35,16 +36,13 @@ export default defineConfig(({ command, mode }) => ({
     tailwindcss(),
     cloudflare({
       config: (workerConfig) => {
-        if (!isWorkersPreviewBuild()) return;
+        if (!isWorkersPreviewBuild(mode)) return;
 
-        // Cloudflare cannot create preview URLs for versions with Durable
-        // Object bindings. PR previews fetch the board directly and do not
-        // run the alarm, so they can safely leave notification state out.
+        // Keep the existing dedicated Builds connection. Native Worker
+        // Previews provision each branch's own Durable Object namespace.
         const previewConfig: Partial<typeof workerConfig> = workerConfig;
         previewConfig.name = "leaderboard-preview";
         previewConfig.workers_dev = false;
-        delete previewConfig.durable_objects;
-        delete previewConfig.migrations;
         delete previewConfig.triggers;
         delete previewConfig.routes;
       },
@@ -53,12 +51,12 @@ export default defineConfig(({ command, mode }) => ({
   define: {
     __BUILD_COMMIT_SHA__: JSON.stringify(buildCommitSha()),
     __DEV__: JSON.stringify(command === "serve"),
-    __IS_PREVIEW_BUILD__: JSON.stringify(isWorkersPreviewBuild()),
+    __IS_PREVIEW_BUILD__: JSON.stringify(isWorkersPreviewBuild(mode)),
     __LOCAL_DEVELOPMENT__: JSON.stringify(
       (command === "serve" || mode === "local-preview") && env.WORKERS_CI !== "1",
     ),
     __BOARD_ALARMS_ENABLED__: JSON.stringify(
-      command === "build" && mode !== "local-preview" && !isWorkersPreviewBuild(),
+      command === "build" && mode !== "local-preview",
     ),
   },
   build: {

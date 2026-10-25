@@ -141,8 +141,9 @@ chain; request `/api/board` after deploying to start it once any cached response
 expires. Each alarm saves the next run before fetching GitHub or sending
 notifications, so failures leave another check scheduled. Later live-board
 reads restart the chain if its alarm is missing, without postponing a pending
-check. There is no cron trigger. Local development and preview builds do not
-start alarms. `npm run preview` builds with the `local-preview` mode, which
+check. There is no cron trigger. Local development and local preview builds do
+not start alarms. Native deployed previews run alarms in their own namespace.
+`npm run preview` builds with the `local-preview` mode, which
 disables both alarm startup and execution while retaining production page and
 cache behavior. Serving that build or running dev also stops any persisted
 local alarm before it can fetch or post.
@@ -240,38 +241,69 @@ own, so `wrangler.jsonc` at the root stays the file you edit.
 
 ## Pull request previews
 
-The repository has separate Cloudflare Workers Builds connections for
-`leaderboard` and `leaderboard-preview`. Non-production branch builds are
-disabled on `leaderboard` and enabled on `leaderboard-preview`, which uploads
-each branch version and adds its `workers.dev` URL to the pull request. The
-`Preview deployment` workflow mirrors each successful upload as a GitHub
-deployment to the `preview` environment, so the pull request links it. The
-preview runs the branch's real Worker and static assets, including the rendered
-pages and API routes.
+Branch deployments use [native Worker Previews](https://developers.cloudflare.com/workers/previews/)
+under the existing `leaderboard-preview` Worker. The separate `leaderboard`
+Builds connection handles production only. Each branch preview runs its own
+Worker code, static assets, SQLite-backed `LeaderState` namespace and alarm.
+Cloudflare isolates the namespace automatically, keeps its state across pushes
+to that branch, and deletes the state when the preview is deleted.
 
-Cloudflare cannot generate preview URLs for a Worker that implements a Durable
-Object. When Workers Builds identifies the connected Worker as
-`leaderboard-preview`, `vite.config.ts` removes the Durable Object, migration
-and production route from its generated config. The preview fetches board data
-directly from GitHub using its own App credentials, without background checks
-or Discord notifications.
+`wrangler.jsonc` keeps the class and migration at the top level and repeats the
+`LEADER_STATE` binding in `previews.durable_objects.bindings`, because the code
+accesses it through `env`. Do not add `script_name`: the class must belong to
+this Worker for automatic isolation. Assets stay at the top level. Production
+routes and cron triggers do not target native previews.
 
-The root `wrangler.jsonc` intentionally remains named `leaderboard`. The Vite
-build writes the matching `leaderboard-preview` name into its generated Wrangler
-configuration before the preview connection uploads it.
+`npm run deploy:preview` builds in `worker-preview` mode and runs
+`wrangler preview --worker-name leaderboard-preview`. The preview name defaults
+to the current branch. Workers Builds also selects preview behavior through
+its connected Worker identity. The generated preview configuration retains the
+Durable Object and migration, removes production routes, and targets
+`leaderboard-preview`. `npm run deploy` rebuilds the production configuration
+and targets `leaderboard`.
 
-Wrangler derives a stable preview alias from `WORKERS_CI_BRANCH`, so every new
-commit updates the same branch URL while retaining an immutable version URL.
-Preview responses use `Cache-Control: no-store`, and live plus derived edge
-caches are scoped to the commit SHA. The expensive finished-year source cache
-is shared across preview commits until the account roster or its cache schema
-changes. This keeps pushes deterministic without repeatedly rebuilding the
-full GitHub archive.
+The `Deployments` workflow reads the successful preview build's URL, requests
+`/api/board` to start the isolated alarm chain, and records a GitHub deployment.
+A missing GitHub credential or a failed initial board fetch fails that warm-up
+rather than recording a usable preview. Alarms then refresh the board every
+10 minutes. Preview builds never send Discord notifications or update their
+checkpoints, even if a webhook is present.
 
-Preview URLs are public unless Cloudflare Access is enabled, so non-production
-branch builds must remain limited to trusted contributors. A normal
-`npm run deploy` always targets `leaderboard` and rebuilds from the complete
-production config.
+### One-time Workers Builds setup
+
+Existing Builds connections require Cloudflare's [one-time switch to Worker
+Previews](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/#existing-workers-connected-to-builds).
+Prepare these settings on `leaderboard-preview` when adopting this change:
+
+1. In Settings > Builds, select **Set up Worker Previews**. Configure the Preview
+   Base with the three GitHub App secrets described below. Native previews do
+   not inherit the Worker's existing secrets. Leave Discord secrets out of
+   Preview Base.
+2. Keep preview builds enabled for trusted branches and the build command
+   `npm run build`. Set the Preview command to `npm run deploy:preview`, then
+   complete **Switch to Worker Previews**. Cloudflare documents this switch as
+   irreversible. The production `leaderboard` connection stays as configured.
+3. Add a GitHub Actions repository secret named `CLOUDFLARE_PREVIEW_API_TOKEN`
+   for the `preview-cleanup.yml` workflow. Use an API token scoped to managing
+   previews on `leaderboard-preview`; it needs Workers Scripts edit access.
+   There is no need to grant access to production routes.
+
+Set Preview Base credentials before creating previews. Later Base secret
+changes affect newly created previews; update an existing preview's secrets
+explicitly when needed. Keep secret values out of the repository.
+
+The cleanup workflow runs trusted default-branch code when a same-repository
+PR closes, then deletes that branch's preview, deployments, and DO storage.
+It requires the cleanup token above. For manual cleanup with a local Wrangler
+login, run `npm run delete:preview -- --name <branch>`. Deleting preview state
+is permanent; a reopened PR starts with fresh storage.
+
+Preview URLs are public unless Cloudflare Access is enabled, so branch builds
+must remain limited to trusted contributors. Each preview provides a stable
+URL for its latest deployment and an immutable URL for each deployment.
+Responses use `Cache-Control: no-store`, and live plus derived edge caches are
+scoped to the commit SHA. The expensive finished-year source cache is shared
+across preview commits until the account roster or its cache schema changes.
 
 Production and deployed PR previews authenticate GitHub API requests as a
 GitHub App, with its own rate limit. The App needs no permissions, only an
@@ -280,10 +312,12 @@ installation. It reads three secrets:
 The key must be PKCS#8; convert GitHub's download with
 `openssl pkcs8 -topk8 -nocrypt -in app.private-key.pem -out app.pk8.pem`.
 
-Set all three as Worker secrets on both `leaderboard` and
-`leaderboard-preview`, specifying the Worker name for each command, for example
-`wrangler secret put GITHUB_APP_PRIVATE_KEY --name leaderboard-preview < app.pk8.pem`.
-Deployed builds require every App secret and never fall back to a personal token.
+Set all three as Worker secrets on `leaderboard`. For native previews, set
+each with `wrangler preview base-config secret put <SECRET_NAME> --worker-name leaderboard-preview`,
+providing the value privately through stdin or the prompt. Use
+`wrangler preview secret put <SECRET_NAME> --worker-name leaderboard-preview --name <branch>`
+to update an already-created preview. Deployed builds require every App secret
+and never fall back to a personal token.
 
 For local `npm run dev` and `npm run preview`, a personal token with `read:user`
 in the ignored `.dev.vars` file is enough:

@@ -1,0 +1,28 @@
+name: Clean up preview
+
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      # Only run trusted default-branch code; the PR supplies a name, not code.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Delete branch preview and its Durable Object storage
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
+          PREVIEW_NAME: ${{ github.event.pull_request.head.ref }}
+        run: npm run delete:preview -- --name "$PREVIEW_NAME" --skip-confirmation
