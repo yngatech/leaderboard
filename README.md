@@ -242,9 +242,10 @@ own, so `wrangler.jsonc` at the root stays the file you edit.
 ## Pull request previews
 
 Branch deployments use [native Worker Previews](https://developers.cloudflare.com/workers/previews/)
-under the existing `leaderboard-preview` Worker. The separate `leaderboard`
-Builds connection handles production only. Each branch preview runs its own
-Worker code, static assets, SQLite-backed `LeaderState` namespace and alarm.
+under the single `leaderboard` Worker and its Builds connection. `main` deploys
+production; other trusted branches create native previews. Each branch preview
+runs its own Worker code, static assets, SQLite-backed `LeaderState` namespace
+and alarm.
 Cloudflare isolates the namespace automatically, keeps its state across pushes
 to that branch, and deletes the state when the preview is deleted.
 
@@ -255,14 +256,17 @@ this Worker for automatic isolation. Assets stay at the top level. Production
 routes and cron triggers do not target native previews.
 
 `npm run deploy:preview` builds in `worker-preview` mode and runs
-`wrangler preview --worker-name leaderboard-preview`. The preview name defaults
-to the current branch. Workers Builds also selects preview behavior through
-its connected Worker identity. The generated preview configuration retains the
-Durable Object and migration, removes production routes, and targets
-`leaderboard-preview`. `npm run deploy` rebuilds the production configuration
-and targets `leaderboard`.
+`wrangler preview --worker-name leaderboard`. The preview name defaults
+to the current branch. Workers Builds also selects preview behavior from
+`WORKERS_CI_BRANCH`, including when its Worker-name override is `leaderboard`.
+Both builds keep the same Worker name, bindings and migration. Production
+routes remain at the top level and are ignored by the native Preview command.
+`npm run deploy` builds production behavior and deploys `leaderboard`.
 
-The `Deployments` workflow reads the successful preview build's URL, requests
+The `Deployments` workflow handles the shared `Workers Builds: leaderboard`
+check. A Preview URL identifies a preview; otherwise the GitHub check suite
+branch distinguishes production from branch builds. Missing branch metadata
+stops reporting instead of assuming production. For a preview it requests
 `/api/board` to start the isolated alarm chain, and records a GitHub deployment.
 A missing GitHub credential or a failed initial board fetch fails that warm-up
 rather than recording a usable preview. Alarms then refresh the board every
@@ -273,20 +277,24 @@ checkpoints, even if a webhook is present.
 
 Existing Builds connections require Cloudflare's [one-time switch to Worker
 Previews](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/#existing-workers-connected-to-builds).
-Prepare these settings on `leaderboard-preview` when adopting this change:
+Prepare these settings on `leaderboard` when adopting this change:
 
 1. In Settings > Builds, select **Set up Worker Previews**. Configure the Preview
    Base with the three GitHub App secrets described below. Native previews do
    not inherit the Worker's existing secrets. Leave Discord secrets out of
    Preview Base.
-2. Keep preview builds enabled for trusted branches and the build command
-   `npm run build`. Set the Preview command to `npm run deploy:preview`, then
-   complete **Switch to Worker Previews**. Cloudflare documents this switch as
-   irreversible. The production `leaderboard` connection stays as configured.
+2. Enable preview builds for trusted branches and keep the build command
+   `npm run build`. Set the Preview command to `npm run deploy:preview` and keep
+   the production deploy command as `npm run deploy`, then complete **Switch to
+   Worker Previews**. Cloudflare documents this switch as irreversible.
 3. Add a GitHub Actions repository secret named `CLOUDFLARE_PREVIEW_API_TOKEN`
    for the `preview-cleanup.yml` workflow. Use an API token scoped to managing
-   previews on `leaderboard-preview`; it needs Workers Scripts edit access.
+   previews on `leaderboard`; it needs Workers Scripts edit access.
    There is no need to grant access to production routes.
+4. Once previews through `leaderboard` are verified, disable the old
+   `leaderboard-preview` Builds connection to avoid duplicate branch builds.
+   The old Worker can be retired separately after its remaining previews are
+   no longer needed.
 
 If a build still logs `Executing user deploy command: npx wrangler versions upload`,
 the Builds connection is using its saved legacy command. With the Durable
@@ -319,9 +327,9 @@ The key must be PKCS#8; convert GitHub's download with
 `openssl pkcs8 -topk8 -nocrypt -in app.private-key.pem -out app.pk8.pem`.
 
 Set all three as Worker secrets on `leaderboard`. For native previews, set
-each with `wrangler preview base-config secret put <SECRET_NAME> --worker-name leaderboard-preview`,
+each with `wrangler preview base-config secret put <SECRET_NAME> --worker-name leaderboard`,
 providing the value privately through stdin or the prompt. Use
-`wrangler preview secret put <SECRET_NAME> --worker-name leaderboard-preview --name <branch>`
+`wrangler preview secret put <SECRET_NAME> --worker-name leaderboard --name <branch>`
 to update an already-created preview. Deployed builds require every App secret
 and never fall back to a personal token.
 

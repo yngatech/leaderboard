@@ -19,13 +19,6 @@ function isWorkersPreviewBuild(mode: string): boolean {
   if (mode === "worker-preview") return true;
   if (env.WORKERS_CI !== "1") return false;
 
-  // A connected Workers Builds project pins uploads to its own Worker. Prefer
-  // that identity when present so the production and preview Git connections
-  // each generate configuration for the Worker they are allowed to update.
-  if (env.WRANGLER_CI_OVERRIDE_NAME !== undefined) {
-    return env.WRANGLER_CI_OVERRIDE_NAME === "leaderboard-preview";
-  }
-
   return env.WORKERS_CI_BRANCH !== undefined && env.WORKERS_CI_BRANCH !== "main";
 }
 
@@ -34,19 +27,7 @@ export default defineConfig(({ command, mode }) => ({
   // rendered pages included — is handled for real rather than proxied.
   plugins: [
     tailwindcss(),
-    cloudflare({
-      config: (workerConfig) => {
-        if (!isWorkersPreviewBuild(mode)) return;
-
-        // Keep the existing dedicated Builds connection. Native Worker
-        // Previews provision each branch's own Durable Object namespace.
-        const previewConfig: Partial<typeof workerConfig> = workerConfig;
-        previewConfig.name = "leaderboard-preview";
-        previewConfig.workers_dev = false;
-        delete previewConfig.triggers;
-        delete previewConfig.routes;
-      },
-    }),
+    cloudflare(),
   ],
   define: {
     __BUILD_COMMIT_SHA__: JSON.stringify(buildCommitSha()),

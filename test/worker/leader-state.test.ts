@@ -57,6 +57,24 @@ test("dev and local preview configure the same disabled alarm guard", async () =
   assert.equal(dev.define?.__BOARD_ALARMS_ENABLED__, "false");
 });
 
+test("the shared Worker selects preview behavior from the Builds branch", async (t) => {
+  const keys = ["WORKERS_CI", "WORKERS_CI_BRANCH", "WRANGLER_CI_OVERRIDE_NAME"] as const;
+  const previous = keys.map((key) => process.env[key]);
+  t.after(() => keys.forEach((key, i) => {
+    if (previous[i] === undefined) delete process.env[key];
+    else process.env[key] = previous[i];
+  }));
+  process.env.WORKERS_CI = "1";
+  process.env.WRANGLER_CI_OVERRIDE_NAME = "leaderboard";
+  for (const [branch, preview] of [["main", "false"], ["feature/example", "true"]] as const) {
+    process.env.WORKERS_CI_BRANCH = branch;
+    const config = await viteConfig({ command: "build", mode: "production" });
+    assert.equal(config.define?.__IS_PREVIEW_BUILD__, preview);
+    assert.equal(config.define?.__BOARD_ALARMS_ENABLED__, "true");
+    assert.equal(config.define?.__LOCAL_DEVELOPMENT__, "false");
+  }
+});
+
 test("an existing alarm in a disabled local build stops without fetching or posting", async (t) => {
   const app = await setup(t, { localPreview: true });
   const completed = await app.refreshed();
@@ -132,13 +150,14 @@ test("without a webhook an alarm still refreshes the site's snapshot", async (t)
 });
 
 test("a native preview retains isolated DO configuration and runs alarms without notifying Discord", async (t) => {
-  assert.equal(workerPreviewConfig.name, "leaderboard-preview");
+  assert.equal(workerPreviewConfig.name, "leaderboard");
   assert.deepEqual(workerPreviewConfig.previews.durable_objects.bindings,
     [{ name: "LEADER_STATE", class_name: "LeaderState" }]);
   assert.deepEqual(workerPreviewConfig.durable_objects.bindings,
     [{ name: "LEADER_STATE", class_name: "LeaderState" }]);
   assert.deepEqual(workerPreviewConfig.migrations, config.migrations);
-  assert.deepEqual(workerPreviewConfig.routes ?? [], []);
+  // Routes stay at the top level; native Previews do not take them over.
+  assert.deepEqual(workerPreviewConfig.routes, config.routes);
   const preview = await viteConfig({ command: "build", mode: "worker-preview" });
   assert.equal(preview.define?.__BOARD_ALARMS_ENABLED__, "true");
   assert.equal(preview.define?.__IS_PREVIEW_BUILD__, "true");

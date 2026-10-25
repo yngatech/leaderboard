@@ -14,8 +14,8 @@
     "test:all": "npm test && npm run test:e2e && npm run test:worker",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p worker/tsconfig.json --noEmit && tsc -p test/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit",
     "deploy": "npm run build && wrangler deploy",
-    "deploy:preview": "npm run build -- --mode worker-preview && wrangler preview --worker-name leaderboard-preview",
-    "delete:preview": "wrangler preview delete --worker-name leaderboard-preview"
+    "deploy:preview": "npm run build -- --mode worker-preview && wrangler preview --worker-name leaderboard",
+    "delete:preview": "wrangler preview delete --worker-name leaderboard"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.56.0",
