@@ -115,27 +115,6 @@ export async function setup(
         queries++;
         assert.equal(request.headers.get("Authorization"), `Bearer ${personal ? personalToken : installationToken}`);
         if (mode === "github-error") return new Response("unavailable", { status: 503 });
-        const body = await request.json() as { query: string; variables: Record<string, string> };
-        if (body.query.includes("query BreakdownQuery")) {
-          return Response.json({ data: Object.fromEntries(
-            Object.entries(body.variables).filter(([key]) => /^l\d+$/.test(key)).map(([key, login]) => [
-              `a${key.slice(1)}`,
-              { login, contributionsCollection: {
-                contributionCalendar: { totalContributions: 3 },
-                restrictedContributionsCount: 0,
-                totalCommitContributions: 2,
-                totalIssueContributions: 1,
-                totalPullRequestContributions: 0,
-                totalPullRequestReviewContributions: 0,
-                totalRepositoryContributions: 0,
-                commitContributionsByRepository: [],
-                issueContributionsByRepository: [],
-                pullRequestContributionsByRepository: [],
-                pullRequestReviewContributionsByRepository: [],
-              } },
-            ]),
-          ) });
-        }
         return Response.json({ data: Object.fromEntries(logins.map((login, i) => [
           `u${i}`,
           mode === "partial" && i === 0 ? null : {

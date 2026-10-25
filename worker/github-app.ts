@@ -17,6 +17,12 @@ interface InstallationToken {
   expiresAt: number;
 }
 
+interface GitHubAuthOptions {
+  allowPersonalToken?: boolean;
+  now?: () => number;
+  request?: typeof fetch;
+}
+
 /** Tokens last an hour; refresh with room to spare for a slow board fetch. */
 const REFRESH_MARGIN_MS = 5 * 60 * 1000;
 
@@ -31,16 +37,17 @@ function appConfigured(env: GitHubCredentials): boolean {
   return Boolean(env.GITHUB_APP_ID && env.GITHUB_APP_INSTALLATION_ID && env.GITHUB_APP_PRIVATE_KEY);
 }
 
-export function hasGitHubCredentials(env: GitHubCredentials, allowPersonalToken = false): boolean {
+export function hasGitHubCredentials(
+  env: GitHubCredentials,
+  { allowPersonalToken = false }: GitHubAuthOptions = {},
+): boolean {
   return appConfigured(env) || Boolean(allowPersonalToken && env.GITHUB_TOKEN);
 }
 
 /** The token to send GitHub. Callers check `hasGitHubCredentials` first. */
 export async function githubToken(
   env: GitHubCredentials,
-  now: () => number = Date.now,
-  request: typeof fetch = fetch,
-  allowPersonalToken = false,
+  { allowPersonalToken = false, now = Date.now, request = fetch }: GitHubAuthOptions = {},
 ): Promise<string> {
   if (!appConfigured(env)) {
     if (allowPersonalToken && env.GITHUB_TOKEN) return env.GITHUB_TOKEN;
