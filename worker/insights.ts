@@ -91,21 +91,25 @@ const BOT_HARNESSES = new Map<string, string>(Object.entries({
 // Aider: https://github.com/Aider-AI/aider/blob/main/aider/repo.py
 // Amp: https://github.com/ampcode/amp-examples-and-guides/tree/main/examples/amp%2Bcodesearch
 const AGENT_EMAILS = new Map<string, string>(Object.entries({
-  "noreply@anthropic.com": "Claude Code", "noreply@openai.com": "Codex",
   "cursoragent@cursor.com": "Cursor", "copilot@github.com": "Copilot",
   "aider@aider.chat": "Aider", "amp@ampcode.com": "Amp",
 }));
+const VENDOR_EMAILS = new Map([
+  ["noreply@anthropic.com", { provider: "Anthropic", harness: "Claude Code" }],
+  ["noreply@openai.com", { provider: "OpenAI", harness: "Codex" }],
+]);
 const SINGLE_VENDOR = new Map([
   ["Claude Code", "Anthropic"], ["Codex", "OpenAI"], ["Jules", "Google"], ["Gemini CLI", "Google"],
 ]);
 const HARNESS_ALIASES = new Map(Object.entries({
-  "claude code": "Claude Code", claude: "Claude Code", codex: "Codex",
+  "claude code": "Claude Code", "claude-code": "Claude Code", codex: "Codex",
   "chatgpt-codex-connector": "Codex", "github copilot": "Copilot", copilot: "Copilot",
   cursor: "Cursor", opencode: "OpenCode", "open code": "OpenCode", devin: "Devin",
   jules: "Jules", "google jules": "Jules", aider: "Aider", amp: "Amp",
-  "gemini cli": "Gemini CLI", "t3 code": "T3 Code", styal: "styal", sweep: "Sweep",
+  "gemini cli": "Gemini CLI", "t3 code": "T3 Code", styal: "styal", sweep: "Sweep", antigravity: "Antigravity",
 }));
-// A bounded leading model identifier, not arbitrary prose or dependency names.
+const CLIENT_LABELS = [...HARNESS_ALIASES.keys()].sort((a, b) => b.length - a.length);
+// Whole model identifiers, not arbitrary leading tokens in prose or dependency names.
 // Numeric GPT/o-series syntax deliberately excludes gpt-tokenizer, gpt-next, etc.
 const MODEL_PROVIDERS: [string, RegExp][] = [
   ["Anthropic", /^claude-[a-z0-9]+(?:[.-][a-z0-9]+)*/i],
@@ -119,34 +123,78 @@ const MODEL_PROVIDERS: [string, RegExp][] = [
   ["Zhipu/GLM", /^glm-\d+(?:[.-][a-z0-9]+)*/i],
   ["Meta", /^llama-?\d+(?:[.-][a-z0-9]+)*/i],
 ];
-interface Marker { providers: string[]; harnesses: string[] }
+interface Marker { providers: string[]; harnesses: string[]; namedClient?: boolean; inferredHarness?: string }
 function harnessMarker(harness: string): Marker {
   return { providers: [SINGLE_VENDOR.get(harness) ?? UNKNOWN_MODEL], harnesses: [harness] };
 }
-/** Read only disclosure fields, or the leading generated tool/model label. */
-function disclosureMarker(fields: string[], explicit: boolean): Marker | null {
+const label = (value: string) => value.trim().replace(/^\[([^\]]+)\]$/, "$1");
+function modelProvider(value: string): string | undefined {
+  // Identifier-shaped registry prefixes only; never URLs or Markdown targets.
+  const model = label(value).replace(/^(?:[a-z0-9][a-z0-9._-]*\/)+/i, "")
+    .replace(/^(gpt-\d+(?:\.\d+)?) (sol|astra|terra)$/i, "$1-$2")
+    .replace(/^claude (opus|sonnet|haiku) (\d+(?:[.-]\d+)*)$/i, "claude-$1-$2");
+  return MODEL_PROVIDERS.find(([, rule]) => rule.exec(model)?.[0] === model)?.[0];
+}
+/** At most four client labels, joined by explicit connectors or adjacent exact aliases. */
+function clientHarnesses(value: string): string[] | null {
+  const parts = label(value).toLowerCase().split(/\s+(?:in|through|via|using)\s+|\s*[/+]\s*/);
+  if (parts.length > 4) return null;
+  const names = new Set<string>();
+  for (const part of parts) {
+    let rest = part.replace(/^the\s+/, "");
+    let count = 0;
+    while (rest && count < 4) {
+      const alias = CLIENT_LABELS.find((name) => rest === name || rest.startsWith(`${name} `));
+      if (!alias) return null;
+      names.add(HARNESS_ALIASES.get(alias)!);
+      rest = rest.slice(alias.length).replace(/^\s+(?:harness|agent)(?=\s|$)/, "").trim();
+      count += 1;
+    }
+    if (rest || !count || names.size > 4) return null;
+  }
+  return [...names];
+}
+/** Each comma-delimited group has its own named-model precedence and fallback. */
+function disclosureMarker(fields: string[]): Marker {
   const providers = new Set<string>(), harnesses = new Set<string>();
   for (const raw of fields) {
-    const field = raw.trim().replace(/^\[([^\]]+)\]$/, "$1");
-    // Fields are exact client labels; generated lines may carry ordinary suffix prose.
-    const harness = HARNESS_ALIASES.get(field.toLowerCase()) ?? (!explicit ?
-      [...HARNESS_ALIASES].find(([alias]) => field.toLowerCase().startsWith(`${alias} `) || field.toLowerCase().startsWith(`${alias}.`))?.[1] : undefined);
-    if (harness) harnesses.add(harness);
-    for (const [provider, rule] of MODEL_PROVIDERS) {
-      // Model registries may prefix a model id (e.g. opencode/deepseek-v4-flash-free).
-      // Only identifier-shaped namespaces are stripped; URLs and link targets cannot match.
-      const model = field.replace(/^(?:[a-z0-9][a-z0-9._-]*\/)+/i, "");
-      const match = rule.exec(model);
-      if (match && /^(?:$|\s|\.(?:\s|$)|;)/.test(model.slice(match[0].length))) providers.add(provider);
+    const clause = modelClientClause(raw.trim());
+    if (clause) {
+      clause.providers.forEach((provider) => providers.add(provider));
+      clause.harnesses.forEach((harness) => harnesses.add(harness));
+      continue;
     }
+    clientHarnesses(raw)?.forEach((harness) => harnesses.add(harness));
+    const provider = modelProvider(raw);
+    if (provider) providers.add(provider);
   }
-  if (!explicit && !providers.size && !harnesses.size) return null;
   // A named model takes precedence over a single-vendor client inference in this marker.
   if (!providers.size) for (const harness of harnesses) {
     const provider = SINGLE_VENDOR.get(harness);
     if (provider) providers.add(provider);
   }
-  return { providers: providers.size ? [...providers] : [UNKNOWN_MODEL], harnesses: harnesses.size ? [...harnesses] : [UNKNOWN_HARNESS] };
+  return { providers: providers.size ? [...providers] : [UNKNOWN_MODEL], harnesses: harnesses.size ? [...harnesses] : [UNKNOWN_HARNESS],
+    namedClient: harnesses.size > 0 || fields.some((field) => field.trim() && !modelProvider(field)) };
+}
+function modelClientClause(value: string): Marker | null {
+  const clause = /^(.+?)\s+(?:via|using|in|through)\s+(.+)$/i.exec(value);
+  if (clause) {
+    const provider = modelProvider(clause[1]);
+    if (!provider) return null;
+    const clients = clientHarnesses(clause[2]);
+    // Unknown clients may be named, but arbitrary prose after a client is not a label.
+    if (!clients && !/^(?:the )?[a-z][a-z0-9-]*(?: (?:harness|agent))?$/i.test(clause[2])) return null;
+    return { providers: [provider], harnesses: clients ?? [UNKNOWN_HARNESS], namedClient: true };
+  }
+  return null;
+}
+/** Generated lines must consist entirely of a label and an optional bounded client clause. */
+function generatedMarker(subject: string): Marker | null {
+  const value = subject.trim().replace(/[.!?]$/, "");
+  const clause = modelClientClause(value);
+  if (clause) return clause;
+  if (!modelProvider(value) && !clientHarnesses(value)) return null;
+  return disclosureMarker([value]);
 }
 /** Ignore fenced examples, block quotes and indented code before anchored marker matching. */
 function prose(text: string): string {
@@ -157,6 +205,8 @@ function authorMarker(author: { name: string | null; email: string | null; user:
   const bot = BOT_HARNESSES.get(author.user?.login.toLowerCase() ?? "");
   if (bot) return harnessMarker(bot);
   const email = author.email?.trim().toLowerCase() ?? "";
+  const vendor = VENDOR_EMAILS.get(email);
+  if (vendor) return { providers: [vendor.provider], harnesses: [], inferredHarness: vendor.harness };
   const known = AGENT_EMAILS.get(email);
   if (known) return harnessMarker(known);
   const githubEmail = /^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/.exec(email);
@@ -169,21 +219,28 @@ const emptyEvidence = (): Record<EvidenceKind, number> => ({ bodyFooter: 0, comm
 export function agentEvidence(pr: InsightPullRequest): { providers: DimensionEvidence; harnesses: DimensionEvidence } {
   const sets = () => ({ bodyFooter: new Set<string>(), commitTrailer: new Set<string>(), commitAuthor: new Set<string>(), prAuthor: new Set<string>() });
   const providers = sets(), harnesses = sets();
+  const inferred: { kind: EvidenceKind; marker: Marker }[] = [];
+  let namedClient = false;
   const add = (kind: EvidenceKind, marker: Marker | null) => {
+    if (marker?.inferredHarness) {
+      inferred.push({ kind, marker });
+      return;
+    }
+    if (marker?.namedClient) namedClient = true;
     marker?.providers.forEach((name) => providers[kind].add(name));
     marker?.harnesses.forEach((name) => harnesses[kind].add(name));
   };
   for (const line of prose(pr.body).split("\n")) {
     // Keep link labels, discard targets before parsing any disclosure fields.
-    const marker = line.replace(/\[([^\]\n]+)\]\([^\n)]*\)/g, "[$1]")
+    const marker = line.replace(/\[([^\]\n]+)\]\([^\n)]*\)/g, "$1")
       .replace(/^\s*(?:[🤖✨]\s*)?/u, "");
     if (/^Written by an agent\s*\(/i.test(marker)) {
       for (const match of marker.matchAll(/\bby an agent\s*\(([^()\n]+)\)/gi)) {
-        add("bodyFooter", disclosureMarker(match[1].split(/[,;]/), true));
+        for (const group of match[1].split(";")) if (group.trim()) add("bodyFooter", disclosureMarker(group.split(",")));
       }
     } else {
-      const generated = /^(?:Generated|Created|Made) (?:with|by)\s+(?:\[([^\]]+)\]|([^\n]+))/i.exec(marker);
-      if (generated) add("bodyFooter", disclosureMarker([generated[1] ?? generated[2]], false));
+      const generated = /^(?:Generated|Created|Made) (?:with|by)\s+([^\n]+)$/i.exec(marker);
+      if (generated) add("bodyFooter", generatedMarker(generated[1]));
     }
   }
   const bot = BOT_HARNESSES.get(pr.author?.login.toLowerCase() ?? "");
@@ -195,6 +252,13 @@ export function agentEvidence(pr: InsightPullRequest): { providers: DimensionEvi
       if (identity) add("commitTrailer", authorMarker({ name: identity[1].trim(), email: identity[2], user: null }));
     }
     for (const author of commit.authors.nodes) add("commitAuthor", authorMarker(author));
+  }
+  // Vendor addresses establish providers. Infer their usual client only when no
+  // explicit client is named anywhere on the PR, independent of evidence order.
+  const explicitHarness = namedClient || Object.values(harnesses).some((names) => [...names].some((name) => name !== UNKNOWN_HARNESS));
+  for (const { kind, marker } of inferred) {
+    marker.providers.forEach((name) => providers[kind].add(name));
+    if (!explicitHarness) harnesses[kind].add(marker.inferredHarness!);
   }
   const lists = (dimension: ReturnType<typeof sets>) => Object.fromEntries(EVIDENCE_KINDS.map((kind) => [kind, [...dimension[kind]].sort()])) as DimensionEvidence;
   return { providers: lists(providers), harnesses: lists(harnesses) };

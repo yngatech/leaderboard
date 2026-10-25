@@ -3,7 +3,7 @@ import { fetchInsights } from "./insights-fetch.ts";
 import { EVIDENCE_KINDS, INTENTS, SIZE_BUCKETS, type PrInsights } from "./insights.ts";
 
 // Separate source namespace survives deploys. Include the roster so account changes invalidate it.
-const PREFIX = `https://ynga-git-board.internal/insights/v6/${encodeURIComponent(JSON.stringify(PEOPLE))}/`;
+const PREFIX = `https://ynga-git-board.internal/insights/v8/${encodeURIComponent(JSON.stringify(PEOPLE))}/`;
 const DAY_MS = 86400_000;
 export interface InsightsCache {
   match(key: Request): Promise<Response | undefined>;
