@@ -208,10 +208,10 @@ export function yearPageHtml(options: YearPageOptions): string {
         ${busiestLine}${legendHtml(live)}
       </div>
     </section>
-    ${options.achievements ? recentAchievementsHtml(options.achievements) : null}
     ${sectionRuleHtml("the board")}
     <main class="flex flex-col gap-[0.6rem]">${rowsHtml}</main>
-    ${missingNoteHtml(options.missing)}${chartHtml}`;
+    ${missingNoteHtml(options.missing)}${chartHtml}
+    ${options.achievements ? recentAchievementsHtml(options.achievements) : null}`;
 
   return pageHtml({
     chrome,

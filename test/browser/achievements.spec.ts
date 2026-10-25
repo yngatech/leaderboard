@@ -36,7 +36,7 @@ test("year and account filters submit and show the selected person's calculated 
   await expect(page.getByRole("link", { name: "Explore the contribution board" })).toHaveAttribute("href", "/2025");
 });
 
-test("older entries and date provenance are accessible without scripting", async ({ page, context }) => {
+test("older entries are accessible without scripting", async ({ page, context }) => {
   const event = achievementEvents.find((item) => item.kind === "yearly-milestone")!;
   await serveFixture(context, achievementsPageHtml({
     chrome, year: 2026, today: achievementToday, logins, generatedAt: null,
@@ -46,8 +46,6 @@ test("older entries and date provenance are accessible without scripting", async
   await expect(page.locator('[data-achievement="example/20"]')).toBeHidden();
   await page.getByText("Show 1 earlier achievement", { exact: true }).click();
   await expect(page.locator('[data-achievement="example/20"]')).toBeVisible();
-  await page.getByText("About these dates", { exact: true }).click();
-  await expect(page.getByText(/Late pushes or changes to GitHub history/)).toBeVisible();
 });
 
 test("compact profile entries retain shared records and link to the person's history", async ({ page, context }) => {

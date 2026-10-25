@@ -82,15 +82,6 @@ function achievementRows(events: readonly Achievement[], today: string): Html {
   })}</ol>`;
 }
 
-function dateNote(): Html {
-  return html`<details class="mt-2 max-w-[72ch] text-[0.65rem] leading-[1.7] text-dimmer">
-    <summary class="w-fit cursor-pointer decoration-dotted underline-offset-4 hover:text-accent">About these dates</summary>
-    <p class="mt-2">Achievements are calculated from contribution dates using today's milestone ladders.
-      Late pushes or changes to GitHub history can revise them. Records restart each year and use
-      final daily counts; today's counts can still rise. Board achievements compare the current roster.</p>
-  </details>`;
-}
-
 export interface RecentAchievementsOptions {
   events: readonly Achievement[];
   year: number;
@@ -109,7 +100,7 @@ export function recentAchievementsHtml(options: RecentAchievementsOptions): Html
         href="${achievementsHref(options.year, options.login)}">View achievements</a>
     </div>
     ${events.length > 0 ? achievementRows(events, options.today) : html`<p class="py-5 text-[0.75rem] leading-[1.7] text-dim">No achievements in ${options.year}.</p>`}
-    ${availabilityNote(options)}${dateNote()}
+    ${availabilityNote(options)}
   </section>`;
 }
 
@@ -152,7 +143,7 @@ export function achievementsPageHtml(options: AchievementsPageOptions): string {
       ${events.length > 20 ? html`<details class="mt-3">
         <summary class="w-fit cursor-pointer rounded-lg border border-line px-4 py-2.5 text-[0.72rem] text-dim hover:text-accent">Show ${formatNumber(events.length - 20)} earlier ${events.length === 21 ? "achievement" : "achievements"}</summary>
         ${achievementRows(events.slice(20), today)}</details>` : null}
-      ${availabilityNote(options)}${dateNote()}
+      ${availabilityNote(options)}
     </section>
   </main>`;
   return pageHtml({
