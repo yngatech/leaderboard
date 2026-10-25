@@ -388,7 +388,7 @@ export interface UserPageOptions {
 
 /** A snippet to paste, and the button that appears once there is a clipboard. */
 function snippetRowHtml(id: string, snippet: string): Html {
-  return html`<div class="${CARD_LEDGER} mt-[1.1rem] flex items-start gap-3 max-phone:flex-wrap">
+  return html`<div class="min-w-0 flex items-start gap-3 rounded-xl border border-line-soft bg-panel p-4 max-phone:flex-wrap">
     <code
       class="min-w-0 flex-1 overflow-x-auto font-mono text-[0.72rem] leading-[1.7] break-all whitespace-pre-wrap text-secondary"
       id="${id}"
@@ -429,27 +429,31 @@ function cardSectionHtml(login: string): Html {
     `[![current streak](${SITE}${streakPath})](${SITE}/u/${login})`,
   ].join(" ");
 
-  return html`<section class="mt-[clamp(2rem,5vw,3rem)] ${CARD} border-line-soft [animation-delay:180ms]"
+  return html`<section class="animate-rise [animation-delay:180ms]"
     aria-labelledby="card-heading"
   >
-    <div class="px-[1.3rem] pt-[1.25rem] max-phone:px-4">
-      <h2 class="${LEDGER_TERM}" id="card-heading">for your readme</h2>
+    <h2 class="${SECTION_RULE}" id="card-heading">
+      <span>for your readme</span><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span>
+    </h2>
+    <div class="grid grid-cols-2 items-center gap-6 max-phone:grid-cols-1">
       <img
-        class="mt-[0.9rem] block h-auto w-full max-w-[416px] rounded-[12px]"
+        class="block h-auto w-full max-w-[416px] rounded-[12px]"
         src="${cardPath}"
         alt="The ${login} contribution card"
         width="416"
         height="252"
       />
+      ${snippetRowHtml("card-snippet", cardSnippet)}
     </div>
-    ${snippetRowHtml("card-snippet", cardSnippet)}
-    <div class="mt-[1.4rem] flex flex-wrap items-center gap-2 px-[1.3rem] max-phone:px-4">
-      <img class="block h-5 w-auto" src="${yearPath}" alt="Contributions this year" height="20" />
-      <img class="block h-5 w-auto" src="${allPath}" alt="Contributions all time" height="20" />
-      <img class="block h-5 w-auto" src="${streakPath}" alt="Current streak" height="20" />
+    <div class="mt-6 grid grid-cols-2 items-center gap-6 border-t border-line-soft pt-6 max-phone:grid-cols-1">
+      <div class="flex flex-wrap items-center gap-2">
+        <img class="block h-5 w-auto" src="${yearPath}" alt="Contributions this year" height="20" />
+        <img class="block h-5 w-auto" src="${allPath}" alt="Contributions all time" height="20" />
+        <img class="block h-5 w-auto" src="${streakPath}" alt="Current streak" height="20" />
+      </div>
+      ${snippetRowHtml("badge-snippet", badgeSnippet)}
     </div>
-    ${snippetRowHtml("badge-snippet", badgeSnippet)}
-    <p class="px-[1.3rem] pt-[1.1rem] pb-[1.15rem] text-[0.72rem] leading-[1.6] text-muted max-phone:px-4">
+    <p class="mt-4 text-[0.72rem] leading-[1.6] text-muted">
       GitHub proxies and caches README images, so a card or badge there can lag this page by a few
       hours.
     </p>
