@@ -1941,7 +1941,7 @@ export class LeaderState extends DurableObject<Env> {
 
   async refreshInsights(): Promise<void> {
     // GitHub fetches open the input gate. Serialize refreshes independently of notifications.
-    return this.insightsUpdates.run(() => refreshInsights(this.ctx.storage, this.env.GITHUB_TOKEN));
+    return this.insightsUpdates.run(async () => refreshInsights(this.ctx.storage, await githubToken(this.env)));
   }
 }
 

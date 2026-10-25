@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import test from "node:test";
+import { githubToken } from "../worker/github-app.ts";
 import { INSIGHTS_SCHEMA_VERSION, storedInsights, refreshInsights, type InsightsStorage } from "../worker/insights-storage.ts";
 import { aggregateInsights } from "../worker/insights.ts";
 import { SerialTaskQueue } from "../worker/notifications.ts";
@@ -20,13 +21,13 @@ const userInsights = handler("userInsights", {
 });
 const methods = ["insightsSummary", "refreshInsights"].map((name) =>
   source.match(new RegExp(`  async ${name}\\([\\s\\S]*?\\n  \\}`))![0]).join("\n");
-const TestLeaderState = new Function("storedInsights", "refreshInsights", "SerialTaskQueue", `return (${stripTypeScriptTypes(`
+const TestLeaderState = new Function("storedInsights", "refreshInsights", "SerialTaskQueue", "githubToken", `return (${stripTypeScriptTypes(`
   class TestLeaderState {
     private readonly insightsUpdates = new SerialTaskQueue();
     constructor(ctx, env) { this.ctx = ctx; this.env = env; }
     ${methods}
   }
-`)})`)(storedInsights, refreshInsights, SerialTaskQueue);
+`)})`)(storedInsights, refreshInsights, SerialTaskQueue, githubToken);
 
 test("DO errors, missing and malformed summaries preserve the profile and return pending JSON", async (t) => {
   t.mock.method(console, "error", () => {});
