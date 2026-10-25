@@ -92,6 +92,7 @@ export async function setup(
   options: {
     credentials?: false | "app" | "personal" | "partial-app";
     webhook?: boolean;
+    discordUserIds?: string;
     localPreview?: boolean;
     history?: number;
     workerPreview?: boolean;
@@ -130,6 +131,7 @@ export async function setup(
     bindings: {
       ...credentials,
       ...(options.webhook !== false ? { DISCORD_WEBHOOK_URL: "https://discord.example/webhook" } : {}),
+      ...(options.discordUserIds !== undefined ? { DISCORD_USER_IDS: options.discordUserIds } : {}),
     },
     outboundService: async (request: MiniflareRequest) => {
       const url = new URL(request.url);

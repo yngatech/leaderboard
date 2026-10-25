@@ -184,7 +184,7 @@ npx wrangler secret put DISCORD_WEBHOOK_URL
 npm run deploy
 ```
 
-Cake-day posts can ping the person instead of linking their GitHub login. Store
+Notifications can ping people instead of linking their GitHub logins. Store
 the optional GitHub-login-to-Discord-ID map as another encrypted secret; keep
 the IDs quoted so JSON does not round them:
 
@@ -193,12 +193,14 @@ npx wrangler secret put DISCORD_USER_IDS
 # Enter, for example: {"example-user":"123456789012345678"}
 ```
 
-GitHub logins are matched case-insensitively. Cake-day posts use a Discord
-Components V2 card so a mapped mention can stay beside the message and avatar
-while still notifying the person. An account missing from the map keeps its
-GitHub profile link. Invalid IDs and duplicate logins are logged separately and
-skipped without disabling valid mappings, and no other notification is allowed
-to ping Discord users.
+GitHub logins are matched case-insensitively. Mapped mentions use Discord
+Components V2 cards so they stay beside the message and avatar while still
+notifying the people named. Position changes mention both mapped accounts;
+board-wide milestones do not ping anyone. An account missing from the map keeps
+its GitHub profile link, including when the secret is absent or malformed.
+Entries with invalid IDs or duplicate logins are skipped without disabling
+valid mappings; warnings identify the affected GitHub logins. Discord IDs are
+never logged or included in public pages or API responses.
 
 ## Caching
 
