@@ -114,7 +114,7 @@ A Durable Object alarm checks the current-year board every 10 minutes. When a ne
 account takes the lead, someone overtakes another account for any board
 position, someone sets a daily contributions PB, someone beats the board's peak
 daily contributions record, or a user or the board reaches a contribution
-milestone, it posts a rich message to Discord. Daily records and milestones
+milestone, it posts a rich message to Discord. Daily records and yearly milestones
 restart each calendar year. Durable state prevents duplicate messages; the
 first run records a baseline without sending one.
 
@@ -123,6 +123,18 @@ steps including 750, 1,500, 2,000, 13,000, and 14,000. Goal displays and Discord
 use the same ladder. When expanding the ladder, pending notifications from
 the original ladder finish first, then newly introduced rungs already passed
 are recorded silently.
+
+Personal all-time milestones use a separate ladder from 100 through 100,000,
+including 12,500, 17,500, 20,000, and 22,500. Account pages show the next
+lifetime target and the distance to it. Checks combine the cached finished-year
+archive with the freshly checked live year
+and wait when the archive is stale or incomplete. The first check and newly
+added accounts are seeded silently. Later crossings announce the highest new
+threshold once, even across year changes, total corrections, or an account
+leaving and rejoining the board. Each successful post is checkpointed so a
+failed webhook can retry without repeating earlier posts.
+Yearly and lifetime notifications are checked independently, so a failed post
+in one group does not prevent the other group's milestones from being sent.
 
 The first live-board read that reaches the Durable Object starts the alarm
 chain; request `/api/board` after deploying to start it once any cached response

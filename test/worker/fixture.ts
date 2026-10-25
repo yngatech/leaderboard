@@ -6,8 +6,9 @@ import { setTimeout } from "node:timers/promises";
 import type { TestContext } from "node:test";
 import { Log, LogLevel, Miniflare, type Request as MiniflareRequest } from "miniflare";
 import type { BoardSnapshot } from "../../worker/board-snapshot.ts";
+import { archiveCachePrefix } from "../../worker/cache-policy.ts";
 import { PEOPLE } from "../../worker/github.ts";
-import type { MilestoneState, StandingState } from "../../worker/notifications.ts";
+import type { AllTimeMilestoneState, MilestoneState, StandingState } from "../../worker/notifications.ts";
 
 const buildRoot = fileURLToPath(new URL("../../dist/leaderboard/", import.meta.url));
 const bundle = await readFile(`${buildRoot}index.js`, "utf8");
@@ -26,6 +27,7 @@ const appCredentials = {
 };
 const personalToken = "synthetic-personal-token";
 const installationToken = "synthetic-installation-token";
+const archiveKey = `${archiveCachePrefix("https://ynga-git-board.internal/board-md-src/archive/v3/", false, PEOPLE)}${year - 1}`;
 
 // Only this test subclass exposes storage controls; the real alarm and RPC
 // methods run unchanged in workerd against SQLite storage and fake upstreams.
@@ -50,6 +52,13 @@ export class TestLeaderState extends LeaderState {
     if (action === "/stop") await this.ctx.storage.deleteAlarm();
     if (action === "/snapshot") await this.boardSnapshot(new Date().getUTCFullYear());
     if (action === "/seed-milestones") await this.ctx.storage.put("milestones", await request.json());
+    if (action === "/stale-archive") {
+      const hit = await caches.default.match(${JSON.stringify(archiveKey)});
+      if (!hit) throw new Error("No archive to mark stale");
+      const headers = new Headers(hit.headers);
+      headers.set("X-Board-Stale", "1");
+      await caches.default.put(${JSON.stringify(archiveKey)}, new Response(hit.body, { headers }));
+    }
     return Response.json({
       completed: this.completed,
       active: this.active,
@@ -67,7 +76,12 @@ export interface State {
   active: number;
   maxActive: number;
   alarm: number | null;
-  values: { "board-snapshot"?: BoardSnapshot; leader?: StandingState; milestones?: MilestoneState } & Record<string, unknown>;
+  values: {
+    "board-snapshot"?: BoardSnapshot;
+    leader?: StandingState;
+    milestones?: MilestoneState;
+    "all-time-milestones"?: AllTimeMilestoneState;
+  } & Record<string, unknown>;
 }
 
 export async function setup(
@@ -76,9 +90,11 @@ export async function setup(
     credentials?: false | "app" | "personal" | "partial-app";
     webhook?: boolean;
     localPreview?: boolean;
+    history?: number;
   } = {},
 ) {
-  let mode: "ok" | "github-error" | "partial" | "discord-error" = "ok";
+  let mode: "ok" | "github-error" | "partial" | "discord-error" | "yearly-discord-error" |
+    "lifetime-discord-error" | "archive-error" | "archive-partial" = "ok";
   let leadingCount = 10;
   let queries = 0;
   let attempts = 0;
@@ -92,6 +108,8 @@ export async function setup(
     "partial-app": { GITHUB_TOKEN: personalToken, GITHUB_APP_ID: "12345" },
   }[options.credentials ?? "app"];
   const posts: unknown[] = [];
+  const discordFailure = (lifetime: boolean) => mode === "discord-error" ||
+    mode === (lifetime ? "lifetime-discord-error" : "yearly-discord-error");
   const mf = new Miniflare({
     name: "alarm-test",
     modulesRoot: buildRoot,
@@ -122,8 +140,12 @@ export async function setup(
       if (url.hostname === "discord.example") {
         attempts++;
         await discordPaused;
-        if (mode === "discord-error") return new Response("unavailable", { status: 503 });
-        posts.push(await request.json());
+        const payload = await request.json() as { embeds?: { title: string }[] };
+        const lifetime = payload.embeds?.[0]?.title === "All-time contribution milestone";
+        if (discordFailure(lifetime)) {
+          return new Response("unavailable", { status: 503 });
+        }
+        posts.push(payload);
         return new Response(null, { status: 204 });
       }
       if (url.href === "https://api.github.com/graphql") {
@@ -146,9 +168,19 @@ export async function setup(
       }
       assert.equal(url.hostname, "github.com");
       assert.match(url.pathname, /^\/users\/[^/]+\/contributions$/);
-      const count = url.pathname.includes(`/users/${logins[0]}/`) ? leadingCount : 10;
-      const date = `${url.searchParams.get("from")!.slice(0, 4)}-01-01`;
-      return new Response(`<h2 id="js-contribution-activity-description">${count} contributions in ${year}</h2>
+      const calendarYear = Number(url.searchParams.get("from")!.slice(0, 4));
+      const primary = url.pathname.includes(`/users/${logins[0]}/`);
+      if (primary && calendarYear < year && mode === "archive-partial") {
+        return new Response("not found", { status: 404 });
+      }
+      if (primary && calendarYear === year - 1 && mode === "archive-error") {
+        return new Response("unavailable", { status: 503 });
+      }
+      const count = calendarYear === year
+        ? primary ? leadingCount : 10
+        : primary && calendarYear === year - 1 ? options.history ?? 0 : 0;
+      const date = `${calendarYear}-01-01`;
+      return new Response(`<h2 id="js-contribution-activity-description">${count} contributions in ${calendarYear}</h2>
         <td data-date="${date}" data-level="1" id="contribution-day-component-0-0"></td>
         <tool-tip for="contribution-day-component-0-0">${count} contributions on January 1.</tool-tip>`);
     },

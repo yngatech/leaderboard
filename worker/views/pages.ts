@@ -28,6 +28,7 @@ import {
   type YearCell,
 } from "../../shared/board.ts";
 import { cakeDayYears, joinDay, yearsOnGitHub } from "../../shared/cakeday.ts";
+import { ALL_TIME_PERSONAL_MILESTONES, nextMilestone } from "../../shared/milestones.ts";
 import { formatDayShort, formatDayYear, formatNumber, formatOrdinal } from "../../shared/format.ts";
 import { html, type Html } from "../html.ts";
 import { cumulativeChartHtml } from "./chart.ts";
@@ -567,6 +568,7 @@ function identityCardHtml(options: IdentityCardOptions): Html {
           class="mt-[0.35rem] text-[0.62rem] tracking-[0.12em] text-dimmer uppercase"
           >${sinceCaption}</span
         >
+        ${allTimeMilestoneHtml(user.total)}
       </div>
     </div>
     <div class="border-t border-line-soft ${CARD_WELL}">${yearStripSvg(cells, {
@@ -579,6 +581,22 @@ function identityCardHtml(options: IdentityCardOptions): Html {
   })}</div>
     ${ledgerHtml(careerFields)}
   </section>`;
+}
+
+function allTimeMilestoneHtml(total: number): Html | null {
+  const target = nextMilestone(total, ALL_TIME_PERSONAL_MILESTONES);
+  if (target === null) return null;
+  return html`<div
+    class="mt-3 w-[14rem] max-w-full text-left"
+    role="group"
+    aria-label="All-time contribution goal"
+  >
+    <p class="text-[0.7rem] leading-[1.6] text-dimmer">
+      <strong class="font-medium text-ink tabular-nums">${formatNumber(target - total)}</strong>
+      to <strong class="font-medium text-ink tabular-nums">${formatNumber(target)}</strong> all time
+    </p>
+    <div class="mt-2">${goalRailHtml(total, target)}</div>
+  </div>`;
 }
 
 function milestoneHtml(boardUser: BoardUser, goals: UserGoals | null): Html | null {

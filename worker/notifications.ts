@@ -1,11 +1,13 @@
 import { cakeDayYears } from "../shared/cakeday.ts";
 import {
+  ALL_TIME_PERSONAL_MILESTONES,
   BOARD_MILESTONES,
   LEGACY_PERSONAL_MILESTONES,
   milestoneFor,
   PERSONAL_MILESTONES,
 } from "../shared/milestones.ts";
-import type { Board, BoardUser } from "../shared/types";
+import type { AllTimeUser, Board, BoardUser } from "../shared/types";
+import type { ArchiveTotals } from "./github.ts";
 
 export interface DailyPeak {
   login: string;
@@ -662,6 +664,84 @@ export async function deliverMilestones(
   }
   if (progress.personalMilestonesVersion !== plan.nextState.personalMilestonesVersion) {
     await save(milestoneStateSnapshot(plan.nextState));
+  }
+}
+
+export type AllTimeMilestoneUser = Pick<AllTimeUser, "login" | "url" | "avatarUrl" | "total">;
+
+/** Lifetime high-water marks survive year rollovers, corrections and removals. */
+export interface AllTimeMilestoneState {
+  personalMilestones: Record<string, number>;
+}
+
+export interface AllTimeMilestonePlan {
+  stateBeforeEvents: AllTimeMilestoneState;
+  needsPreparation: boolean;
+  events: PersonalMilestoneEvent[];
+  nextState: AllTimeMilestoneState;
+}
+
+/** Use the site's archive plus this exact live board; incomplete history waits. */
+export function allTimeMilestoneUsers(
+  year: number,
+  board: Board,
+  archive: ArchiveTotals,
+): AllTimeMilestoneUser[] | null {
+  if (archive.lastYear !== year - 1 || !shouldUpdateNotifications(archive.missing)) return null;
+  const archived = new Map(archive.users.map((user) => [user.login, user]));
+  const users: AllTimeMilestoneUser[] = [];
+  for (const user of board) {
+    const history = archived.get(user.login);
+    if (!history) return null;
+    users.push({
+      login: user.login,
+      url: user.url,
+      avatarUrl: user.avatarUrl,
+      total: Object.values(history.byYear).reduce((sum, total) => sum + total, user.totalContributions),
+    });
+  }
+  return users;
+}
+
+function allTimeMilestoneStateSnapshot(state: AllTimeMilestoneState): AllTimeMilestoneState {
+  return { personalMilestones: { ...state.personalMilestones } };
+}
+
+/** Seed new accounts silently, then announce only their highest new threshold. */
+export function planAllTimeMilestones(
+  users: readonly AllTimeMilestoneUser[],
+  previous?: AllTimeMilestoneState,
+): AllTimeMilestonePlan {
+  const stateBeforeEvents = allTimeMilestoneStateSnapshot(previous ?? { personalMilestones: {} });
+  let needsPreparation = false;
+  const events: PersonalMilestoneEvent[] = [];
+  for (const user of users) {
+    const threshold = milestoneFor(user.total, ALL_TIME_PERSONAL_MILESTONES);
+    if (!Object.hasOwn(stateBeforeEvents.personalMilestones, user.login)) {
+      stateBeforeEvents.personalMilestones[user.login] = threshold;
+      needsPreparation = true;
+    } else if (threshold > stateBeforeEvents.personalMilestones[user.login]) {
+      events.push({ login: user.login, url: user.url, avatarUrl: user.avatarUrl, threshold });
+    }
+  }
+
+  const nextState = allTimeMilestoneStateSnapshot(stateBeforeEvents);
+  for (const event of events) nextState.personalMilestones[event.login] = event.threshold;
+  return { stateBeforeEvents, needsPreparation, events, nextState };
+}
+
+/** Checkpoint each successful post so a later webhook failure retries only that post. */
+export async function deliverAllTimeMilestones(
+  plan: AllTimeMilestonePlan,
+  notify: (event: PersonalMilestoneEvent) => Promise<void>,
+  save: (state: AllTimeMilestoneState) => Promise<void>,
+): Promise<void> {
+  const progress = allTimeMilestoneStateSnapshot(plan.stateBeforeEvents);
+  if (plan.needsPreparation) await save(allTimeMilestoneStateSnapshot(progress));
+  for (const event of plan.events) {
+    await notify(event);
+    progress.personalMilestones[event.login] = event.threshold;
+    await save(allTimeMilestoneStateSnapshot(progress));
   }
 }
 
