@@ -122,7 +122,7 @@ export function breakdownHtml(data: ContributionBreakdown): Html {
         </div>`)}
       </dl>
       <h4 class="${LEDGER_TERM} mt-[22px] mb-2.5">top repositories</h4>
-      ${repositoriesHtml(data, 5)}` : html`<p class="mt-4 text-muted">No public contributions to break down this year.</p>`}
+      ${repositoriesHtml(data, 5)}` : html`<p class="mt-4 text-muted">No public contributions this year.</p>`}
   </section>`;
 }
 
