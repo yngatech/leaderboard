@@ -1,8 +1,7 @@
 import type { ContributionBreakdown, ContributionKind } from "../../shared/types.ts";
-import { formatAgo, formatDayLong, formatNumber } from "../../shared/format.ts";
+import { formatDayLong, formatNumber } from "../../shared/format.ts";
 import { html, type Html } from "../html.ts";
 import { CARD, CARD_LEDGER, LEDGER_TERM, LEDGER_VALUE } from "./card-styles.ts";
-import { COUNTING_RULES_URL } from "./layout.ts";
 
 const LABELS: Record<ContributionKind, string> = {
   commits: "commits",
@@ -123,8 +122,7 @@ export function breakdownHtml(data: ContributionBreakdown): Html {
         </div>`)}
       </dl>
       <h4 class="${LEDGER_TERM} mt-[22px] mb-2.5">top repositories</h4>
-      ${repositoriesHtml(data, 5)}` : null}
-    <p class="mt-[18px] border-t border-line-soft pt-3 text-[0.72rem] text-muted">Broken down <time datetime="${data.generatedAt}" data-ago>${formatAgo(data.generatedAt)}</time>; newer contributions count as not itemised until it refreshes. Numbers as GitHub reports them, which can differ from its <a class="text-secondary underline hover:text-accent" href="${COUNTING_RULES_URL}" target="_blank" rel="noreferrer noopener">counting rules ↗</a></p>
+      ${repositoriesHtml(data, 5)}` : html`<p class="mt-4 text-muted">No public contributions this year.</p>`}
   </section>`;
 }
 
