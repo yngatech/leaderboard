@@ -53,66 +53,105 @@ export interface PageOptions {
  * toolbar along the bottom and two stacked bars read as clutter. The page
  * scrolls underneath, so it stays one tap away from anywhere.
  *
- * The capsule, its labels and its thumb are separate view-transition layers,
- * so a page load can reshape the glass, swap the labels and slide the thumb
- * across rather than cross-fading one flattened picture of the whole control.
+ * The glass, the thumb and every label are separate view-transition layers, so
+ * changing view reshapes the glass and carries each label to its new place. A
+ * label is named for what it points at, which is how "← 2024" on one page
+ * becomes the selected "2024" on the next.
  */
 const NAV_CAPSULE =
   "glass [view-transition-name:nav-capsule] fixed top-4 right-[max(clamp(1.1rem,4vw,2.5rem),calc((100%-1180px)/2+clamp(1.1rem,4vw,2.5rem)))] z-40 rounded-full p-1 max-phone:top-auto max-phone:right-auto max-phone:bottom-[calc(0.9rem+env(safe-area-inset-bottom))] max-phone:left-1/2 max-phone:ios:top-[calc(0.6rem+env(safe-area-inset-top))] max-phone:ios:bottom-auto max-phone:-translate-x-1/2";
-const NAV_LABELS = "flex items-center gap-0.5 [view-transition-name:nav-labels]";
+const NAV_LABELS = "flex items-center gap-0.5";
 const NAV_SEGMENT =
   "flex h-9 items-center rounded-full px-3.5 text-body font-medium whitespace-nowrap text-secondary no-underline transition-colors duration-200 hover:bg-glass-thumb hover:text-ink max-phone:px-3";
 const NAV_CURRENT = "relative isolate flex h-9 items-center px-4 type-rank whitespace-nowrap text-ink";
 const NAV_THUMB =
   "glass-thumb [view-transition-name:nav-thumb] absolute inset-0 -z-10 rounded-full";
 
-function navCurrentHtml(label: string | number): Html {
-  return html`<span class="${NAV_CURRENT}" aria-current="page"
-    ><span class="${NAV_THUMB}"></span>${label}</span
-  >`;
+type View = NonNullable<PageOptions["nav"]>;
+
+/** One label in the capsule: the current view, or a link to another. */
+interface NavSegment {
+  /** Names the label's view-transition layer: the year it shows, or "all". */
+  key: number | "all";
+  label: string;
+  /** The end a label arrives from or leaves by when the next view lacks it. */
+  side?: "prev" | "next";
+  link?: { href: string; ariaLabel?: string; view: View };
 }
 
+function navSegments(nav: View, thisYear: number): NavSegment[] {
+  const thisYearLink = (label: string): NavSegment => ({
+    key: thisYear,
+    label,
+    side: "prev",
+    link: { href: "/", ariaLabel: `Show ${thisYear}`, view: { kind: "year", year: thisYear } },
+  });
+  const allLink: NavSegment = {
+    key: "all",
+    label: "all time",
+    link: { href: "/all", view: { kind: "all" } },
+  };
+
+  if (nav.kind === "all") {
+    return [thisYearLink(`← ${thisYear}`), { key: "all", label: "all time" }];
+  }
+  if (nav.kind === "user" || nav.kind === "achievements") {
+    return [thisYearLink("← board"), allLink];
+  }
+
+  const yearLink = (year: number, label: string, side: "prev" | "next"): NavSegment => ({
+    key: year,
+    label,
+    side,
+    link: {
+      href: hrefForYear(year, thisYear),
+      ariaLabel: `Show ${year}`,
+      view: { kind: "year", year },
+    },
+  });
+  const segments: NavSegment[] = [];
+  if (nav.year - 1 >= MIN_PAGE_YEAR) segments.push(yearLink(nav.year - 1, `← ${nav.year - 1}`, "prev"));
+  segments.push({ key: nav.year, label: String(nav.year) });
+  if (nav.year + 1 <= thisYear) segments.push(yearLink(nav.year + 1, `${nav.year + 1} →`, "next"));
+  segments.push(allLink);
+  return segments;
+}
+
+function navSegmentsHtml(segments: NavSegment[]): Html[] {
+  return segments.map(({ key, label, side, link }) => {
+    const layer = `view-transition-name:nav-${key};view-transition-class:nav-segment${side ? ` nav-${side}` : ""}`;
+    if (!link) {
+      return html`<span class="${NAV_CURRENT}" style="${layer}" aria-current="page"
+        ><span class="${NAV_THUMB}"></span>${label}</span
+      >`;
+    }
+    const ariaLabel = link.ariaLabel ? html` aria-label="${link.ariaLabel}"` : null;
+    return html`<a class="${NAV_SEGMENT}" style="${layer}" href="${link.href}"${ariaLabel}
+      >${label}</a
+    >`;
+  });
+}
+
+/**
+ * The capsule, along with how it will look from each view it links to, so the
+ * enhancement script can move it the moment one is chosen, ahead of a page that
+ * may take a while to load, without re-deriving any routing of its own.
+ */
 function navHtml(options: PageOptions): Html | null {
   const nav = options.nav;
   if (nav === null) return null;
   const { thisYear } = options.chrome;
-
-  let items: Html;
-  if (nav.kind === "all") {
-    items = html`<a class="${NAV_SEGMENT}" href="/" aria-label="Show ${thisYear}"
-        >← ${thisYear}</a
-      >${navCurrentHtml("all time")}`;
-  } else if (nav.kind === "user" || nav.kind === "achievements") {
-    items = html`<a class="${NAV_SEGMENT}" href="/" aria-label="Show ${thisYear}">← board</a
-      ><a class="${NAV_SEGMENT}" href="/all">all time</a>`;
-  } else {
-    const previous =
-      nav.year - 1 >= MIN_PAGE_YEAR
-        ? html`<a
-            class="${NAV_SEGMENT}"
-            href="${hrefForYear(nav.year - 1, thisYear)}"
-            aria-label="Show ${nav.year - 1}"
-            >← ${nav.year - 1}</a
-          >`
-        : null;
-    const next =
-      nav.year + 1 <= thisYear
-        ? html`<a
-            class="${NAV_SEGMENT}"
-            href="${hrefForYear(nav.year + 1, thisYear)}"
-            aria-label="Show ${nav.year + 1}"
-            >${nav.year + 1} →</a
-          >`
-        : null;
-    items = html`${previous}${navCurrentHtml(nav.year)}${next}<a
-        class="${NAV_SEGMENT}"
-        href="/all"
-        >all time</a
-      >`;
-  }
+  const segments = navSegments(nav, thisYear);
 
   return html`<nav class="${NAV_CAPSULE}" aria-label="View">
-    <div class="${NAV_LABELS}">${items}</div>
+    <div class="${NAV_LABELS}" data-nav-labels>${navSegmentsHtml(segments)}</div>
+    ${segments.map(({ link }) =>
+      link
+        ? html`<template data-nav-to="${link.href}"
+            >${navSegmentsHtml(navSegments(link.view, thisYear))}</template
+          >`
+        : null,
+    )}
   </nav>`;
 }
 
@@ -275,12 +314,17 @@ function footerHtml(options: PageOptions): Html {
 }
 
 /**
- * Slide the capsule across real page loads, for readers who have not asked for
- * less motion; browsers without cross-document view transitions just get the
- * next page. Inline because Chromium decides on arrival: from the external
- * stylesheet it missed the opt-in on about half of navigations.
+ * What a page needs before its stylesheet arrives. Inline because Chromium
+ * decides on arrival whether to run a view transition: from the external
+ * stylesheet it missed the opt-in on about half of navigations. The transition
+ * slides the capsule across real page loads, for readers who have not asked for
+ * less motion; browsers without it just get the next page. The background is
+ * \`--color-void\`, so nothing paints a bright canvas ahead of the stylesheet.
  */
-const VIEW_TRANSITION_OPT_IN = html`<style>
+const HEAD_STYLE = html`<style>
+  html {
+    background: #0a0c18;
+  }
   @media (prefers-reduced-motion: no-preference) {
     @view-transition {
       navigation: auto;
@@ -310,7 +354,7 @@ export function pageHtml(options: PageOptions): string {
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&amp;family=DM+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
-    ${VIEW_TRANSITION_OPT_IN}
+    ${HEAD_STYLE}
     <link rel="stylesheet" href="${chrome.stylesUrl}">
     <script type="module" src="${chrome.enhanceUrl}" defer></script>
   </head>
