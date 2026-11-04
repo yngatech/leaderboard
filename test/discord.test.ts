@@ -5,6 +5,7 @@ import {
   cakeDayNotification,
   discordUserReference,
   discordWebhookPayload,
+  discordWebhookRequest,
   discordWebhookUrl,
   mentionDiscordUsers,
   parseDiscordUserIds,
@@ -71,6 +72,24 @@ test("embed profile links use mapped mentions while unmapped and unrelated links
   assert.equal(discordWebhookUrl("https://discord.example/webhook", mapped).search, "?with_components=true");
   assert.equal(mentionDiscordUsers(notification, new Map()), notification);
   assert.equal(mentionDiscordUsers(mapped, users), mapped);
+});
+
+test("a webhook request maps mentions before choosing its URL and body", () => {
+  const notification: DiscordNotification = { kind: "embed", embed: {
+    title: "Position change", url: "https://board.example/2026", color: 0x58a6ff,
+    description: "[example-user](https://github.com/example-user) moved up.",
+    thumbnail: { url: EVENT.avatarUrl },
+  } };
+  const users = parseDiscordUserIds('{"example-user":"123456789012345678"}').users;
+
+  const mapped = discordWebhookRequest("https://discord.example/webhook?wait=true", notification, users);
+  assert.equal(mapped.url.search, "?wait=true&with_components=true");
+  assert.ok("components" in mapped.body && !("embeds" in mapped.body));
+  assert.deepEqual(mapped.body.allowed_mentions, { parse: [], users: ["123456789012345678"] });
+
+  const plain = discordWebhookRequest("https://discord.example/webhook?wait=true", notification, new Map());
+  assert.equal(plain.url.search, "?wait=true");
+  assert.deepEqual(plain.body, discordWebhookPayload(notification));
 });
 
 test("a mapped cake-day sentence is a pingable text component inside the card", () => {

@@ -2,7 +2,7 @@
  * Renders every Discord notification from fixed synthetic events, and compares
  * two renderings as Markdown for the pull request preview comment.
  *
- *   node scripts/discord-preview.ts render <root>            JSON map of id to webhook payload
+ *   node scripts/discord-preview.ts render <root>            JSON map of id to webhook request
  *   node scripts/discord-preview.ts compare <base> <head>    Markdown comparing two renderings
  *
  * `render` imports the worker modules under `<root>`, so this branch's
@@ -22,10 +22,17 @@ interface Modules {
   embeds: typeof Embeds;
 }
 
-type Rendered = { payload: unknown } | { error: string };
+/** The webhook query string and JSON body a notification posts. */
+interface Request {
+  query: string;
+  payload: unknown;
+}
+
+type Rendered = Request | { error: string };
 type Rendering = Record<string, Rendered> | null;
 
 const YEAR = 2026;
+const WEBHOOK_URL = "https://discord.example/api/webhooks/0/preview";
 const MAPPED_USER_ID = "100000000000000002";
 /** `example-two` is mapped to a Discord user, so its notifications become cards. */
 const USER_IDS: ReadonlyMap<string, string> = new Map([["example-two", MAPPED_USER_ID]]);
@@ -47,92 +54,110 @@ function peak({ login, url, avatarUrl }: StandingEntry, date: string, count: num
   return { login, url, avatarUrl, date, count };
 }
 
-const CATALOGUE: Record<string, (modules: Modules) => DiscordNotification> = {
-  "standing/leader": ({ embeds }) =>
-    embed(embeds.notificationEmbed(YEAR, { type: "leader", event: { leader: ONE } })),
-  "standing/leader-mapped": ({ embeds }) =>
-    embed(embeds.notificationEmbed(YEAR, { type: "leader", event: { leader: TWO } })),
-  "standing/overtake": ({ embeds }) =>
-    embed(embeds.notificationEmbed(YEAR, {
-      type: "overtake",
-      event: { position: 2, mover: THREE, displaced: ONE },
-    })),
-  "standing/overtake-mapped": ({ embeds }) =>
-    embed(embeds.notificationEmbed(YEAR, {
-      type: "overtake",
-      event: { position: 1, mover: TWO, displaced: ONE },
-    })),
-  "daily-record/personal-best": ({ embeds }) =>
-    embed(embeds.notificationEmbed(YEAR, {
+/*
+ * The catalogue is keyed by notification type, so adding a type without a
+ * sample fails typecheck. Each type maps sample ids to inputs; add more ids
+ * for variants such as a mapped Discord user.
+ */
+
+type Yearly = Embeds.YearlyNotification;
+
+/** One group per type `notificationEmbed` accepts. */
+const YEARLY: { [K in Yearly["type"]]: Record<string, Extract<Yearly, { type: K }>> } = {
+  leader: {
+    "standing/leader": { type: "leader", event: { leader: ONE } },
+    "standing/leader-mapped": { type: "leader", event: { leader: TWO } },
+  },
+  overtake: {
+    "standing/overtake": { type: "overtake", event: { position: 2, mover: THREE, displaced: ONE } },
+    "standing/overtake-mapped": { type: "overtake", event: { position: 1, mover: TWO, displaced: ONE } },
+  },
+  "personal-best": {
+    "daily-record/personal-best": {
       type: "personal-best",
       event: { ...peak(ONE, "2026-03-14", 1042), previousCount: 87 },
-    })),
-  "daily-record/personal-best-first": ({ embeds }) =>
-    embed(embeds.notificationEmbed(YEAR, {
+    },
+    "daily-record/personal-best-first": {
       type: "personal-best",
       event: { ...peak(THREE, "2026-01-02", 12), previousCount: 0 },
-    })),
-  "daily-record/personal-best-mapped": ({ embeds }) =>
-    embed(embeds.notificationEmbed(YEAR, {
+    },
+    "daily-record/personal-best-mapped": {
       type: "personal-best",
       event: { ...peak(TWO, "2026-03-14", 64), previousCount: 40 },
-    })),
-  "daily-record/board-record": ({ embeds }) =>
-    embed(embeds.notificationEmbed(YEAR, {
+    },
+  },
+  "board-record": {
+    "daily-record/board-record": {
       type: "board-record",
       event: { peak: peak(ONE, "2026-03-14", 1042), previousCount: 210 },
-    })),
-  "daily-record/board-record-first": ({ embeds }) =>
-    embed(embeds.notificationEmbed(YEAR, {
+    },
+    "daily-record/board-record-first": {
       type: "board-record",
       event: { peak: peak(THREE, "2026-01-02", 12), previousCount: 0 },
-    })),
-  "daily-record/personal-best-wrap-up": ({ embeds }) =>
-    embed(embeds.notificationEmbed(YEAR, {
+    },
+  },
+  "personal-best-wrap-up": {
+    "daily-record/personal-best-wrap-up": {
       type: "personal-best-wrap-up",
       event: { ...peak(ONE, "2026-03-14", 1100), announcedCount: 1042 },
-    })),
-  // A wrap-up for 31 December is posted in the new year.
-  "daily-record/personal-best-wrap-up-new-year": ({ embeds }) =>
-    embed(embeds.notificationEmbed(YEAR, {
+    },
+    // A wrap-up for 31 December is posted in the new year.
+    "daily-record/personal-best-wrap-up-new-year": {
       type: "personal-best-wrap-up",
       event: { ...peak(THREE, "2025-12-31", 75), announcedCount: 60 },
-    })),
-  "daily-record/board-record-wrap-up": ({ embeds }) =>
-    embed(embeds.notificationEmbed(YEAR, {
+    },
+  },
+  "board-record-wrap-up": {
+    "daily-record/board-record-wrap-up": {
       type: "board-record-wrap-up",
       event: { ...peak(ONE, "2026-03-14", 1100), announcedCount: 1042 },
-    })),
-  "daily-record/board-record-wrap-up-mapped": ({ embeds }) =>
-    embed(embeds.notificationEmbed(YEAR, {
+    },
+    "daily-record/board-record-wrap-up-mapped": {
       type: "board-record-wrap-up",
       event: { ...peak(TWO, "2026-03-15", 310), announcedCount: 260 },
-    })),
-  "milestone/personal": ({ embeds }) =>
-    embed(embeds.notificationEmbed(YEAR, {
-      type: "personal-milestone",
-      event: { ...ONE, threshold: 1000 },
-    })),
-  "milestone/personal-mapped": ({ embeds }) =>
-    embed(embeds.notificationEmbed(YEAR, {
-      type: "personal-milestone",
-      event: { ...TWO, threshold: 1000 },
-    })),
-  "milestone/board": ({ embeds }) =>
-    embed(embeds.notificationEmbed(YEAR, { type: "board-milestone", event: { threshold: 10000 } })),
-  "all-time-milestone/personal": ({ discord }) =>
-    discord.allTimeMilestoneNotification({ ...ONE, threshold: 5000 }),
-  "all-time-milestone/personal-mapped": ({ discord }) =>
-    discord.allTimeMilestoneNotification({ ...TWO, threshold: 5000 }),
-  "cake-day/unmapped": ({ discord }) =>
-    discord.cakeDayNotification({ ...ONE, createdAt: "2025-03-14T09:30:00Z", years: 1 }, USER_IDS),
-  "cake-day/mapped": ({ discord }) =>
-    discord.cakeDayNotification({ ...TWO, createdAt: "2016-03-14T09:30:00Z", years: 10 }, USER_IDS),
+    },
+  },
+  "personal-milestone": {
+    "milestone/personal": { type: "personal-milestone", event: { ...ONE, threshold: 1000 } },
+    "milestone/personal-mapped": { type: "personal-milestone", event: { ...TWO, threshold: 1000 } },
+  },
+  "board-milestone": {
+    "milestone/board": { type: "board-milestone", event: { threshold: 10000 } },
+  },
 };
 
-function embed(value: Discord.DiscordEmbed): DiscordNotification {
-  return { kind: "embed", embed: value };
-}
+type Builders = typeof Discord;
+type BuilderName = Extract<keyof Builders, `${string}Notification`>;
+
+/** One group per `*Notification` builder `worker/discord.ts` exports, as its arguments. */
+const BUILDERS: { [K in BuilderName]: Record<string, Parameters<Builders[K]>> } = {
+  allTimeMilestoneNotification: {
+    "all-time-milestone/personal": [{ ...ONE, threshold: 5000 }],
+    "all-time-milestone/personal-mapped": [{ ...TWO, threshold: 5000 }],
+  },
+  cakeDayNotification: {
+    "cake-day/unmapped": [{ ...ONE, createdAt: "2025-03-14T09:30:00Z", years: 1 }, USER_IDS],
+    "cake-day/mapped": [{ ...TWO, createdAt: "2016-03-14T09:30:00Z", years: 10 }, USER_IDS],
+  },
+};
+
+type Sample = (modules: Modules) => DiscordNotification;
+
+const CATALOGUE: [id: string, sample: Sample][] = [
+  ...Object.values(YEARLY).flatMap((group) =>
+    Object.entries(group).map(([id, notification]): [string, Sample] => [
+      id,
+      ({ embeds }) => ({ kind: "embed", embed: embeds.notificationEmbed(YEAR, notification) }),
+    ]),
+  ),
+  ...Object.entries(BUILDERS).flatMap(([name, group]) =>
+    Object.entries(group).map(([id, args]): [string, Sample] => [
+      id,
+      ({ discord }) =>
+        (discord[name as BuilderName] as (...args: unknown[]) => DiscordNotification)(...args),
+    ]),
+  ),
+];
 
 /** Recursively sorts keys, so only content changes show up as differences. */
 function stable(value: unknown): unknown {
@@ -153,11 +178,10 @@ async function render(root: string): Promise<Rendering> {
     discord: await import(pathToFileURL(resolve(root, "worker/discord.ts")).href),
   };
   const rendering: Record<string, Rendered> = {};
-  for (const [id, build] of Object.entries(CATALOGUE)) {
+  for (const [id, build] of CATALOGUE) {
     try {
-      // The same steps as `LeaderState.notify`, without the webhook request.
-      const notification = modules.discord.mentionDiscordUsers(build(modules), USER_IDS);
-      rendering[id] = { payload: stable(modules.discord.discordWebhookPayload(notification)) };
+      const { url, body } = modules.discord.discordWebhookRequest(WEBHOOK_URL, build(modules), USER_IDS);
+      rendering[id] = { query: url.search, payload: stable(body) };
     } catch (error) {
       rendering[id] = { error: error instanceof Error ? error.message : String(error) };
     }
@@ -205,7 +229,7 @@ function embedFields(embed: Discord.DiscordEmbed | undefined): [string, string][
 }
 
 /** The fields a Discord reader sees, the same whichever format carries them. */
-function readable(payload: unknown): Readable {
+function readable({ query, payload }: Request): Readable {
   const body = payload as {
     embeds?: Discord.DiscordEmbed[];
     components?: Discord.DiscordContainer[];
@@ -213,7 +237,7 @@ function readable(payload: unknown): Readable {
   };
   const container = body.components?.[0];
   const fields = container ? cardFields(container) : embedFields(body.embeds?.[0]);
-  fields.push(["Pings", body.allowed_mentions?.users?.join(", ") ?? ""]);
+  fields.push(["Pings", body.allowed_mentions?.users?.join(", ") ?? ""], ["Webhook query", query]);
   return { title: fields[1][1], fields };
 }
 
@@ -253,15 +277,15 @@ function lineDiff(before: string[], after: string[]): string[] {
   return lines;
 }
 
-function json(payload: unknown): string[] {
-  return JSON.stringify(payload, null, 2).split("\n");
+function json(request: Request): string[] {
+  return JSON.stringify(request, null, 2).split("\n");
 }
 
 function details(summary: string, body: string[]): string[] {
   return ["<details>", `<summary>${summary}</summary>`, "", ...body, "", "</details>", ""];
 }
 
-function changedSection(id: string, before: unknown, after: unknown): string[] {
+function changedSection(id: string, before: Request, after: Request): string[] {
   const was = readable(before);
   const now = readable(after);
   const rows = now.fields.flatMap(([label, value], index) => {
@@ -273,14 +297,14 @@ function changedSection(id: string, before: unknown, after: unknown): string[] {
     "",
     ...(rows.length
       ? ["| | Before | After |", "| --- | --- | --- |", ...rows]
-      : ["Only the raw payload changed."]),
+      : ["Only the raw request changed."]),
     "",
-    ...details("Payload diff", ["```diff", ...lineDiff(json(before), json(after)), "```"]),
+    ...details("Request diff", ["```diff", ...lineDiff(json(before), json(after)), "```"]),
   ];
 }
 
-function renderedSection(id: string, payload: unknown): string[] {
-  const { title, fields } = readable(payload);
+function renderedSection(id: string, request: Request): string[] {
+  const { title, fields } = readable(request);
   return [
     `### \`${id}\` · ${title}`,
     "",
@@ -288,7 +312,7 @@ function renderedSection(id: string, payload: unknown): string[] {
     "| --- | --- |",
     ...fields.map(([label, value]) => `| ${label} | ${cell(label, value)} |`),
     "",
-    ...details("Payload", ["```json", ...json(payload), "```"]),
+    ...details("Request", ["```json", ...json(request), "```"]),
   ];
 }
 
@@ -303,11 +327,11 @@ function compare(base: Rendering, head: Rendering): string {
     if ("error" in after) {
       failed.push(`- \`${id}\`: ${after.error.replaceAll("\n", " ")}`);
     } else if (!before || "error" in before) {
-      added.push(renderedSection(id, after.payload));
-    } else if (JSON.stringify(before.payload) === JSON.stringify(after.payload)) {
-      unchanged.push(`- \`${id}\` · ${readable(after.payload).title}`);
+      added.push(renderedSection(id, after));
+    } else if (JSON.stringify(before) === JSON.stringify(after)) {
+      unchanged.push(`- \`${id}\` · ${readable(after).title}`);
     } else {
-      changed.push(changedSection(id, before.payload, after.payload));
+      changed.push(changedSection(id, before, after));
     }
   }
   const removed = Object.keys(base ?? {}).filter((id) => !(id in head));

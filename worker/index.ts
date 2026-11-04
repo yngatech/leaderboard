@@ -27,9 +27,7 @@ import {
 import {
   allTimeMilestoneNotification,
   cakeDayNotification,
-  discordWebhookPayload,
-  discordWebhookUrl,
-  mentionDiscordUsers,
+  discordWebhookRequest,
   parseDiscordUserIds,
   type DiscordNotification,
 } from "./discord";
@@ -1745,12 +1743,15 @@ export class LeaderState extends DurableObject<Env> {
 
   private async notify(notification: DiscordNotification): Promise<void> {
     if (!this.env.DISCORD_WEBHOOK_URL) return;
-    notification = mentionDiscordUsers(notification, this.notificationUserIds());
-    const webhookUrl = discordWebhookUrl(this.env.DISCORD_WEBHOOK_URL, notification);
-    const response = await fetch(webhookUrl, {
+    const { url, body } = discordWebhookRequest(
+      this.env.DISCORD_WEBHOOK_URL,
+      notification,
+      this.notificationUserIds(),
+    );
+    const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(discordWebhookPayload(notification)),
+      body: JSON.stringify(body),
     });
     if (!response.ok) throw new Error(`Discord rejected the notification (${response.status}).`);
   }

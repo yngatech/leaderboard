@@ -186,6 +186,25 @@ export function mentionDiscordUsers(
     : notification;
 }
 
+export interface DiscordWebhookRequest {
+  url: URL;
+  body: ReturnType<typeof discordWebhookPayload>;
+}
+
+/**
+ * Everything a notification posts: mapped users become mentions, which decides
+ * the format, then the URL and body follow. `scripts/discord-preview.ts`
+ * renders through this too, so keep any change to what is posted in here.
+ */
+export function discordWebhookRequest(
+  webhookUrl: string,
+  notification: DiscordNotification,
+  userIds: ReadonlyMap<string, string>,
+): DiscordWebhookRequest {
+  const mapped = mentionDiscordUsers(notification, userIds);
+  return { url: discordWebhookUrl(webhookUrl, mapped), body: discordWebhookPayload(mapped) };
+}
+
 export function cakeDayNotification(
   event: CakeDayEvent,
   userIds: ReadonlyMap<string, string>,
