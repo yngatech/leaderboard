@@ -30,7 +30,6 @@ import {
   cakeDayNotification,
   discordWebhookPayload,
   discordWebhookUrl,
-  profileUrl,
   mentionDiscordUsers,
   parseDiscordUserIds,
   type DiscordEmbed,
@@ -1680,7 +1679,7 @@ function personalBestEmbed(event: PersonalBestEvent): DiscordEmbed {
       : "";
   return {
     title: "New daily contributions PB",
-    url: profileUrl(event.login, event.date),
+    url: `${SITE}/u/${encodeURIComponent(event.login)}?day=${event.date}`,
     description: `[${event.login}](${event.url}) recorded **${count(event.count)} contributions** on **${formatDayYear(event.date)}**${improvement}.`,
     color: 0x58a6ff,
     thumbnail: { url: event.avatarUrl },
@@ -1694,7 +1693,7 @@ function boardRecordEmbed(event: BoardRecordEvent): DiscordEmbed {
       : "";
   return {
     title: "New peak daily contributions record",
-    url: profileUrl(event.peak.login, event.peak.date),
+    url: `${SITE}/u/${encodeURIComponent(event.peak.login)}?day=${event.peak.date}`,
     description: `[${event.peak.login}](${event.peak.url}) set a new board record with **${count(event.peak.count)} contributions** on **${formatDayYear(event.peak.date)}**${previous}.`,
     color: 0xf0b429,
     thumbnail: { url: event.peak.avatarUrl },
@@ -1704,7 +1703,7 @@ function boardRecordEmbed(event: BoardRecordEvent): DiscordEmbed {
 function personalBestWrapUpEmbed(event: DailyWrapUpEvent): DiscordEmbed {
   return {
     title: "Daily contributions PB wrap-up",
-    url: profileUrl(event.login, event.date),
+    url: `${SITE}/u/${encodeURIComponent(event.login)}?day=${event.date}`,
     description: `[${event.login}](${event.url}) finished **${formatDayYear(event.date)}** on **${count(event.count)} contributions**, up from **${count(event.announcedCount)}** when the PB was announced.`,
     color: 0x58a6ff,
     thumbnail: { url: event.avatarUrl },
@@ -1714,7 +1713,7 @@ function personalBestWrapUpEmbed(event: DailyWrapUpEvent): DiscordEmbed {
 function boardRecordWrapUpEmbed(event: DailyWrapUpEvent): DiscordEmbed {
   return {
     title: "Peak daily contributions record wrap-up",
-    url: profileUrl(event.login, event.date),
+    url: `${SITE}/u/${encodeURIComponent(event.login)}?day=${event.date}`,
     description: `[${event.login}](${event.url}) finished **${formatDayYear(event.date)}** on **${count(event.count)} contributions**, a board record up from **${count(event.announcedCount)}** when it was last announced.`,
     color: 0xf0b429,
     thumbnail: { url: event.avatarUrl },
@@ -1737,7 +1736,7 @@ function dailyRecordEmbed(notification: DailyRecordNotification): DiscordEmbed {
 function personalMilestoneEmbed(year: number, event: PersonalMilestoneEvent): DiscordEmbed {
   return {
     title: "Contribution milestone",
-    url: profileUrl(event.login),
+    url: `${SITE}/u/${encodeURIComponent(event.login)}`,
     description: `[${event.login}](${event.url}) has passed **${count(event.threshold)} contributions** in ${year}.`,
     color: 0x58a6ff,
     thumbnail: { url: event.avatarUrl },
