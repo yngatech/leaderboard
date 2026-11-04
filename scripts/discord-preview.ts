@@ -1,165 +1,91 @@
 /**
- * Renders every Discord notification from fixed synthetic events, and compares
- * two renderings as Markdown for the pull request preview comment.
+ * Renders one sample of every Discord notification type, and compares two
+ * renderings as images of mock Discord messages for the pull request comment.
  *
- *   node scripts/discord-preview.ts render <root>            JSON map of id to webhook request
- *   node scripts/discord-preview.ts compare <base> <head>    Markdown comparing two renderings
+ *   node scripts/discord-preview.ts render <root>
+ *     Prints a JSON map of type to the webhook requests it posts.
+ *   node scripts/discord-preview.ts compare <base.json> <head.json> <outdir> <url-prefix>
+ *     Writes <outdir>/comment.md and a PNG per image it shows, linked as <url-prefix><name>.
  *
- * `render` imports the worker modules under `<root>`, so this branch's
- * catalogue can render another checkout's source. It prints `null` when that
- * checkout predates `worker/notification-embeds.ts`.
+ * `render` imports the worker modules under `<root>`, so this branch's samples
+ * can render another checkout's source. It prints `null` when that checkout
+ * predates `worker/notification-embeds.ts`. `compare` draws both sides with
+ * this branch's mock, so only the notification data differs.
  */
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { chromium } from "@playwright/test";
 import type * as Discord from "../worker/discord.ts";
 import type * as Embeds from "../worker/notification-embeds.ts";
 import type { DiscordNotification } from "../worker/discord.ts";
-import type { StandingEntry } from "../worker/notifications.ts";
 
-interface Modules {
-  discord: typeof Discord;
-  embeds: typeof Embeds;
-}
-
-/** The webhook query string and JSON body a notification posts. */
 interface Request {
   query: string;
   payload: unknown;
 }
 
-type Rendered = Request | { error: string };
+/** Each type renders unmapped, then with everyone mapped to Discord if that differs. */
+type Rendered = Request[] | { error: string };
 type Rendering = Record<string, Rendered> | null;
 
 const YEAR = 2026;
+const DAY = "2026-03-14";
 const WEBHOOK_URL = "https://discord.example/api/webhooks/0/preview";
-const MAPPED_USER_ID = "100000000000000002";
-/** `example-two` is mapped to a Discord user, so its notifications become cards. */
-const USER_IDS: ReadonlyMap<string, string> = new Map([["example-two", MAPPED_USER_ID]]);
 
-function person(login: string, totalContributions = 0): StandingEntry {
-  return {
-    login,
-    url: `https://github.com/${login}`,
-    avatarUrl: `https://avatars.example/${login}`,
-    totalContributions,
-  };
+function person(login: string, totalContributions: number) {
+  return { login, url: `https://github.com/${login}`, avatarUrl: `https://avatars.example/${login}`, totalContributions };
 }
 
-const ONE = person("example-one", 1234);
-const TWO = person("example-two", 1180);
+const ONE = person("example-one", 1250);
+const TWO = person("example-two", 1234);
 const THREE = person("example-three", 987);
-
-function peak({ login, url, avatarUrl }: StandingEntry, date: string, count: number) {
-  return { login, url, avatarUrl, date, count };
-}
-
-/*
- * The catalogue is keyed by notification type, so adding a type without a
- * sample fails typecheck. Each type maps sample ids to inputs; add more ids
- * for variants such as a mapped Discord user.
- */
+const DISCORD_IDS = new Map([ONE, TWO, THREE].map(({ login }, index) => [login, `10000000000000000${index + 1}`]));
+const LOGINS = new Map([...DISCORD_IDS].map(([login, id]) => [id, login]));
 
 type Yearly = Embeds.YearlyNotification;
-
-/** One group per type `notificationEmbed` accepts. */
-const YEARLY: { [K in Yearly["type"]]: Record<string, Extract<Yearly, { type: K }>> } = {
-  leader: {
-    "standing/leader": { type: "leader", event: { leader: ONE } },
-    "standing/leader-mapped": { type: "leader", event: { leader: TWO } },
-  },
-  overtake: {
-    "standing/overtake": { type: "overtake", event: { position: 2, mover: THREE, displaced: ONE } },
-    "standing/overtake-mapped": { type: "overtake", event: { position: 1, mover: TWO, displaced: ONE } },
-  },
-  "personal-best": {
-    "daily-record/personal-best": {
-      type: "personal-best",
-      event: { ...peak(ONE, "2026-03-14", 1042), previousCount: 87 },
-    },
-    "daily-record/personal-best-first": {
-      type: "personal-best",
-      event: { ...peak(THREE, "2026-01-02", 12), previousCount: 0 },
-    },
-    "daily-record/personal-best-mapped": {
-      type: "personal-best",
-      event: { ...peak(TWO, "2026-03-14", 64), previousCount: 40 },
-    },
-  },
-  "board-record": {
-    "daily-record/board-record": {
-      type: "board-record",
-      event: { peak: peak(ONE, "2026-03-14", 1042), previousCount: 210 },
-    },
-    "daily-record/board-record-first": {
-      type: "board-record",
-      event: { peak: peak(THREE, "2026-01-02", 12), previousCount: 0 },
-    },
-  },
-  "personal-best-wrap-up": {
-    "daily-record/personal-best-wrap-up": {
-      type: "personal-best-wrap-up",
-      event: { ...peak(ONE, "2026-03-14", 1100), announcedCount: 1042 },
-    },
-    // A wrap-up for 31 December is posted in the new year.
-    "daily-record/personal-best-wrap-up-new-year": {
-      type: "personal-best-wrap-up",
-      event: { ...peak(THREE, "2025-12-31", 75), announcedCount: 60 },
-    },
-  },
-  "board-record-wrap-up": {
-    "daily-record/board-record-wrap-up": {
-      type: "board-record-wrap-up",
-      event: { ...peak(ONE, "2026-03-14", 1100), announcedCount: 1042 },
-    },
-    "daily-record/board-record-wrap-up-mapped": {
-      type: "board-record-wrap-up",
-      event: { ...peak(TWO, "2026-03-15", 310), announcedCount: 260 },
-    },
-  },
-  "personal-milestone": {
-    "milestone/personal": { type: "personal-milestone", event: { ...ONE, threshold: 1000 } },
-    "milestone/personal-mapped": { type: "personal-milestone", event: { ...TWO, threshold: 1000 } },
-  },
-  "board-milestone": {
-    "milestone/board": { type: "board-milestone", event: { threshold: 10000 } },
-  },
-};
-
 type Builders = typeof Discord;
 type BuilderName = Extract<keyof Builders, `${string}Notification`>;
 
-/** One group per `*Notification` builder `worker/discord.ts` exports, as its arguments. */
-const BUILDERS: { [K in BuilderName]: Record<string, Parameters<Builders[K]>> } = {
-  allTimeMilestoneNotification: {
-    "all-time-milestone/personal": [{ ...ONE, threshold: 5000 }],
-    "all-time-milestone/personal-mapped": [{ ...TWO, threshold: 5000 }],
-  },
-  cakeDayNotification: {
-    "cake-day/unmapped": [{ ...ONE, createdAt: "2025-03-14T09:30:00Z", years: 1 }, USER_IDS],
-    "cake-day/mapped": [{ ...TWO, createdAt: "2016-03-14T09:30:00Z", years: 10 }, USER_IDS],
-  },
+/**
+ * One sample per notification type: every type `notificationEmbed` accepts and
+ * every `*Notification` builder `worker/discord.ts` exports. A new type fails
+ * typecheck until it has one.
+ */
+const SAMPLES: { [K in Yearly["type"]]: Extract<Yearly, { type: K }>["event"] } & {
+  [K in BuilderName]: Parameters<Builders[K]>[0];
+} = {
+  leader: { leader: ONE },
+  overtake: { position: 2, mover: TWO, displaced: THREE },
+  "personal-best": { ...ONE, date: DAY, count: 1042, previousCount: 87 },
+  "board-record": { peak: { ...ONE, date: DAY, count: 1042 }, previousCount: 210 },
+  "personal-best-wrap-up": { ...ONE, date: DAY, count: 1100, announcedCount: 1042 },
+  "board-record-wrap-up": { ...ONE, date: DAY, count: 1100, announcedCount: 1042 },
+  "personal-milestone": { ...ONE, threshold: 1000 },
+  "board-milestone": { threshold: 10000 },
+  allTimeMilestoneNotification: { ...ONE, threshold: 5000 },
+  cakeDayNotification: { ...ONE, createdAt: "2016-03-14T09:30:00Z", years: 10 },
 };
 
-type Sample = (modules: Modules) => DiscordNotification;
+/** `cakeDayNotification` is shown as `cake-day`. */
+function sampleId(key: string): string {
+  return key.replace(/Notification$/, "").replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+}
 
-const CATALOGUE: [id: string, sample: Sample][] = [
-  ...Object.values(YEARLY).flatMap((group) =>
-    Object.entries(group).map(([id, notification]): [string, Sample] => [
-      id,
-      ({ embeds }) => ({ kind: "embed", embed: embeds.notificationEmbed(YEAR, notification) }),
-    ]),
-  ),
-  ...Object.entries(BUILDERS).flatMap(([name, group]) =>
-    Object.entries(group).map(([id, args]): [string, Sample] => [
-      id,
-      ({ discord }) =>
-        (discord[name as BuilderName] as (...args: unknown[]) => DiscordNotification)(...args),
-    ]),
-  ),
-];
+function notification(
+  { discord, embeds }: { discord: Builders; embeds: typeof Embeds },
+  key: string,
+  event: unknown,
+  userIds: ReadonlyMap<string, string>,
+): DiscordNotification {
+  if (key.endsWith("Notification")) {
+    const build = discord[key as BuilderName] as (event: unknown, userIds: ReadonlyMap<string, string>) => DiscordNotification;
+    return build(event, userIds);
+  }
+  return { kind: "embed", embed: embeds.notificationEmbed(YEAR, { type: key, event } as Yearly) };
+}
 
-/** Recursively sorts keys, so only content changes show up as differences. */
+/** Recursively sorts keys, so only content changes count as differences. */
 function stable(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stable);
   if (value && typeof value === "object") {
@@ -173,153 +99,135 @@ function stable(value: unknown): unknown {
 async function render(root: string): Promise<Rendering> {
   const embedsPath = resolve(root, "worker/notification-embeds.ts");
   if (!existsSync(embedsPath)) return null;
-  const modules: Modules = {
+  const modules = {
     embeds: await import(pathToFileURL(embedsPath).href),
     discord: await import(pathToFileURL(resolve(root, "worker/discord.ts")).href),
   };
   const rendering: Record<string, Rendered> = {};
-  for (const [id, build] of CATALOGUE) {
+  for (const [key, event] of Object.entries(SAMPLES)) {
     try {
-      const { url, body } = modules.discord.discordWebhookRequest(WEBHOOK_URL, build(modules), USER_IDS);
-      rendering[id] = { query: url.search, payload: stable(body) };
+      const requests = [new Map<string, string>(), DISCORD_IDS].map((userIds) => {
+        const { url, body } = modules.discord.discordWebhookRequest(
+          WEBHOOK_URL,
+          notification(modules, key, event, userIds),
+          userIds,
+        );
+        return stable({ query: url.search, payload: body }) as Request;
+      });
+      const same = JSON.stringify(requests[0]) === JSON.stringify(requests[1]);
+      rendering[sampleId(key)] = same ? requests.slice(0, 1) : requests;
     } catch (error) {
-      rendering[id] = { error: error instanceof Error ? error.message : String(error) };
+      rendering[sampleId(key)] = { error: error instanceof Error ? error.message : String(error) };
     }
   }
   return rendering;
 }
 
 /* ---------------------------------------------------------------------------
+   Mock Discord messages
+--------------------------------------------------------------------------- */
+
+interface Payload {
+  embeds?: Discord.DiscordEmbed[];
+  components?: Discord.DiscordContainer[];
+}
+
+function escape(text: string): string {
+  return text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+}
+
+/** The Markdown subset notifications use: a heading, bold, links and mentions. */
+function markdown(text: string): string {
+  return escape(text)
+    .replace(/^## (.*)$/gm, "<h2>$1</h2>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "<a>$1</a>")
+    .replace(/&lt;@(\d+)&gt;/g, (_, id: string) => `<span class="mention">@${LOGINS.get(id) ?? id}</span>`)
+    .replace(/<\/h2>\n/g, "</h2>")
+    .replaceAll("\n", "<br>");
+}
+
+/** Avatars are drawn from the login so screenshots need no network. */
+function thumbnail(url: string | undefined): string {
+  if (!url) return "";
+  const login = url.split("/").pop() ?? "";
+  const initials = (login.split("-").pop() ?? "").slice(0, 2).toUpperCase();
+  const hue = [...login].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 360;
+  return `<div class="thumb" style="background:hsl(${hue} 45% 45%)">${escape(initials)}</div>`;
+}
+
+function hex(color: number): string {
+  return `#${color.toString(16).padStart(6, "0")}`;
+}
+
+function message({ payload }: Request, label: string): string {
+  const { embeds, components } = payload as Payload;
+  let content = "";
+  let link = "";
+  if (components?.[0]) {
+    const container = components[0];
+    const section = container.components[0];
+    const text = section.components.map((part) => part.content).join("\n");
+    link = /^## \[.*?\]\((.*?)\)/.exec(text)?.[1] ?? "";
+    content = `<div class="card" style="border-left-color:${hex(container.accent_color)}">
+      <div class="text">${markdown(text)}</div>${thumbnail(section.accessory.media.url)}</div>`;
+  } else if (embeds?.[0]) {
+    const embed = embeds[0];
+    link = embed.url;
+    content = `<div class="embed" style="border-left-color:${hex(embed.color)}">
+      <div class="text"><a class="title">${escape(embed.title)}</a>
+      ${embed.description ? `<div>${markdown(embed.description)}</div>` : ""}</div>${thumbnail(embed.thumbnail?.url)}</div>`;
+  }
+  return `${label ? `<div class="label">${label}</div>` : ""}
+  <div class="message"><div class="avatar">gb</div><div class="body">
+    <div class="header"><span class="name">git board</span><span class="app">APP</span><span class="time">Today at 09:30</span></div>
+    ${content}
+    <div class="caption">Title link: ${escape(link) || "none"}</div>
+  </div></div>`;
+}
+
+function mockHtml(requests: Request[]): string {
+  const labels = requests.length > 1 ? ["Unmapped GitHub login", "Login mapped to a Discord user"] : [""];
+  return `<!doctype html><meta charset="utf-8"><style>
+  body { margin: 0; background: #313338; color: #dbdee1; font: 15px/1.375 "Noto Sans", "Helvetica Neue", Arial, sans-serif; }
+  main { width: 540px; padding: 12px 16px; }
+  .label { color: #949ba4; font-size: 12px; text-transform: uppercase; letter-spacing: .02em; margin: 8px 0 4px; }
+  .message { display: flex; gap: 16px; padding: 4px 0 8px; }
+  .avatar { flex: none; width: 40px; height: 40px; border-radius: 50%; background: #5865f2; color: #fff; display: grid; place-items: center; font-weight: 600; }
+  .body { min-width: 0; flex: 1; }
+  .name { color: #f2f3f5; font-weight: 500; }
+  .app { background: #5865f2; color: #fff; font-size: 10px; font-weight: 600; border-radius: 3px; padding: 1px 4px; margin: 0 6px; vertical-align: 1px; }
+  .time { color: #949ba4; font-size: 12px; }
+  .embed, .card { display: flex; gap: 16px; margin-top: 4px; background: #2b2d31; border-left: 4px solid; border-radius: 4px; padding: 8px 16px 16px 12px; font-size: 14px; }
+  .card { border: 1px solid #3f4147; border-left: 4px solid; border-radius: 8px; padding: 16px; }
+  .text { flex: 1; min-width: 0; }
+  .title { display: block; font-weight: 600; margin: 8px 0; }
+  a { color: #00a8fc; }
+  h2 { font-size: 20px; margin: 0 0 8px; color: #f2f3f5; }
+  strong { color: #f2f3f5; }
+  .mention { background: rgb(88 101 242 / .3); color: #c9cdfb; border-radius: 3px; padding: 0 2px; font-weight: 500; }
+  .thumb { flex: none; width: 80px; height: 80px; border-radius: 4px; margin-top: 8px; color: #fff; font-size: 26px; font-weight: 700; display: grid; place-items: center; }
+  .caption { color: #949ba4; font: 12px/1.4 ui-monospace, "DejaVu Sans Mono", monospace; margin-top: 6px; word-break: break-all; }
+  </style><main>${requests.map((request, index) => message(request, labels[index])).join("")}</main>`;
+}
+
+/* ---------------------------------------------------------------------------
    Comparison
 --------------------------------------------------------------------------- */
 
-interface Readable {
-  title: string;
-  fields: [label: string, value: string][];
-}
-
-function colour(value: number | undefined): string {
-  return value === undefined ? "" : `#${value.toString(16).padStart(6, "0")}`;
-}
-
-function cardFields(container: Discord.DiscordContainer): [string, string][] {
-  const section = container.components[0];
-  const content = section?.components.map((text) => text.content).join("\n") ?? "";
-  const match = /^## \[(.*)\]\((.*)\)\n([\s\S]*)$/.exec(content);
-  const [title, url, description] = match ? match.slice(1) : ["", "", content];
-  return [
-    ["Format", "Components card"],
-    ["Title", title],
-    ["Title link", url],
-    ["Description", description],
-    ["Colour", colour(container.accent_color)],
-    ["Thumbnail", section?.accessory.media.url ?? ""],
-  ];
-}
-
-function embedFields(embed: Discord.DiscordEmbed | undefined): [string, string][] {
-  return [
-    ["Format", "Embed"],
-    ["Title", embed?.title ?? ""],
-    ["Title link", embed?.url ?? ""],
-    ["Description", embed?.description ?? ""],
-    ["Colour", colour(embed?.color)],
-    ["Thumbnail", embed?.thumbnail?.url ?? ""],
-  ];
-}
-
-/** The fields a Discord reader sees, the same whichever format carries them. */
-function readable({ query, payload }: Request): Readable {
-  const body = payload as {
-    embeds?: Discord.DiscordEmbed[];
-    components?: Discord.DiscordContainer[];
-    allowed_mentions?: { users?: string[] };
-  };
-  const container = body.components?.[0];
-  const fields = container ? cardFields(container) : embedFields(body.embeds?.[0]);
-  fields.push(["Pings", body.allowed_mentions?.users?.join(", ") ?? ""], ["Webhook query", query]);
-  return { title: fields[1][1], fields };
-}
-
-function cell(label: string, value: string): string {
-  if (!value) return "—";
-  if (label === "Description" || label === "Title" || label === "Format") {
-    return value.replaceAll("<", "&lt;").replaceAll("|", "\\|").replaceAll("\n", "<br>");
+async function compare(base: Rendering, head: Rendering, outdir: string, urlPrefix: string): Promise<string> {
+  if (!head) return "## Discord notification preview\n\nThe notification preview could not render this branch.\n";
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ deviceScaleFactor: 2 });
+  async function image(side: "before" | "after", id: string, requests: Request[]): Promise<string> {
+    const name = `${side}-${id}.png`;
+    await page.setContent(mockHtml(requests));
+    await page.locator("main").screenshot({ path: join(outdir, basename(urlPrefix + name)) });
+    return `<img alt="${id} ${side}" src="${urlPrefix}${name}" width="420">`;
   }
-  return `\`${value}\``;
-}
 
-/** A full-context line diff; payloads are a few dozen lines. */
-function lineDiff(before: string[], after: string[]): string[] {
-  const lengths = Array.from({ length: before.length + 1 }, () =>
-    Array.from({ length: after.length + 1 }, () => 0),
-  );
-  for (let i = before.length - 1; i >= 0; i--) {
-    for (let j = after.length - 1; j >= 0; j--) {
-      lengths[i][j] = before[i] === after[j]
-        ? lengths[i + 1][j + 1] + 1
-        : Math.max(lengths[i + 1][j], lengths[i][j + 1]);
-    }
-  }
-  const lines: string[] = [];
-  let i = 0;
-  let j = 0;
-  while (i < before.length || j < after.length) {
-    if (i < before.length && j < after.length && before[i] === after[j]) {
-      lines.push(`  ${before[i++]}`);
-      j++;
-    } else if (j < after.length && (i === before.length || lengths[i][j + 1] > lengths[i + 1][j])) {
-      lines.push(`+ ${after[j++]}`);
-    } else {
-      lines.push(`- ${before[i++]}`);
-    }
-  }
-  return lines;
-}
-
-function json(request: Request): string[] {
-  return JSON.stringify(request, null, 2).split("\n");
-}
-
-function details(summary: string, body: string[]): string[] {
-  return ["<details>", `<summary>${summary}</summary>`, "", ...body, "", "</details>", ""];
-}
-
-function changedSection(id: string, before: Request, after: Request): string[] {
-  const was = readable(before);
-  const now = readable(after);
-  const rows = now.fields.flatMap(([label, value], index) => {
-    const previous = was.fields[index]?.[1] ?? "";
-    return previous === value ? [] : [`| ${label} | ${cell(label, previous)} | ${cell(label, value)} |`];
-  });
-  return [
-    `### \`${id}\` · ${now.title}`,
-    "",
-    ...(rows.length
-      ? ["| | Before | After |", "| --- | --- | --- |", ...rows]
-      : ["Only the raw request changed."]),
-    "",
-    ...details("Request diff", ["```diff", ...lineDiff(json(before), json(after)), "```"]),
-  ];
-}
-
-function renderedSection(id: string, request: Request): string[] {
-  const { title, fields } = readable(request);
-  return [
-    `### \`${id}\` · ${title}`,
-    "",
-    "| | |",
-    "| --- | --- |",
-    ...fields.map(([label, value]) => `| ${label} | ${cell(label, value)} |`),
-    "",
-    ...details("Request", ["```json", ...json(request), "```"]),
-  ];
-}
-
-function compare(base: Rendering, head: Rendering): string {
-  if (!head) return "The notification preview could not render this branch.\n";
-  const changed: string[][] = [];
-  const added: string[][] = [];
+  const changed: string[] = [];
+  const added: string[] = [];
   const failed: string[] = [];
   const unchanged: string[] = [];
   for (const [id, after] of Object.entries(head)) {
@@ -327,50 +235,63 @@ function compare(base: Rendering, head: Rendering): string {
     if ("error" in after) {
       failed.push(`- \`${id}\`: ${after.error.replaceAll("\n", " ")}`);
     } else if (!before || "error" in before) {
-      added.push(renderedSection(id, after));
+      added.push(`#### \`${id}\``, "", await image("after", id, after), "");
     } else if (JSON.stringify(before) === JSON.stringify(after)) {
-      unchanged.push(`- \`${id}\` · ${readable(after).title}`);
+      unchanged.push(`#### \`${id}\``, "", await image("after", id, after), "");
     } else {
-      changed.push(changedSection(id, before, after));
+      changed.push(
+        `### \`${id}\``, "",
+        "| Before | After |", "| --- | --- |",
+        `| ${await image("before", id, before)} | ${await image("after", id, after)} |`, "",
+      );
     }
   }
-  const removed = Object.keys(base ?? {}).filter((id) => !(id in head));
-  const total = Object.keys(head).length;
+  const removed: string[] = [];
+  for (const [id, before] of Object.entries(base ?? {})) {
+    if (!(id in head) && !("error" in before)) {
+      removed.push(`#### \`${id}\``, "", await image("before", id, before), "");
+    }
+  }
+  await browser.close();
 
+  const count = (lines: string[]) => lines.filter((line) => line.startsWith("#")).length;
+  const details = (summary: string, body: string[]) =>
+    body.length ? ["<details>", `<summary>${summary}</summary>`, "", ...body, "</details>", ""] : [];
   const lines = ["## Discord notification preview", ""];
   if (!base) {
     lines.push(
       "The base branch has no `worker/notification-embeds.ts`, so there is nothing to compare against yet.",
       "",
-      ...details(`${added.length} notifications as rendered by this branch`, added.flat()),
+      ...details(`${count(added)} notifications as rendered by this branch`, added),
     );
   } else {
     const summary = [
-      changed.length ? `**${changed.length === 1 ? "1 notification" : `${changed.length} notifications`} changed**` : "",
-      added.length ? `${added.length} new` : "",
-      failed.length ? `${failed.length} failed to render` : "",
-      removed.length ? `${removed.length} removed from the catalogue` : "",
-    ].filter(Boolean);
+      [count(changed), "**{} changed**"],
+      [count(added), "{} added"],
+      [count(removed), "{} removed"],
+      [failed.length, "{} failed to render"],
+    ].flatMap(([total, text]) => (total ? [String(text).replace("{}", String(total))] : []));
     lines.push(
-      summary.length ? `${summary.join(", ")} out of ${total}.` : `No notification changed (${total} rendered).`,
+      summary.length ? `${summary.join(", ")} out of ${Object.keys(head).length}.` : "No notification changed.",
       "",
-      ...changed.flat(),
-      ...(added.length ? ["## New notifications", "", ...added.flat()] : []),
+      ...changed,
+      ...(added.length ? ["### Added", "", ...added] : []),
+      ...(removed.length ? ["### Removed", "", ...removed] : []),
+      ...details(`${count(unchanged)} unchanged`, unchanged),
     );
   }
-  if (failed.length) lines.push("## Failed to render", "", ...failed, "");
-  if (removed.length) lines.push("## Removed", "", ...removed.map((id) => `- \`${id}\``), "");
-  if (unchanged.length) lines.push(...details(`${unchanged.length} unchanged notifications`, unchanged));
+  if (failed.length) lines.push("### Failed to render", "", ...failed, "");
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
 const [command, ...args] = process.argv.slice(2);
 if (command === "render" && args.length === 1) {
   process.stdout.write(`${JSON.stringify(await render(args[0]), null, 2)}\n`);
-} else if (command === "compare" && args.length === 2) {
-  const [base, head] = args.map((path) => JSON.parse(readFileSync(path, "utf8")) as Rendering);
-  process.stdout.write(compare(base, head));
+} else if (command === "compare" && args.length === 4) {
+  const [basePath, headPath, outdir, urlPrefix] = args;
+  const [base, head] = [basePath, headPath].map((path) => JSON.parse(readFileSync(path, "utf8")) as Rendering);
+  writeFileSync(join(outdir, "comment.md"), await compare(base, head, outdir, urlPrefix));
 } else {
-  console.error("usage: discord-preview.ts render <root> | compare <base.json> <head.json>");
+  console.error("usage: discord-preview.ts render <root> | compare <base.json> <head.json> <outdir> <url-prefix>");
   process.exit(2);
 }

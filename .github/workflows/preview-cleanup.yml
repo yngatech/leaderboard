@@ -28,3 +28,16 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PREVIEW_API_TOKEN }}
           PREVIEW_NAME: ${{ github.event.pull_request.head.ref }}
         run: npm run delete:preview -- --name "$PREVIEW_NAME" --skip-confirmation
+
+  discord-preview:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Delete the Discord preview images
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: discord-preview-pr-${{ github.event.pull_request.number }}
+        run: gh release delete "$TAG" --cleanup-tag --yes || true
