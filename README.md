@@ -270,7 +270,7 @@ Summaries have no automatic expiry and are available across Cloudflare locations
 ## Development
 
 ```sh
-npm install
+./scripts/setup.sh   # pinned Node, npm ci, Playwright Chromium, .dev.vars in a worktree
 npm run dev          # vite on :5173, the real Worker in workerd
 ```
 
@@ -283,7 +283,6 @@ in the Worker: fingerprinted assets in production, plain module URLs in dev.
 ```sh
 npm run typecheck
 npm test             # fast unit and renderer tests
-npx playwright install chromium # once per machine
 npm run test:e2e     # progressive-enhancement browser tests
 npm run test:e2e:ui  # interactive runner, opened in T3 Preview
 npm run test:worker  # build both alarm modes and run integration tests in workerd
@@ -295,6 +294,17 @@ npm run deploy       # typecheck, build, wrangler deploy
 `vite build` writes the client to `dist/client` and the Worker plus a generated
 `wrangler.json` to `dist/leaderboard`; `wrangler deploy` picks that up on its
 own, so `wrangler.jsonc` at the root stays the file you edit.
+
+### Toolchain
+
+`.node-version` pins the Node major, and every environment reads it:
+[mise](https://mise.jdx.dev/) locally (through `mise.toml`), `jdx/mise-action`
+in GitHub Actions, and Workers Builds on its own. Install mise and [activate it
+in your shell](https://mise.jdx.dev/getting-started.html). `./scripts/setup.sh`
+trusts `mise.toml`, runs `mise install`, and fails if the active Node differs
+from the pin; without mise it warns and checks the Node on `PATH` instead. It
+is idempotent, and T3 runs it for each new worktree. To move to another Node
+major, edit `.node-version`.
 
 ## Pull request previews
 

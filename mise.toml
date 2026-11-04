@@ -1,0 +1,7 @@
+# Development tools for this repository. `./scripts/setup.sh` installs them; CI
+# installs them with jdx/mise-action. Node is pinned by `.node-version`, which
+# mise reads below and Workers Builds reads on its own.
+min_version = "2026.10.17"
+
+[settings]
+idiomatic_version_file_enable_tools = ["node"]
