@@ -1,0 +1,83 @@
+name: Discord preview
+
+# Renders every Discord notification from synthetic events on the pull
+# request's merge commit and on the base it lands on, then keeps one comment
+# listing what changed. The render job runs pull request code with a read-only
+# token. Only the comment job can write, and it never checks out or runs that
+# code. Fork pull requests get a read-only token, so their preview is left in
+# the run summary instead of a comment.
+on:
+  pull_request:
+    paths:
+      - worker/**
+      - shared/**
+      - scripts/discord-preview.ts
+      - .github/workflows/discord-preview.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: discord-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Render notifications
+        run: |
+          # The merge commit's first parent is the base. It is checked out inside
+          # the workspace so its modules resolve hono from this install, and this
+          # branch's catalogue renders both sides.
+          git worktree add --detach .preview-base HEAD^1
+          mkdir .preview
+          node scripts/discord-preview.ts render .preview-base > .preview/base.json
+          node scripts/discord-preview.ts render . > .preview/head.json
+          node scripts/discord-preview.ts compare .preview/base.json .preview/head.json > .preview/comment.md
+          cat .preview/comment.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: discord-preview
+          path: .preview/comment.md
+
+  comment:
+    needs: render
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: discord-preview
+      - name: Update the preview comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          marker='<!-- discord-notification-preview -->'
+          {
+            echo "$marker"
+            cat comment.md
+            echo
+            echo "<sub>Rendered from the synthetic events in \`scripts/discord-preview.ts\` at $HEAD_SHA.</sub>"
+          } > body.md
+          id=$(gh api --paginate "repos/$GH_REPO/issues/$PR/comments" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n 1)
+          if [ -n "$id" ]; then
+            gh api --method PATCH "repos/$GH_REPO/issues/comments/$id" -F body=@body.md > /dev/null
+          else
+            gh pr comment "$PR" --body-file body.md
+          fi
