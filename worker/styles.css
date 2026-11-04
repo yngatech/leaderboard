@@ -26,6 +26,15 @@
   --color-scrim: rgba(10, 12, 24, 0.4);
   --color-popover: rgba(8, 10, 22, 0.95);
 
+  /* Glass: the floating layer only (navigation, popovers, readouts), never
+     the content under it. `glass` is the tinted body, `glass-edge` its
+     hairline, `glass-rim` the specular light along the top, and
+     `glass-thumb` the brighter lozenge marking a selected segment. */
+  --color-glass: rgba(26, 31, 62, 0.58);
+  --color-glass-edge: rgba(236, 234, 247, 0.13);
+  --color-glass-rim: rgba(255, 255, 255, 0.16);
+  --color-glass-thumb: rgba(236, 234, 247, 0.11);
+
   /* Edges: `line-soft` for every resting border and hairline, `line` once
      something is interactive or hovered. A leader's gold edge is accent/40. */
   --color-line: #262c4c;
@@ -163,12 +172,13 @@
   font-variant-numeric: tabular-nums;
 }
 
-@utility type-masthead {
+/* The site's name in the header. */
+@utility type-brand {
   font-family: var(--font-display);
-  font-size: clamp(2.6rem, 7vw, 4.1rem);
+  font-size: 1.2rem;
   font-weight: 800;
-  line-height: 0.85;
-  letter-spacing: -0.045em;
+  line-height: 1;
+  letter-spacing: -0.035em;
 }
 
 /* The page's own heading or figure: the nav year, a page title, an account's
@@ -244,6 +254,45 @@
 /* A plot recessed into its panel: the panel colour falling away to the well. */
 @utility surface-well {
   background: linear-gradient(180deg, var(--color-panel) 0%, var(--color-well) 100%);
+}
+
+/* Liquid glass, for anything that floats above the page. The body blurs and
+   saturates what scrolls beneath it, a light falloff from the top edge reads
+   as curvature, and the rim catches light like a bevel. Where the backdrop
+   cannot be blurred, or the reader asks for less transparency, it settles
+   into the opaque popover surface rather than a muddy see-through one. */
+@utility glass {
+  background-color: var(--color-glass);
+  background-image: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.09) 0%,
+    rgba(255, 255, 255, 0.02) 42%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  border: 1px solid var(--color-glass-edge);
+  box-shadow:
+    inset 0 1px 0 var(--color-glass-rim),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22),
+    0 18px 40px -18px rgba(0, 0, 0, 0.9),
+    0 2px 6px -2px rgba(0, 0, 0, 0.5);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    background-color: var(--color-popover);
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    background-color: var(--color-popover);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* The selected segment inside a glass control. */
+@utility glass-thumb {
+  background-color: var(--color-glass-thumb);
+  box-shadow: inset 0 1px 0 var(--color-glass-rim);
 }
 
 /* ---------------------------------------------------------------------------
