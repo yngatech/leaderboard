@@ -29,6 +29,8 @@ and link each heatmap day to its breakdown.
 | `/api/all` | All-time JSON |
 | `/api/users/{login}` | One account's all-time totals and current-year daily JSON |
 | `/api/users/{login}/breakdown` | Contribution types and public repositories; optional `?date=YYYY-MM-DD` |
+| `/api/history?from=&to=` | What each board check saw: totals and changed days, classified as same-day or backfilled |
+| `/api/users/{login}/history?from=&to=` | The same, for one account |
 | `/api/users/{login}/insights` | Durable Object current-year public PR style summary; 202 while awaiting alarm collection |
 | `/.well-known/api-catalog` | RFC 9727 API catalogue as a JSON Linkset |
 
@@ -226,6 +228,30 @@ it is live (it includes today, or ended less than a day ago), a day caches for
 about a minute and the year so far for 30 minutes, since GitHub takes a couple
 of seconds to answer it. Private repositories are never named; private work
 appears only as a count.
+
+## Board history
+
+Each complete check also records what it saw in the Durable Object's SQLite
+storage, so a jump in someone's total can be traced to the check that first
+saw it and the calendar days that moved. Incomplete boards are skipped, as they
+are for the snapshot. A check stores every account's total and, for each
+`(login, date)` whose count differs from the previous recorded check, the old
+and new counts. The diff baseline is kept in the same transaction, so a check
+that fails to record is reported as part of the next one rather than lost.
+Recording runs after the snapshot is saved and before notifications, and a
+failure is logged without affecting either. Checks older than 30 days are
+pruned as new ones land, about 1,450 rows a day at steady state.
+
+`/api/history` and `/api/users/{login}/history` return the checks in a range.
+`from` and `to` take a UTC date (a `to` date covers that day) or an ISO 8601
+time with an offset; the default is the last 24 hours, and a range covers at
+most 7 days. Each change carries its `delta` and a `kind`: `same-day` when it
+landed on the check's own UTC date, `backfill` when GitHub's calendar caught up
+on an earlier date (`daysBack` says how far), and `ahead` for a later date.
+`previousCheckedAt` bounds when the change appeared. The live board only covers
+the year in progress, so late changes to last year after 1 January are not
+recorded. Native previews record their own history; builds with alarms
+disabled serve an empty one.
 
 ## PR style prototype
 

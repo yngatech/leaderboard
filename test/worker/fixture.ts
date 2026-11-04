@@ -55,6 +55,12 @@ export class TestLeaderState extends LeaderState {
     if (action === "/stop") await this.ctx.storage.deleteAlarm();
     if (action === "/snapshot") await this.boardSnapshot(new Date().getUTCFullYear());
     if (action === "/seed-milestones") await this.ctx.storage.put("milestones", await request.json());
+    // Swap a history table for a read-only view, so recording a change fails.
+    if (action === "/break-history") {
+      this.ctx.storage.sql.exec("DROP TABLE IF EXISTS board_history_changes");
+      this.ctx.storage.sql.exec("CREATE VIEW board_history_changes AS SELECT 0 AS check_id, '' AS login, '' AS date, 0 AS previous, 0 AS count WHERE 0");
+    }
+    if (action === "/fix-history") this.ctx.storage.sql.exec("DROP VIEW IF EXISTS board_history_changes");
     if (action === "/stale-archive") {
       const hit = await caches.default.match(${JSON.stringify(archiveKey)});
       if (!hit) throw new Error("No archive to mark stale");
@@ -101,6 +107,8 @@ export async function setup(
   let mode: "ok" | "github-error" | "board-error" | "insights-error" | "partial" | "partial-secondary" | "discord-error" | "yearly-discord-error" |
     "lifetime-discord-error" | "archive-error" | "archive-partial" = "ok";
   let leadingCount = 10;
+  /** Extra contributions on today's date for the leading account. */
+  let todayCount = 0;
   let queries = 0;
   const insightQueries: string[] = [];
   let attempts = 0;
@@ -142,6 +150,29 @@ export async function setup(
         following: { totalCount: 0 },
       },
     ])) });
+  }
+  function contributionsResponse(url: URL): Response {
+    assert.equal(url.hostname, "github.com");
+    assert.match(url.pathname, /^\/users\/[^/]+\/contributions$/);
+    const calendarYear = Number(url.searchParams.get("from")!.slice(0, 4));
+    const primary = url.pathname.includes(`/users/${logins[0]}/`);
+    if (primary && calendarYear < year && mode === "archive-partial") {
+      return new Response("not found", { status: 404 });
+    }
+    if (primary && calendarYear === year - 1 && mode === "archive-error") {
+      return new Response("unavailable", { status: 503 });
+    }
+    const count = calendarYear === year
+      ? primary ? leadingCount : 10
+      : primary && calendarYear === year - 1 ? options.history ?? 0 : 0;
+    const date = `${calendarYear}-01-01`;
+    const today = new Date().toISOString().slice(0, 10);
+    const extra = calendarYear === year && primary && todayCount > 0 && today !== date ? todayCount : 0;
+    return new Response(`<h2 id="js-contribution-activity-description">${count + extra} contributions in ${calendarYear}</h2>
+      <td data-date="${date}" data-level="1" id="contribution-day-component-0-0"></td>
+      <tool-tip for="contribution-day-component-0-0">${count} contributions on January 1.</tool-tip>
+      ${extra ? `<td data-date="${today}" data-level="1" id="contribution-day-component-1-0"></td>
+      <tool-tip for="contribution-day-component-1-0">${extra} contributions on ${today}.</tool-tip>` : ""}`);
   }
   const mf = new Miniflare(convertV4MiniflareOptions({
     log: new Log(LogLevel.NONE),
@@ -185,23 +216,7 @@ export async function setup(
       if (url.href === "https://api.github.com/graphql") {
         return graphqlResponse(request);
       }
-      assert.equal(url.hostname, "github.com");
-      assert.match(url.pathname, /^\/users\/[^/]+\/contributions$/);
-      const calendarYear = Number(url.searchParams.get("from")!.slice(0, 4));
-      const primary = url.pathname.includes(`/users/${logins[0]}/`);
-      if (primary && calendarYear < year && mode === "archive-partial") {
-        return new Response("not found", { status: 404 });
-      }
-      if (primary && calendarYear === year - 1 && mode === "archive-error") {
-        return new Response("unavailable", { status: 503 });
-      }
-      const count = calendarYear === year
-        ? primary ? leadingCount : 10
-        : primary && calendarYear === year - 1 ? options.history ?? 0 : 0;
-      const date = `${calendarYear}-01-01`;
-      return new Response(`<h2 id="js-contribution-activity-description">${count} contributions in ${calendarYear}</h2>
-        <td data-date="${date}" data-level="1" id="contribution-day-component-0-0"></td>
-        <tool-tip for="contribution-day-component-0-0">${count} contributions on January 1.</tool-tip>`);
+      return contributionsResponse(url);
     },
   }));
   t.after(() => {
@@ -237,6 +252,9 @@ export async function setup(
     },
     setMode: (next: typeof mode) => { mode = next; },
     setCount: (count: number) => { leadingCount = count; },
+    setTodayCount: (count: number) => { todayCount = count; },
+    breakHistory: () => state("break-history"),
+    fixHistory: () => state("fix-history"),
     queries: () => queries,
     attempts: () => attempts,
     pauseDiscord: () => { discordPaused = new Promise((resolve) => { resumeDiscord = resolve; }); },
