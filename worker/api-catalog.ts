@@ -29,6 +29,11 @@ export function apiCatalog(origin: string, logins: readonly string[]): ApiCatalo
             type: "application/json",
             title: "All-time leaderboard",
           },
+          {
+            href: `${base}/api/history`,
+            type: "application/json",
+            title: "What each board check saw: totals and changed days; accepts optional from and to query parameters",
+          },
           ...logins.flatMap((login) => [
             {
               href: `${base}/api/users/${login}`,
@@ -39,6 +44,11 @@ export function apiCatalog(origin: string, logins: readonly string[]): ApiCatalo
               href: `${base}/api/users/${login}/breakdown`,
               type: "application/json" as const,
               title: `Contribution breakdown for ${login}; accepts an optional date query parameter`,
+            },
+            {
+              href: `${base}/api/users/${login}/history`,
+              type: "application/json" as const,
+              title: `What each board check saw for ${login}; accepts optional from and to query parameters`,
             },
             {
               href: `${base}/api/users/${login}/insights`,

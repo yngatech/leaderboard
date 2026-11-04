@@ -20,6 +20,12 @@ import { absentCardSvg, cardSvg } from "./views/card";
 import { apiCatalog } from "./api-catalog";
 import { BOARD_SNAPSHOT_KEY, usableSnapshot, type BoardSnapshot } from "./board-snapshot";
 import {
+  BoardHistoryStore,
+  parseHistoryRange,
+  type BoardHistory,
+  type HistoryQuery,
+} from "./board-history";
+import {
   allTimeMilestoneNotification,
   cakeDayNotification,
   discordWebhookPayload,
@@ -1095,6 +1101,34 @@ async function handleInsightsApi(requested: string, url: URL, readOnly: boolean,
   return json(summary ?? { login, status: "pending" }, { status: summary ? 200 : 202, headers: { "Cache-Control": __IS_PREVIEW_BUILD__ || !summary ? "no-store" : "public, max-age=60" } });
 }
 
+/** What the board checks saw, for `/api/history` and one person's `/history`. */
+async function handleHistoryApi(url: URL, login: string | null, env: Env): Promise<Response> {
+  const range = parseHistoryRange(url.searchParams.get("from"), url.searchParams.get("to"), Date.now());
+  if (typeof range === "string") {
+    return json({ error: range, status: 400 }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  }
+  try {
+    const history = await leaderState(env).boardHistory({ ...range, login });
+    return json(history, {
+      headers: {
+        // Read from the Durable Object each time; a new check lands every ten minutes.
+        "Cache-Control": __IS_PREVIEW_BUILD__ ? "no-store" : `public, max-age=${BROWSER_TTL_SECONDS}`,
+        "X-Board-Build": __BUILD_COMMIT_SHA__,
+        Link: catalogLink(),
+      },
+    });
+  } catch (error) {
+    console.error("board history unavailable", {
+      login,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return json(
+      { error: "Board history is unavailable right now.", status: 503 },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+}
+
 async function handleBreakdownApi(
   requested: string,
   url: URL,
@@ -1792,6 +1826,9 @@ export class LeaderState extends DurableObject<Env> {
     }
     const today = todayIso();
     await this.ctx.storage.put(BOARD_SNAPSHOT_KEY, { year, board, generatedAt });
+    // After the snapshot and before notifications, and never throws: history
+    // is a diagnostic record, so it cannot hold back either of them.
+    this.recordHistory(year, board, generatedAt);
     if (!this.env.DISCORD_WEBHOOK_URL || __IS_PREVIEW_BUILD__) return;
 
     // Alarm handlers run one at a time. Save the board before posting so a
@@ -1804,6 +1841,25 @@ export class LeaderState extends DurableObject<Env> {
     for (const result of results) {
       if (result.status === "rejected") throw result.reason;
     }
+  }
+
+  private history(): BoardHistoryStore {
+    return new BoardHistoryStore(this.ctx.storage.sql, (fn) => this.ctx.storage.transactionSync(fn));
+  }
+
+  private recordHistory(year: number, board: Board, generatedAt: string): void {
+    try {
+      this.history().record(board, year, Date.parse(generatedAt));
+    } catch (error) {
+      console.error("board history write failed", {
+        year,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async boardHistory(query: HistoryQuery): Promise<BoardHistory> {
+    return this.history().read(query);
   }
 
   private async notify(notification: DiscordNotification): Promise<void> {
@@ -1952,6 +2008,27 @@ export class LeaderState extends DurableObject<Env> {
   }
 }
 
+/** `/api/history` and `/api/users/{login}/history`, or null for any other path. */
+function routeHistoryApi(url: URL, readOnly: boolean, env: Env): Promise<Response> | Response | null {
+  const match = /^\/api\/users\/([A-Za-z0-9][A-Za-z0-9-]*)\/history\/?$/.exec(url.pathname);
+  if (url.pathname !== "/api/history" && !match) return null;
+  if (!readOnly) {
+    return json({ error: "Use GET for history APIs.", status: 405 }, { status: 405 });
+  }
+  if (!match) return handleHistoryApi(url, null, env);
+  const login = rosterLogin(match[1]);
+  if (!login) {
+    return json(
+      { error: `No leaderboard account named ${match[1]}.`, status: 404 },
+      { status: 404, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  if (url.pathname !== `/api/users/${login}/history`) {
+    return Response.redirect(`${url.origin}/api/users/${login}/history${url.search}`, 308);
+  }
+  return handleHistoryApi(url, login, env);
+}
+
 async function routeApi(
   request: Request,
   url: URL,
@@ -1987,6 +2064,9 @@ async function routeApi(
       );
     }
   }
+
+  const history = routeHistoryApi(url, readOnly, env);
+  if (history) return history;
 
   const insightsMatch = /^\/api\/users\/([A-Za-z0-9][A-Za-z0-9-]*)\/insights\/?$/.exec(url.pathname);
   if (insightsMatch) return handleInsightsApi(insightsMatch[1], url, readOnly, env);
