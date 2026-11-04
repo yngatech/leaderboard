@@ -51,12 +51,18 @@ export interface DiscordComponentsNotification {
 
 export type DiscordNotification = DiscordEmbedNotification | DiscordComponentsNotification;
 
+/** An account's page on the site; `day` opens that day's detail. */
+export function profileUrl(login: string, day?: string): string {
+  const url = `${SITE}/u/${encodeURIComponent(login)}`;
+  return day ? `${url}?day=${day}` : url;
+}
+
 export function allTimeMilestoneNotification(event: PersonalMilestoneEvent): DiscordEmbedNotification {
   return {
     kind: "embed",
     embed: {
       title: "All-time contribution milestone",
-      url: `${SITE}/u/${encodeURIComponent(event.login)}`,
+      url: profileUrl(event.login),
       description: `[${event.login}](${event.url}) has reached **${formatNumber(event.threshold)} contributions** all time.`,
       color: 0x58a6ff,
       thumbnail: { url: event.avatarUrl },
@@ -195,7 +201,7 @@ export function cakeDayNotification(
   const description = `${user.text} has been on GitHub for **${years}** today, since ${formatDayYear(joinDay(event.createdAt))}.`;
   return discordCard({
     title: "🎂 Happy cake day!",
-    url: `${SITE}/u/${encodeURIComponent(event.login)}`,
+    url: profileUrl(event.login),
     description,
     color: 0x58a6ff,
     thumbnail: { url: event.avatarUrl },

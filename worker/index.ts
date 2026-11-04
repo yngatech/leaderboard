@@ -30,6 +30,7 @@ import {
   cakeDayNotification,
   discordWebhookPayload,
   discordWebhookUrl,
+  profileUrl,
   mentionDiscordUsers,
   parseDiscordUserIds,
   type DiscordEmbed,
@@ -1672,39 +1673,38 @@ function count(value: number): string {
   return value.toLocaleString("en-GB");
 }
 
-function personalBestEmbed(year: number, event: PersonalBestEvent): DiscordEmbed {
+function personalBestEmbed(event: PersonalBestEvent): DiscordEmbed {
   const improvement =
     event.previousCount > 0
       ? `, beating their previous best of **${count(event.previousCount)}**`
       : "";
   return {
     title: "New daily contributions PB",
-    url: `${SITE}/${year}`,
+    url: profileUrl(event.login, event.date),
     description: `[${event.login}](${event.url}) recorded **${count(event.count)} contributions** on **${formatDayYear(event.date)}**${improvement}.`,
     color: 0x58a6ff,
     thumbnail: { url: event.avatarUrl },
   };
 }
 
-function boardRecordEmbed(year: number, event: BoardRecordEvent): DiscordEmbed {
+function boardRecordEmbed(event: BoardRecordEvent): DiscordEmbed {
   const previous =
     event.previousCount > 0
       ? `, beating the previous record of **${count(event.previousCount)}**`
       : "";
   return {
     title: "New peak daily contributions record",
-    url: `${SITE}/${year}`,
+    url: profileUrl(event.peak.login, event.peak.date),
     description: `[${event.peak.login}](${event.peak.url}) set a new board record with **${count(event.peak.count)} contributions** on **${formatDayYear(event.peak.date)}**${previous}.`,
     color: 0xf0b429,
     thumbnail: { url: event.peak.avatarUrl },
   };
 }
 
-/** A wrap-up links the year its day fell in, which differs on 1 January. */
 function personalBestWrapUpEmbed(event: DailyWrapUpEvent): DiscordEmbed {
   return {
     title: "Daily contributions PB wrap-up",
-    url: `${SITE}/${event.date.slice(0, 4)}`,
+    url: profileUrl(event.login, event.date),
     description: `[${event.login}](${event.url}) finished **${formatDayYear(event.date)}** on **${count(event.count)} contributions**, up from **${count(event.announcedCount)}** when the PB was announced.`,
     color: 0x58a6ff,
     thumbnail: { url: event.avatarUrl },
@@ -1714,30 +1714,30 @@ function personalBestWrapUpEmbed(event: DailyWrapUpEvent): DiscordEmbed {
 function boardRecordWrapUpEmbed(event: DailyWrapUpEvent): DiscordEmbed {
   return {
     title: "Peak daily contributions record wrap-up",
-    url: `${SITE}/${event.date.slice(0, 4)}`,
+    url: profileUrl(event.login, event.date),
     description: `[${event.login}](${event.url}) finished **${formatDayYear(event.date)}** on **${count(event.count)} contributions**, a board record up from **${count(event.announcedCount)}** when it was last announced.`,
     color: 0xf0b429,
     thumbnail: { url: event.avatarUrl },
   };
 }
 
-function dailyRecordEmbed(year: number, notification: DailyRecordNotification): DiscordEmbed {
+function dailyRecordEmbed(notification: DailyRecordNotification): DiscordEmbed {
   switch (notification.type) {
     case "personal-best-wrap-up":
       return personalBestWrapUpEmbed(notification.event);
     case "board-record-wrap-up":
       return boardRecordWrapUpEmbed(notification.event);
     case "personal-best":
-      return personalBestEmbed(year, notification.event);
+      return personalBestEmbed(notification.event);
     case "board-record":
-      return boardRecordEmbed(year, notification.event);
+      return boardRecordEmbed(notification.event);
   }
 }
 
 function personalMilestoneEmbed(year: number, event: PersonalMilestoneEvent): DiscordEmbed {
   return {
     title: "Contribution milestone",
-    url: `${SITE}/${year}`,
+    url: profileUrl(event.login),
     description: `[${event.login}](${event.url}) has passed **${count(event.threshold)} contributions** in ${year}.`,
     color: 0x58a6ff,
     thumbnail: { url: event.avatarUrl },
@@ -1927,8 +1927,8 @@ export class LeaderState extends DurableObject<Env> {
       // The live board is already saved for the site and never waits on the
       // finished year.
       (year) => finishedBoard(this.env, year),
-      (year, notification) =>
-        this.notify({ kind: "embed", embed: dailyRecordEmbed(year, notification) }),
+      (_year, notification) =>
+        this.notify({ kind: "embed", embed: dailyRecordEmbed(notification) }),
     );
   }
 
