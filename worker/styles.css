@@ -308,6 +308,76 @@
 }
 
 /* ---------------------------------------------------------------------------
+   Page transitions
+   Each view is a real page load, so the browser carries the capsule across it:
+   the page cross-fades while the capsule reshapes and its thumb slides to the
+   new segment. The opt-in is inline in the document head (see layout.ts).
+--------------------------------------------------------------------------- */
+::view-transition-group(nav-capsule),
+::view-transition-group(nav-labels),
+::view-transition-group(nav-thumb) {
+  animation-duration: 420ms;
+  /* A spring that overshoots slightly and settles, like the glass in motion. */
+  animation-timing-function: linear(
+    0,
+    0.12 6%,
+    0.42 15%,
+    0.82 28%,
+    1.03 38%,
+    1.07 46%,
+    1.04 58%,
+    1.01 72%,
+    1
+  );
+}
+
+/* Snapshots keep their aspect ratio by default, so a thumb changing width would
+   also change height and poke out of the capsule. */
+::view-transition-old(nav-thumb),
+::view-transition-new(nav-thumb) {
+  height: 100%;
+}
+
+/* The moving group is the glass, redrawn at each width so its corners stay
+   round and it blurs the page beneath. A snapshot could do neither: it would
+   stretch, and a captured element is cut off from its backdrop. */
+::view-transition-group(nav-capsule) {
+  @apply glass rounded-full;
+  /* The group is sized to the capsule's border box; preflight stops at ::after. */
+  box-sizing: border-box;
+}
+::view-transition-image-pair(nav-capsule) {
+  display: none;
+}
+
+/* The labels keep their real size as the capsule changes width, pinned to the
+   edge that does not move: the right on a wide screen, the middle on a phone,
+   where the capsule is centred. They swap quickly, so the old and new text
+   are barely on screen together. */
+::view-transition-group(nav-labels) {
+  overflow: clip;
+  border-radius: 9999px;
+}
+::view-transition-old(nav-labels),
+::view-transition-new(nav-labels) {
+  height: 100%;
+  object-fit: none;
+  object-position: right center;
+}
+::view-transition-old(nav-labels) {
+  animation-duration: 110ms;
+}
+::view-transition-new(nav-labels) {
+  animation-duration: 180ms;
+}
+@media (width < theme(--breakpoint-phone)) {
+  ::view-transition-old(nav-labels),
+  ::view-transition-new(nav-labels) {
+    object-position: center;
+  }
+}
+
+/* ---------------------------------------------------------------------------
    Wrap separator
    A wrapping flex line whose "·" between siblings is clipped when a wrap
    puts it at the start of a row.

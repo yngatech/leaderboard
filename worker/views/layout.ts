@@ -52,13 +52,25 @@ export interface PageOptions {
  * it floats top centre instead, because iOS Safari keeps its own glass
  * toolbar along the bottom and two stacked bars read as clutter. The page
  * scrolls underneath, so it stays one tap away from anywhere.
+ *
+ * The capsule, its labels and its thumb are separate view-transition layers,
+ * so a page load can reshape the glass, swap the labels and slide the thumb
+ * across rather than cross-fading one flattened picture of the whole control.
  */
 const NAV_CAPSULE =
-  "glass fixed top-4 right-[max(clamp(1.1rem,4vw,2.5rem),calc((100%-1180px)/2+clamp(1.1rem,4vw,2.5rem)))] z-40 flex items-center gap-0.5 rounded-full p-1 max-phone:top-auto max-phone:right-auto max-phone:bottom-[calc(0.9rem+env(safe-area-inset-bottom))] max-phone:left-1/2 max-phone:ios:top-[calc(0.6rem+env(safe-area-inset-top))] max-phone:ios:bottom-auto max-phone:-translate-x-1/2";
+  "glass [view-transition-name:nav-capsule] fixed top-4 right-[max(clamp(1.1rem,4vw,2.5rem),calc((100%-1180px)/2+clamp(1.1rem,4vw,2.5rem)))] z-40 rounded-full p-1 max-phone:top-auto max-phone:right-auto max-phone:bottom-[calc(0.9rem+env(safe-area-inset-bottom))] max-phone:left-1/2 max-phone:ios:top-[calc(0.6rem+env(safe-area-inset-top))] max-phone:ios:bottom-auto max-phone:-translate-x-1/2";
+const NAV_LABELS = "flex items-center gap-0.5 [view-transition-name:nav-labels]";
 const NAV_SEGMENT =
   "flex h-9 items-center rounded-full px-3.5 text-body font-medium whitespace-nowrap text-secondary no-underline transition-colors duration-200 hover:bg-glass-thumb hover:text-ink max-phone:px-3";
-const NAV_CURRENT =
-  "glass-thumb flex h-9 items-center rounded-full px-4 type-rank whitespace-nowrap text-ink";
+const NAV_CURRENT = "relative isolate flex h-9 items-center px-4 type-rank whitespace-nowrap text-ink";
+const NAV_THUMB =
+  "glass-thumb [view-transition-name:nav-thumb] absolute inset-0 -z-10 rounded-full";
+
+function navCurrentHtml(label: string | number): Html {
+  return html`<span class="${NAV_CURRENT}" aria-current="page"
+    ><span class="${NAV_THUMB}"></span>${label}</span
+  >`;
+}
 
 function navHtml(options: PageOptions): Html | null {
   const nav = options.nav;
@@ -69,7 +81,7 @@ function navHtml(options: PageOptions): Html | null {
   if (nav.kind === "all") {
     items = html`<a class="${NAV_SEGMENT}" href="/" aria-label="Show ${thisYear}"
         >← ${thisYear}</a
-      ><span class="${NAV_CURRENT}" aria-current="page">all time</span>`;
+      >${navCurrentHtml("all time")}`;
   } else if (nav.kind === "user" || nav.kind === "achievements") {
     items = html`<a class="${NAV_SEGMENT}" href="/" aria-label="Show ${thisYear}">← board</a
       ><a class="${NAV_SEGMENT}" href="/all">all time</a>`;
@@ -92,11 +104,16 @@ function navHtml(options: PageOptions): Html | null {
             >${nav.year + 1} →</a
           >`
         : null;
-    items = html`${previous}<span class="${NAV_CURRENT}" aria-current="page">${nav.year}</span
-      >${next}<a class="${NAV_SEGMENT}" href="/all">all time</a>`;
+    items = html`${previous}${navCurrentHtml(nav.year)}${next}<a
+        class="${NAV_SEGMENT}"
+        href="/all"
+        >all time</a
+      >`;
   }
 
-  return html`<nav class="${NAV_CAPSULE}" aria-label="View">${items}</nav>`;
+  return html`<nav class="${NAV_CAPSULE}" aria-label="View">
+    <div class="${NAV_LABELS}">${items}</div>
+  </nav>`;
 }
 
 /** The favicon's 3×3 heat grid, drawn in the theme's ramp. */
@@ -257,6 +274,20 @@ function footerHtml(options: PageOptions): Html {
   </footer>`;
 }
 
+/**
+ * Slide the capsule across real page loads, for readers who have not asked for
+ * less motion; browsers without cross-document view transitions just get the
+ * next page. Inline because Chromium decides on arrival: from the external
+ * stylesheet it missed the opt-in on about half of navigations.
+ */
+const VIEW_TRANSITION_OPT_IN = html`<style>
+  @media (prefers-reduced-motion: no-preference) {
+    @view-transition {
+      navigation: auto;
+    }
+  }
+</style>`;
+
 export function pageHtml(options: PageOptions): string {
   const { chrome } = options;
   const arrows = arrowTargets(options);
@@ -279,6 +310,7 @@ export function pageHtml(options: PageOptions): string {
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&amp;family=DM+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+    ${VIEW_TRANSITION_OPT_IN}
     <link rel="stylesheet" href="${chrome.stylesUrl}">
     <script type="module" src="${chrome.enhanceUrl}" defer></script>
   </head>
