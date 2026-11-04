@@ -16,23 +16,62 @@
   --color-heat-4: #ffc24d;
   --color-accent: var(--color-heat-4);
 
+  /* Surfaces, darkest first. A panel is any bordered card; a well is a plot
+     recessed into one; a scrim darkens whatever sits under it; a popover
+     floats above the page. */
   --color-void: #0a0c18;
   --color-panel: #12162b;
   --color-panel-hover: #171c36;
+  --color-well: #0d1122;
+  --color-scrim: rgba(10, 12, 24, 0.4);
+  --color-popover: rgba(8, 10, 22, 0.95);
+
+  /* Edges: `line-soft` for every resting border and hairline, `line` once
+     something is interactive or hovered. A leader's gold edge is accent/40. */
   --color-line: #262c4c;
   --color-line-soft: #1a1f38;
   --color-future-line: rgba(236, 234, 247, 0.09);
+  /* Chart furniture drawn over data: the today rule and the hover crosshair. */
+  --color-guide: rgba(236, 234, 247, 0.3);
   --color-public: #c9c6e6;
+
   /* Three text roles: names/totals, supporting copy, and metadata. Keep heat
-     colours for data and awards rather than adding more text shades.
-     DM Mono uses 400 for reading and 500 for emphasis; the display face uses
-     600 for names and 800 for headline figures. */
+     colours for data and awards rather than adding more text shades. */
   --color-ink: #eceaf7;
   --color-secondary: #b9b6d1;
   --color-muted: #9693b0;
 
   --font-display: "Bricolage Grotesque", "Trebuchet MS", system-ui, sans-serif;
   --font-mono: "DM Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  /* Mono text has three sizes and nothing between them: `body` for anything
+     read as a sentence or a value, `meta` for labels, captions and counts,
+     `fine` for footnotes. `value` is a mono figure that has to stand out from
+     its caption. Display sizes are whole roles, see the type-* utilities. */
+  --text-body: 0.78rem;
+  --text-body--line-height: 1.65;
+  --text-meta: 0.72rem;
+  --text-meta--line-height: 1.6;
+  --text-fine: 0.68rem;
+  --text-fine--line-height: 1.5;
+  --text-value: 0.95rem;
+  --text-value--line-height: 1.3;
+  /* SVG labels, in the plot's own units. */
+  --text-axis: 10px;
+
+  /* Radii by nesting level: a heatmap cell or bar, a control (button, field,
+     popover, icon tile), an avatar, and a card. */
+  --radius-cell: 3px;
+  --radius-control: 0.6rem;
+  --radius-avatar: 25%;
+  --radius-card: 1rem;
+
+  /* Vertical rhythm: `page` opens the main column and the footer, `section`
+     separates sections inside it. `card` is every panel's inset, and narrows
+     on a phone without a variant. */
+  --spacing-page: clamp(2.5rem, 6vw, 4rem);
+  --spacing-section: clamp(2.25rem, 5vw, 3.25rem);
+  --spacing-card: clamp(1rem, 2.6vw, 1.3rem);
 
   /* The board is laid out desktop-first, so these are only ever read through
      the max-* variants: max-wide: is the old (max-width: 1120px) step where a
@@ -47,6 +86,21 @@
   --animate-rise: rise 0.6s cubic-bezier(0.2, 0.7, 0.3, 1) backwards;
   --animate-rise-row: rise 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) backwards;
   --animate-shimmer: shimmer 1.8s linear infinite;
+}
+
+/* Read from inline styles rather than utilities, so they are emitted whether
+   or not a class names them. */
+@theme static {
+  /* Cumulative chart lines, in board order. */
+  --color-series-1: #ffc24d;
+  --color-series-2: #7d6cf3;
+  --color-series-3: #f0713f;
+  --color-series-4: #46b6c9;
+  --color-series-5: #e2508e;
+  --color-series-6: #c9a2ff;
+  --color-series-7: #ffa06b;
+  --color-series-8: #4f8ff0;
+  --color-series-9: #aeb4d8;
 }
 
 /* ---------------------------------------------------------------------------
@@ -85,12 +139,112 @@
      SVG year cell reached by keyboard shows the same one. */
   a:focus-visible,
   button:focus-visible,
+  select:focus-visible,
   summary:focus-visible,
   rect:focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 3px;
     border-radius: 4px;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Display type roles
+   The display face is only ever set through one of these, so a size, weight,
+   leading and tracking always travel together. 800 is for figures and
+   headings; 600 is for names. Colour stays with the element.
+--------------------------------------------------------------------------- */
+
+@utility type-hero {
+  font-family: var(--font-display);
+  font-size: clamp(3.6rem, 12vw, 7.5rem);
+  font-weight: 800;
+  line-height: 0.8;
+  letter-spacing: -0.055em;
+  font-variant-numeric: tabular-nums;
+}
+
+@utility type-masthead {
+  font-family: var(--font-display);
+  font-size: clamp(2.6rem, 7vw, 4.1rem);
+  font-weight: 800;
+  line-height: 0.85;
+  letter-spacing: -0.045em;
+}
+
+/* The page's own heading or figure: the nav year, a page title, an account's
+   career total. */
+@utility type-headline {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 5vw, 2.8rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+@utility type-title {
+  font-family: var(--font-display);
+  font-size: clamp(1.6rem, 4.5vw, 2.2rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+
+/* The figure that opens a panel. */
+@utility type-figure-lg {
+  font-family: var(--font-display);
+  font-size: 1.875rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A row's total, a ledger's anchor figure. */
+@utility type-figure {
+  font-family: var(--font-display);
+  font-size: clamp(1.25rem, 1rem + 1vw, 1.5rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A rank beside a name. */
+@utility type-rank {
+  font-family: var(--font-display);
+  font-size: clamp(0.95rem, 0.85rem + 0.5vw, 1.15rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A heading inside a page, above a list or in an empty state. */
+@utility type-subhead {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+@utility type-name {
+  font-family: var(--font-display);
+  font-size: 1.08rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+}
+
+/* ---------------------------------------------------------------------------
+   Surfaces
+--------------------------------------------------------------------------- */
+
+/* A plot recessed into its panel: the panel colour falling away to the well. */
+@utility surface-well {
+  background: linear-gradient(180deg, var(--color-panel) 0%, var(--color-well) 100%);
 }
 
 /* ---------------------------------------------------------------------------

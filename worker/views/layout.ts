@@ -1,4 +1,5 @@
 import { html, type Html } from "../html.ts";
+import { LINK_QUIET } from "./ui.ts";
 
 /* ---------------------------------------------------------------------------
    The document shell: everything that used to be index.html plus the App
@@ -46,11 +47,11 @@ export interface PageOptions {
 }
 
 const NAV_LINK =
-  "min-w-16 text-center text-[0.78rem] font-medium whitespace-nowrap text-secondary no-underline hover:text-accent max-phone:min-w-[3.4rem]";
+  "min-w-16 text-center text-body font-medium whitespace-nowrap text-secondary no-underline hover:text-accent max-phone:min-w-14";
 const NAV_CURRENT =
-  "font-display text-[clamp(1.9rem,5vw,2.6rem)] leading-none font-extrabold tracking-[-0.04em] tabular-nums";
+  "type-headline";
 const NAV_SPACER = html`<span
-  class="min-w-16 max-phone:min-w-[3.4rem]"
+  class="min-w-16 max-phone:min-w-14"
   aria-hidden="true"
 ></span>`;
 
@@ -94,7 +95,7 @@ function navHtml(options: PageOptions): Html | null {
   }
 
   return html`<nav
-    class="flex items-baseline justify-self-end gap-[clamp(0.6rem,2vw,1.2rem)] max-phone:justify-self-start max-phone:gap-[0.9rem]"
+    class="flex items-baseline justify-self-end gap-[clamp(0.6rem,2vw,1.2rem)] max-phone:justify-self-start max-phone:gap-3.5"
     aria-label="View"
   >
     ${items}
@@ -134,15 +135,14 @@ function formatUpdatedAt(iso: string): string {
   return `${timeFmt.format(new Date(iso))} UTC`;
 }
 
-const FOOTER_LINK =
-  "text-secondary underline decoration-current/40 underline-offset-[3px] transition-colors hover:text-accent";
+const FOOTER_LINK = LINK_QUIET;
 
 /** The reference page, not the troubleshooting page: only this one lists what counts. */
 export const COUNTING_RULES_URL =
   "https://docs.github.com/en/account-and-profile/reference/profile-contributions-reference";
 
 /** The disclosure trigger: a footer link that happens to unfold instead of navigate. */
-const SOURCE_SUMMARY = `${FOOTER_LINK} inline-flex list-none cursor-pointer items-center gap-[0.35rem] decoration-dotted [&::-webkit-details-marker]:hidden`;
+const SOURCE_SUMMARY = `${FOOTER_LINK} inline-flex list-none cursor-pointer items-center gap-1.5 decoration-dotted [&::-webkit-details-marker]:hidden`;
 
 /**
  * The note itself, lifted above the trigger so opening it never reflows the
@@ -150,7 +150,7 @@ const SOURCE_SUMMARY = `${FOOTER_LINK} inline-flex list-none cursor-pointer item
  * `wrap-sep` line, so the separator clip never reaches it.
  */
 const SOURCE_PANEL =
-  "absolute bottom-[calc(100%+0.55rem)] left-0 z-20 w-[min(26rem,100%)] rounded-[0.6rem] border border-line-soft bg-panel px-[0.85rem] py-[0.7rem] text-secondary shadow-[0_14px_30px_-20px_rgba(0,0,0,0.95)]";
+  "absolute bottom-[calc(100%+0.5rem)] left-0 z-20 w-[min(26rem,100%)] rounded-control border border-line bg-popover px-3.5 py-3 text-secondary shadow-[0_14px_30px_-20px_rgba(0,0,0,0.95)]";
 
 /**
  * One line of visible copy, everything else folded away: the provenance and
@@ -163,7 +163,7 @@ function sourceNoteHtml(options: PageOptions): Html {
     : `${options.nav && "year" in options.nav ? options.nav.year : "This year"} is final, so data is cached for 7 days.`;
   // Only the pages that actually include today can be behind on today.
   const provisional = options.provisionalToday
-    ? html`<p class="mt-[0.4rem]">Today's counts may lag GitHub activity.</p>`
+    ? html`<p class="mt-1.5">Today's counts may lag GitHub activity.</p>`
     : null;
 
   return html`<details class="group inline-block">
@@ -205,11 +205,11 @@ function footerHtml(options: PageOptions): Html {
   const shortBuildSha = buildSha.slice(0, 7);
 
   return html`<footer
-    class="mt-[clamp(2.5rem,6vw,4rem)] grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-[clamp(1.5rem,4vw,3rem)] gap-y-[0.9rem] border-t border-line-soft pt-[1.1rem] text-[0.72rem] leading-[1.6] text-muted max-phone:grid-cols-[minmax(0,1fr)]"
+    class="mt-page grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-[clamp(1.5rem,4vw,3rem)] gap-y-3.5 border-t border-line-soft pt-4.5 text-meta text-muted max-phone:grid-cols-[minmax(0,1fr)]"
   >
     <div class="relative min-w-0">
       <div class="wrap-sep">${sourceNoteHtml(options)}${updated}</div>
-      <p class="mt-[0.25rem]">
+      <p class="mt-1">
         <a
           class="${FOOTER_LINK}"
           href="${COUNTING_RULES_URL}"
@@ -221,7 +221,7 @@ function footerHtml(options: PageOptions): Html {
     </div>
     <div class="min-w-0 text-right max-phone:text-left">
       <p>leaderboard.ynga.tech</p>
-      <p class="mt-[0.25rem]">
+      <p class="mt-1">
         <a
           class="${FOOTER_LINK}"
           href="https://github.com/yngatech/leaderboard/commit/${buildSha}"
@@ -265,8 +265,8 @@ export function pageHtml(options: PageOptions): string {
     <div class="relative z-[1] mx-auto max-w-[1180px] px-[clamp(1.1rem,4vw,2.5rem)] pt-[clamp(1.75rem,5vw,3.5rem)] pb-10">
       <header class="grid grid-cols-[auto_minmax(0,1fr)] items-end gap-[clamp(1rem,4vw,3rem)] max-phone:grid-cols-[minmax(0,1fr)] max-phone:items-start">
         <div>
-          <span class="block text-[0.72rem] text-muted">leaderboard.ynga.tech</span>
-          <h1 class="mt-[0.45rem] font-display text-[clamp(2.6rem,7vw,4.1rem)] leading-[0.85] font-extrabold tracking-[-0.045em]">git board</h1>
+          <span class="block text-meta text-muted">leaderboard.ynga.tech</span>
+          <h1 class="mt-2 type-masthead">git board</h1>
         </div>
         ${navHtml(options)}
       </header>
