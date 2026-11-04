@@ -205,7 +205,7 @@ function footerHtml(options: PageOptions): Html {
   const shortBuildSha = buildSha.slice(0, 7);
 
   return html`<footer
-    class="mt-page grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-[clamp(1.5rem,4vw,3rem)] gap-y-3.5 border-t border-line-soft pt-4.5 text-meta text-muted max-phone:grid-cols-[minmax(0,1fr)]"
+    class="mt-page grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-[clamp(1.5rem,4vw,3rem)] gap-y-3.5 border-t border-line-soft pt-4.5 text-meta leading-relaxed text-muted max-phone:grid-cols-[minmax(0,1fr)]"
   >
     <div class="relative min-w-0">
       <div class="wrap-sep">${sourceNoteHtml(options)}${updated}</div>

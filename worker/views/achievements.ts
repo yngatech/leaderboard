@@ -71,7 +71,7 @@ function achievementRows(events: readonly Achievement[], today: string): Html {
     return html`<li class="grid grid-cols-[1.8rem_minmax(0,1fr)_auto] items-start gap-x-3 py-4 max-phone:grid-cols-[1.6rem_minmax(0,1fr)] max-phone:gap-x-2.5"
       data-achievement="${event.id}">
       <span class="flex size-7 items-center justify-center rounded-control bg-heat-0 text-accent max-phone:size-6">${marker(event)}</span>
-      <div class="min-w-0 text-body text-secondary">
+      <div class="min-w-0 text-body leading-relaxed text-secondary">
         <p>${copy.title}</p>
         <p class="mt-0.5 text-meta text-muted">${copy.detail}${event.provisional
           ? html` <span class="ml-2 text-heat-3">Still counting</span>` : null}</p>
@@ -99,14 +99,14 @@ export function recentAchievementsHtml(options: RecentAchievementsOptions): Html
       headingId: "achievements-heading",
       aside: html`<a class="${LINK_QUIET} text-meta" href="${achievementsHref(options.year, options.login)}">View achievements</a>`,
     })}
-    ${events.length > 0 ? achievementRows(events, options.today) : html`<p class="py-5 text-body text-secondary">No achievements in ${options.year}.</p>`}
+    ${events.length > 0 ? achievementRows(events, options.today) : html`<p class="py-5 text-body leading-relaxed text-secondary">No achievements in ${options.year}.</p>`}
     ${availabilityNote(options)}
   </section>`;
 }
 
 function availabilityNote(options: Pick<RecentAchievementsOptions, "historyAvailable" | "complete">): Html | null {
   if (options.historyAvailable !== false && options.complete !== false) return null;
-  return html`<p class="mt-3 text-meta text-secondary">${options.historyAvailable === false
+  return html`<p class="mt-3 text-meta leading-relaxed text-secondary">${options.historyAvailable === false
     ? "Lifetime achievements are unavailable while the contribution archive is incomplete. " : ""}${options.complete === false
     ? "Achievements for incomplete accounts and the board are unavailable while some contribution data is missing." : ""}</p>`;
 }
@@ -123,7 +123,7 @@ export function achievementsPageHtml(options: AchievementsPageOptions): string {
   const selectClass = "mt-2 w-full rounded-control border border-line bg-panel px-3 py-2.5 font-mono text-body text-ink";
   const main = html`<main class="mt-page max-w-[850px]">
     <h2 class="type-headline">Achievements</h2>
-    <p class="mt-3 max-w-[65ch] text-body text-secondary">Contribution milestones, record days and GitHub anniversaries.</p>
+    <p class="mt-3 max-w-[65ch] text-body leading-relaxed text-secondary">Contribution milestones, record days and GitHub anniversaries.</p>
     <form action="/achievements" method="get" class="mt-6 grid grid-cols-[8rem_minmax(0,1fr)_auto] items-end gap-3 max-phone:grid-cols-[6rem_minmax(0,1fr)]">
       <label class="text-meta text-secondary">Year<select class="${selectClass}" name="year">${Array.from(
         { length: chrome.thisYear - MIN_PAGE_YEAR + 1 }, (_, index) => chrome.thisYear - index,
@@ -138,7 +138,7 @@ export function achievementsPageHtml(options: AchievementsPageOptions): string {
         <h3 class="type-subhead">${year}${login ? html` / ${personLink(login)}` : null}</h3>
         <span class="text-meta text-muted">${formatNumber(events.length)} achievements</span>
       </div>
-      ${events.length ? achievementRows(events.slice(0, 20), today) : html`<p class="py-8 text-body text-secondary">No achievements in ${year}${login ? ` for ${login}` : ""}.
+      ${events.length ? achievementRows(events.slice(0, 20), today) : html`<p class="py-8 text-body leading-relaxed text-secondary">No achievements in ${year}${login ? ` for ${login}` : ""}.
         <a class="${LINK}" href="${hrefForYear(year, chrome.thisYear)}">Explore the contribution board</a>.</p>`}
       ${events.length > 20 ? html`<details class="mt-3">
         <summary class="${BUTTON_QUIET} w-fit list-none [&::-webkit-details-marker]:hidden">Show ${formatNumber(events.length - 20)} earlier ${events.length === 21 ? "achievement" : "achievements"}</summary>

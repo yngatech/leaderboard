@@ -75,7 +75,7 @@ export function rowGapHtml(above: BoardUser, below: BoardUser): Html | null {
   const label = `${formatNumber(margin)} ahead`;
   const spoken = `${above.login} leads ${below.login} by ${formatNumber(margin)}`;
   return html`<div
-    class="-my-0.5 flex items-center gap-3 px-card font-mono text-meta text-muted"
+    class="-my-0.5 flex items-center gap-3 px-card-x font-mono text-meta text-muted"
   >
     <span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span
     ><span class="tabular-nums" aria-hidden="true">${label}</span
@@ -203,7 +203,7 @@ function rankHtml(rank: number): Html {
 
 /** The grid layout the row's cells sit in; shared by the year and all-time rows. */
 const ROW_GRID =
-  "grid grid-cols-[2.5rem_52px_minmax(150px,1fr)_auto_8rem] items-center gap-5 p-card [grid-template-areas:'rank_avatar_id_plot_score'] max-wide:grid-cols-[2.5rem_52px_minmax(0,1fr)_auto] max-wide:gap-y-4 max-wide:[grid-template-areas:'rank_avatar_id_score'_'plot_plot_plot_plot'] max-phone:grid-cols-[2rem_42px_minmax(0,1fr)] max-phone:gap-x-3.5 max-phone:gap-y-3.5 max-phone:[grid-template-areas:'rank_avatar_id'_'score_score_score'_'plot_plot_plot']";
+  "grid grid-cols-[2.5rem_52px_minmax(150px,1fr)_auto_8rem] items-center gap-5 px-card-x py-card-y [grid-template-areas:'rank_avatar_id_plot_score'] max-wide:grid-cols-[2.5rem_52px_minmax(0,1fr)_auto] max-wide:gap-y-4 max-wide:[grid-template-areas:'rank_avatar_id_score'_'plot_plot_plot_plot'] max-phone:grid-cols-[2rem_42px_minmax(0,1fr)] max-phone:gap-x-3.5 max-phone:gap-y-3.5 max-phone:[grid-template-areas:'rank_avatar_id'_'score_score_score'_'plot_plot_plot']";
 
 /** The card shell: border, background and the staggered entrance. */
 const ROW_CARD =

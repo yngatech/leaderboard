@@ -64,7 +64,7 @@ function heroHtml(total: number, caption: string, extra: Html | null = null): Ht
       ${formatNumber(total)}
     </p>
     <h2
-      class="mt-3.5 max-w-[44ch] font-mono text-body font-normal text-secondary"
+      class="mt-3.5 max-w-[44ch] font-mono text-body leading-relaxed font-normal text-secondary"
       id="pulse-heading"
     >
       ${caption}
@@ -103,7 +103,7 @@ const PLOT_PANEL = `rounded-card border border-line-soft ${CARD_WELL}`;
 
 function missingNoteHtml(missing: string[]): Html | null {
   if (missing.length === 0) return null;
-  return html`<p class="mt-4.5 text-meta text-muted">
+  return html`<p class="mt-4.5 text-meta leading-relaxed text-muted">
     No GitHub data came back for ${missing.join(", ")}. The account may have been renamed or
     removed.
   </p>`;
@@ -112,12 +112,12 @@ function missingNoteHtml(missing: string[]): Html | null {
 /** The "Nothing here." card, shared by the 404 page and an unknown login. */
 function nothingHereHtml(detail: string, thisYear: number): Html {
   return html`<section
-    class="mt-page ${SURFACE} p-card"
+    class="mt-page ${SURFACE} p-6"
   >
     <p class="type-subhead text-ink">
       Nothing here.
     </p>
-    <p class="mt-2 max-w-[60ch] text-body text-secondary">${detail}</p>
+    <p class="mt-2 max-w-[60ch] text-body leading-relaxed text-secondary">${detail}</p>
     <a
       class="mt-4.5 ${BUTTON}"
       href="/"
@@ -326,7 +326,7 @@ export function allPageHtml(options: AllPageOptions): string {
 --------------------------------------------------------------------------- */
 
 /** Register one: who this is, and the number the whole card is about. */
-const CARD_HEAD = "flex flex-wrap items-center gap-x-5 gap-y-4 p-card max-phone:gap-x-4";
+const CARD_HEAD = "flex flex-wrap items-center gap-x-5 gap-y-4 px-card-x py-5 max-phone:gap-x-4 max-phone:py-4";
 
 
 /** The hairline between fields: vertical while they sit side by side, and
@@ -334,7 +334,7 @@ const CARD_HEAD = "flex flex-wrap items-center gap-x-5 gap-y-4 p-card max-phone:
 const LEDGER_RULE =
   "border-l border-line-soft pl-5 max-phone:border-t max-phone:border-l-0 max-phone:pt-3 max-phone:pl-0";
 
-const LEDGER_GRID = "grid gap-x-5 gap-y-3 font-mono text-body";
+const LEDGER_GRID = "grid gap-x-5 gap-y-3 font-mono text-body leading-normal";
 
 /** One figure per ledger anchors it; the rest of the band stays sentence-sized. */
 const LEDGER_FIGURE = "type-figure text-ink";
@@ -391,9 +391,9 @@ export interface UserPageOptions {
 
 /** A snippet to paste, and the button that appears once there is a clipboard. */
 function snippetRowHtml(id: string, snippet: string): Html {
-  return html`<div class="${SURFACE} flex min-w-0 items-start gap-3 p-card max-phone:flex-wrap">
+  return html`<div class="${SURFACE} flex min-w-0 items-start gap-3 p-4 max-phone:flex-wrap">
     <code
-      class="min-w-0 flex-1 overflow-x-auto font-mono text-meta break-all whitespace-pre-wrap text-secondary"
+      class="min-w-0 flex-1 overflow-x-auto font-mono text-meta leading-relaxed break-all whitespace-pre-wrap text-secondary"
       id="${id}"
       >${snippet}</code
     >
@@ -454,7 +454,7 @@ function cardSectionHtml(login: string): Html {
       </div>
       ${snippetRowHtml("badge-snippet", badgeSnippet)}
     </div>
-    <p class="mt-4 text-meta text-muted">
+    <p class="mt-4 text-meta leading-relaxed text-muted">
       GitHub proxies and caches README images, so a card or badge there can lag this page by a few
       hours.
     </p>
@@ -594,7 +594,7 @@ function allTimeMilestoneHtml(total: number): Html | null {
     role="group"
     aria-label="All-time contribution goal"
   >
-    <p class="text-meta text-muted">
+    <p class="text-meta leading-relaxed text-muted">
       <strong class="font-medium text-ink tabular-nums">${formatNumber(target - total)}</strong>
       to <strong class="font-medium text-ink tabular-nums">${formatNumber(target)}</strong> all time
     </p>
@@ -649,10 +649,10 @@ function liveYearSectionHtml(options: LiveYearSectionOptions): Html {
   const { user, boardUser, grid, peak, goals, boardRank, year, leadsYear } = options;
   if (!boardUser || !grid) {
     return html`<section
-      class="animate-rise ${SURFACE} p-card [animation-delay:90ms]"
+      class="animate-rise ${SURFACE} px-card-x py-card-y [animation-delay:90ms]"
       aria-label="${user.login} in ${year}"
     >
-      <p class="text-body text-secondary">
+      <p class="text-body leading-relaxed text-secondary">
         No GitHub data came back for ${user.login} in ${year}.
       </p>
       ${options.dayPanel}
@@ -871,13 +871,13 @@ export function unknownUserPageHtml(chrome: SiteChrome, login: string): string {
 
 export function errorPageHtml(chrome: SiteChrome, message: string): string {
   const main = html`<section
-    class="mt-page rounded-card border border-heat-3/45 bg-heat-3/8 p-card"
+    class="mt-page rounded-card border border-heat-3/45 bg-heat-3/8 p-6"
     role="alert"
   >
     <p class="type-subhead text-ink">
       The board didn't load.
     </p>
-    <p class="mt-2 max-w-[60ch] text-body text-secondary">${message}</p>
+    <p class="mt-2 max-w-[60ch] text-body leading-relaxed text-secondary">${message}</p>
     <a
       class="mt-4.5 ${BUTTON}"
       href=""

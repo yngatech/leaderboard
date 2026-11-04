@@ -25,7 +25,7 @@ export function insightsHtml(data: PrInsights): Html {
     aside: html`<p class="text-meta">${formatNumber(data.total)} public PRs · ${data.year}</p>`,
   });
   if (data.total < MIN_INSIGHT_PRS) return html`<section id="pr-insights" aria-labelledby="pr-insights-heading" class="mt-section scroll-mt-4">
-    ${heading}<p class="text-body text-muted">Insights appear after at least ${MIN_INSIGHT_PRS} public PRs.</p>
+    ${heading}<p class="text-body leading-relaxed text-muted">Insights appear after at least ${MIN_INSIGHT_PRS} public PRs.</p>
   </section>`;
   const size = data.size;
   const intents = Object.entries(data.intent.mix) as [Intent, number][];
@@ -34,7 +34,7 @@ export function insightsHtml(data: PrInsights): Html {
   const providerMentions = data.agents.providers.reduce((sum, provider) => sum + provider.count, 0);
   return html`<section id="pr-insights" aria-labelledby="pr-insights-heading" class="mt-section scroll-mt-4">
     ${heading}
-    <div class="${CARD} border-line-soft p-card text-body text-secondary">
+    <div class="${CARD} border-line-soft px-card-x py-card-y text-body leading-relaxed text-secondary">
     <div class="grid grid-cols-2 gap-7 max-phone:grid-cols-1">
       <div>
         <h3 class="${LEDGER_TERM}">size</h3>

@@ -7,7 +7,7 @@ import { html, type Html } from "../html.ts";
    sees every utility.
 --------------------------------------------------------------------------- */
 
-/** Any bordered panel at rest. Pair with `p-card` or the registers below. */
+/** Any bordered panel at rest. Pair with `px-card-x py-card-y` or the registers below. */
 export const SURFACE = "rounded-card border border-line-soft bg-panel";
 
 /** The card shell. Border colour is chosen per chapter: gold marks a leader,
@@ -18,10 +18,10 @@ export const CARD = "animate-rise overflow-hidden rounded-card border bg-panel";
 export const LEAD_EDGE = "border-accent/40";
 
 /** Register two: a plot recessed into its card and still free to scroll. */
-export const CARD_WELL = "overflow-x-auto surface-well p-card";
+export const CARD_WELL = "overflow-x-auto surface-well px-card-x py-card-y";
 
 /** Register three: the ledger, a shade under the well like a row's goals band. */
-export const CARD_LEDGER = "border-t border-line-soft bg-scrim p-card";
+export const CARD_LEDGER = "border-t border-line-soft bg-scrim px-card-x py-card-y";
 
 /** One label treatment across profile ledgers and contribution breakdowns. */
 export const LEDGER_TERM = "text-meta font-medium text-secondary";

@@ -47,15 +47,13 @@
   /* Mono text has three sizes and nothing between them: `body` for anything
      read as a sentence or a value, `meta` for labels, captions and counts,
      `fine` for footnotes. `value` is a mono figure that has to stand out from
-     its caption. Display sizes are whole roles, see the type-* utilities. */
+     its caption. Display sizes are whole roles, see the type-* utilities.
+     None of them sets a line height: single lines keep the face's own, and
+     wrapping prose opts into `leading-relaxed`. */
   --text-body: 0.78rem;
-  --text-body--line-height: 1.65;
   --text-meta: 0.72rem;
-  --text-meta--line-height: 1.6;
   --text-fine: 0.68rem;
-  --text-fine--line-height: 1.5;
   --text-value: 0.95rem;
-  --text-value--line-height: 1.3;
   /* SVG labels, in the plot's own units. */
   --text-axis: 10px;
 
@@ -67,11 +65,12 @@
   --radius-card: 1rem;
 
   /* Vertical rhythm: `page` opens the main column and the footer, `section`
-     separates sections inside it. `card` is every panel's inset, and narrows
-     on a phone without a variant. */
+     separates sections inside it. `card-x` and `card-y` are every panel's
+     inset, wider than tall, and both narrow on a phone without a variant. */
   --spacing-page: clamp(2.5rem, 6vw, 4rem);
   --spacing-section: clamp(2.25rem, 5vw, 3.25rem);
-  --spacing-card: clamp(1rem, 2.6vw, 1.3rem);
+  --spacing-card-x: clamp(1rem, 2.6vw, 1.3rem);
+  --spacing-card-y: clamp(0.875rem, 2vw, 1rem);
 
   /* The board is laid out desktop-first, so these are only ever read through
      the max-* variants: max-wide: is the old (max-width: 1120px) step where a
@@ -176,7 +175,7 @@
    career total. */
 @utility type-headline {
   font-family: var(--font-display);
-  font-size: clamp(2rem, 5vw, 2.8rem);
+  font-size: clamp(1.9rem, 5vw, 2.6rem);
   font-weight: 800;
   line-height: 1;
   letter-spacing: -0.04em;

@@ -573,7 +573,7 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
                 class="block overflow-hidden text-meta leading-none font-medium text-ellipsis text-ink"
                 >${entry.item.login}</span
               ><span
-                class="mt-1 flex items-baseline gap-2 text-fine leading-none"
+                class="mt-0.5 flex items-baseline gap-2 text-fine leading-none"
                 ><span class="text-muted">${formatRank(entry.rank)}</span
                 ><span class="text-secondary tabular-nums"
                   >${formatNumber(entry.item.total)}</span
@@ -614,7 +614,7 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
   >
     ${sectionHeadingHtml("cumulative contributions", { first: true, headingId: "climb-heading" })}
     <div
-      class="rounded-card border border-line-soft surface-well p-card max-phone:px-2.5"
+      class="rounded-card border border-line-soft surface-well px-4 pt-3.5 pb-3 max-phone:px-2.5 max-phone:pt-3 max-phone:pb-2"
     >
       <div class="relative w-full">
         <svg

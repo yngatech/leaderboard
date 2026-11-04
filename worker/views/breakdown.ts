@@ -109,7 +109,7 @@ export function breakdownHtml(data: ContributionBreakdown): Html {
     ...hiddenSegments(data),
   ];
   const year = data.window.kind === "year" ? data.window.year : Number(data.window.date.slice(0, 4));
-  return html`<section id="year-breakdown" class="${CARD} border-line-soft p-card font-mono text-body text-secondary">
+  return html`<section id="year-breakdown" class="${CARD} border-line-soft px-card-x py-card-y font-mono text-body leading-relaxed text-secondary">
     <header class="mb-3.5"><h3><strong class="mr-1.5 type-figure-lg text-accent">${formatNumber(data.calendarTotal)}</strong> ${contributions(data.calendarTotal)} in ${year} so far</h3></header>
     ${barHtml(parts, "h-2.5")}${splitHtml(parts)}${discrepancyHtml(data)}
     ${publicTotal > 0 ? html`
@@ -118,7 +118,7 @@ export function breakdownHtml(data: ContributionBreakdown): Html {
       <dl class="mt-3 grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-5 gap-y-3">
         ${data.kinds.filter((k) => k.total > 0).map((k) => html`<div>
           <dt class="${LEDGER_TERM} flex items-center gap-1.5"><span aria-hidden="true" class="${COLORS[k.kind]} inline-block size-2 rounded-cell"></span>${LABELS[k.kind]}</dt>
-          <dd class="mt-0.5"><strong class="${LEDGER_VALUE} text-value">${formatNumber(k.total)}</strong><span class="block text-meta text-muted">${CAPTIONS[k.kind]}</span></dd>
+          <dd class="mt-0.5"><strong class="${LEDGER_VALUE} text-value">${formatNumber(k.total)}</strong><span class="block text-meta leading-snug text-muted">${CAPTIONS[k.kind]}</span></dd>
         </div>`)}
       </dl>
       <h4 class="${LEDGER_TERM} mt-5 mb-2.5">top repositories</h4>
@@ -144,7 +144,7 @@ export function dayBreakdownHtml(
   const caption = formatDayLong(date).replace(",", "");
   const parts = publicSegments(data);
   const labels = parts.map((s) => ({ ...s, label: s.count === 1 ? (s.label === "pull requests" ? "pull request" : s.label === "repos created" ? "repo created" : s.label.slice(0, -1)) : s.label })).sort((a, b) => b.count - a.count);
-  return html`<section id="day-breakdown" data-date="${date}"${tags} class="${CARD_LEDGER} font-mono text-body text-secondary">
+  return html`<section id="day-breakdown" data-date="${date}"${tags} class="${CARD_LEDGER} font-mono text-body leading-relaxed text-secondary">
     <header class="mb-3.5 flex items-baseline justify-between gap-4"><h3><strong class="mr-1.5 type-figure text-accent">${formatNumber(data.calendarTotal)}</strong> ${contributions(data.calendarTotal)} on ${Number(date.slice(0, 4)) === pageYear ? caption.replace(/ \d{4}$/, "") : caption}</h3>${close}</header>
     ${barHtml([...parts, ...hiddenSegments(data)], "h-2.5")}
     ${splitHtml([...labels, ...hiddenSegments(data)])}${discrepancyHtml(data)}
