@@ -270,7 +270,7 @@ Summaries have no automatic expiry and are available across Cloudflare locations
 ## Development
 
 ```sh
-npm install
+./scripts/setup.sh   # pinned Node, npm ci, Playwright Chromium
 npm run dev          # vite on :5173, the real Worker in workerd
 ```
 
@@ -283,7 +283,6 @@ in the Worker: fingerprinted assets in production, plain module URLs in dev.
 ```sh
 npm run typecheck
 npm test             # fast unit and renderer tests
-npx playwright install chromium # once per machine
 npm run test:e2e     # progressive-enhancement browser tests
 npm run test:e2e:ui  # interactive runner, opened in T3 Preview
 npm run test:worker  # build both alarm modes and run integration tests in workerd
@@ -295,6 +294,12 @@ npm run deploy       # typecheck, build, wrangler deploy
 `vite build` writes the client to `dist/client` and the Worker plus a generated
 `wrangler.json` to `dist/leaderboard`; `wrangler deploy` picks that up on its
 own, so `wrangler.jsonc` at the root stays the file you edit.
+
+### Toolchain
+
+`.node-version` pins Node. [mise](https://mise.jdx.dev/) reads it locally and in
+CI (`jdx/mise-action`), and Workers Builds reads it directly. `./scripts/setup.sh`
+installs it with mise; T3 runs the script for each new worktree.
 
 ## Pull request previews
 
