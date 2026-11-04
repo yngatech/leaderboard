@@ -557,17 +557,10 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
   }
 
   // The key, demoted to whatever the chart didn't already say. With the rail
-  // up it is the remainder — announced as such — and with three accounts or
-  // fewer there is no remainder, so it goes away entirely.
+  // up it is the remainder, and with three accounts or fewer there is no
+  // remainder, so it goes away entirely.
   let key: Html | null = null;
   if (keyItems.length > 0) {
-    const heading = rail
-      ? html`<h3
-          class="pt-px text-[0.72rem] leading-[1.4] font-medium text-secondary max-phone:basis-full"
-        >
-          the rest
-        </h3>`
-      : null;
     const listLabel = rail
       ? "Contributions so far, accounts ranked fourth and below"
       : "Contributions so far, by account";
@@ -600,7 +593,7 @@ export function cumulativeChartHtml(options: CumulativeChartOptions): Html {
     key = html`<div
       class="mt-[0.85rem] flex flex-wrap items-start gap-x-[1.1rem] gap-y-[0.6rem]"
     >
-      ${heading}<ul
+      <ul
         class="flex min-w-0 flex-1 list-none flex-wrap gap-x-[1.5rem] gap-y-[0.4rem] p-0 max-phone:grid max-phone:grid-cols-[repeat(auto-fit,minmax(140px,1fr))] max-phone:gap-x-4 max-phone:gap-y-[0.45rem]"
         aria-label="${listLabel}"
       >
