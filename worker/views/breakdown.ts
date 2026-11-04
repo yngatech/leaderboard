@@ -1,7 +1,7 @@
 import type { ContributionBreakdown, ContributionKind } from "../../shared/types.ts";
 import { formatDayLong, formatNumber } from "../../shared/format.ts";
 import { html, type Html } from "../html.ts";
-import { CARD, CARD_LEDGER, LEDGER_TERM, LEDGER_VALUE } from "./card-styles.ts";
+import { CARD, CARD_LEDGER, LEDGER_TERM, LEDGER_VALUE } from "./ui.ts";
 
 const LABELS: Record<ContributionKind, string> = {
   commits: "commits",
@@ -52,19 +52,19 @@ function hiddenSegments(data: ContributionBreakdown): Segment[] {
 
 function barHtml(parts: Segment[], height: string): Html {
   return html`<div role="img" aria-label="${parts.map((s) => `${s.label}: ${formatNumber(s.count)}`).join(", ") || "0 contributions"}"
-    class="flex ${height} gap-[2px] overflow-hidden rounded-[3px]">
+    class="flex ${height} gap-0.5 overflow-hidden rounded-cell">
     ${parts.map((s) => html`<span class="${s.color} min-w-[2px]" style="flex:${s.count} 0 0" data-breakdown-count="${s.count}"></span>`)}
   </div>`;
 }
 
 function splitHtml(parts: Segment[]): Html {
-  return html`<ul class="mt-2 flex flex-wrap gap-x-[22px] gap-y-1 text-[0.72rem]">
+  return html`<ul class="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-meta">
     ${parts.map((s) => html`<li><strong class="${LEDGER_VALUE}">${formatNumber(s.count)}</strong> ${s.label}</li>`)}
   </ul>`;
 }
 
 function discrepancyHtml(data: ContributionBreakdown): Html | null {
-  return data.other < 0 ? html`<p class="mt-2 text-[0.72rem] text-muted">GitHub's per-type counts come to ${formatNumber(-data.other)} more than its calendar total.</p>` : null;
+  return data.other < 0 ? html`<p class="mt-2 text-meta text-muted">GitHub's per-type counts come to ${formatNumber(-data.other)} more than its calendar total.</p>` : null;
 }
 
 /** Public repositories merge across kinds; a capped kind leaves the remainder's repository count unknown. */
@@ -87,14 +87,14 @@ function repositoriesHtml(data: ContributionBreakdown, limit: number): Html {
   return html`<ol>
     ${ordered.slice(0, limit).map((r) => {
       const split = [...r.parts].sort((a, b) => b.count - a.count).map((s) => `${formatNumber(s.count)} ${s.label}`).join(" · ");
-      return html`<li class="grid grid-cols-[minmax(0,15rem)_minmax(0,1fr)_3.5rem] items-center gap-3.5 py-[5px] max-phone:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_2.5rem] max-phone:gap-2">
-        <a class="truncate text-ink hover:text-accent hover:underline" href="${r.url}" target="_blank" rel="noreferrer noopener">${r.name}</a>
-        <div><div style="width:${(r.count / ordered[0].count) * 100}%">${barHtml(r.parts, "h-[6px]")}</div></div>
+      return html`<li class="grid grid-cols-[minmax(0,15rem)_minmax(0,1fr)_3.5rem] items-center gap-3.5 py-1.5 max-phone:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_2.5rem] max-phone:gap-2">
+        <a class="truncate text-ink transition-colors hover:text-accent hover:underline hover:underline-offset-4" href="${r.url}" target="_blank" rel="noreferrer noopener">${r.name}</a>
+        <div><div style="width:${(r.count / ordered[0].count) * 100}%">${barHtml(r.parts, "h-1.5")}</div></div>
         <span class="text-right tabular-nums" title="${split}">${formatNumber(r.count)}<span class="sr-only">: ${split}</span></span>
       </li>`;
     })}
   </ol>
-  ${remainder > 0 ? html`<p class="mt-1.5 text-[0.72rem] text-muted">and ${formatNumber(remainder)} more in ${unlisted > 0 ? "other repositories" : `${formatNumber(rest.length)} other ${rest.length === 1 ? "repository" : "repositories"}`}</p>` : null}`;
+  ${remainder > 0 ? html`<p class="mt-1.5 text-meta text-muted">and ${formatNumber(remainder)} more in ${unlisted > 0 ? "other repositories" : `${formatNumber(rest.length)} other ${rest.length === 1 ? "repository" : "repositories"}`}</p>` : null}`;
 }
 
 function contributions(count: number): string {
@@ -109,19 +109,19 @@ export function breakdownHtml(data: ContributionBreakdown): Html {
     ...hiddenSegments(data),
   ];
   const year = data.window.kind === "year" ? data.window.year : Number(data.window.date.slice(0, 4));
-  return html`<section id="year-breakdown" class="${CARD} border-line-soft px-[1.3rem] py-[1.15rem] font-mono text-[0.75rem] leading-[1.7] text-secondary max-phone:px-4">
-    <header class="mb-3.5"><h3><strong class="mr-1.5 font-display text-[30px] leading-none font-extrabold tracking-[-0.03em] tabular-nums text-accent">${formatNumber(data.calendarTotal)}</strong> ${contributions(data.calendarTotal)} in ${year} so far</h3></header>
-    ${barHtml(parts, "h-[10px]")}${splitHtml(parts)}${discrepancyHtml(data)}
+  return html`<section id="year-breakdown" class="${CARD} border-line-soft px-card-x py-card-y font-mono text-body leading-relaxed text-secondary">
+    <header class="mb-3.5"><h3><strong class="mr-1.5 type-figure-lg text-accent">${formatNumber(data.calendarTotal)}</strong> ${contributions(data.calendarTotal)} in ${year} so far</h3></header>
+    ${barHtml(parts, "h-2.5")}${splitHtml(parts)}${discrepancyHtml(data)}
     ${publicTotal > 0 ? html`
-      <h4 class="${LEDGER_TERM} mt-[22px] mb-2.5">public, by type</h4>
-      ${barHtml(kinds, "h-[14px]")}
-      <dl class="mt-3 grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-[18px] gap-y-3">
+      <h4 class="${LEDGER_TERM} mt-5 mb-2.5">public, by type</h4>
+      ${barHtml(kinds, "h-2.5")}
+      <dl class="mt-3 grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-x-5 gap-y-3">
         ${data.kinds.filter((k) => k.total > 0).map((k) => html`<div>
-          <dt class="${LEDGER_TERM} flex items-center gap-1.5"><span aria-hidden="true" class="${COLORS[k.kind]} inline-block size-2 rounded-[2px]"></span>${LABELS[k.kind]}</dt>
-          <dd class="mt-0.5"><strong class="${LEDGER_VALUE} text-[15px]">${formatNumber(k.total)}</strong><span class="block text-[0.72rem] leading-[1.4] text-muted">${CAPTIONS[k.kind]}</span></dd>
+          <dt class="${LEDGER_TERM} flex items-center gap-1.5"><span aria-hidden="true" class="${COLORS[k.kind]} inline-block size-2 rounded-cell"></span>${LABELS[k.kind]}</dt>
+          <dd class="mt-0.5"><strong class="${LEDGER_VALUE} text-value">${formatNumber(k.total)}</strong><span class="block text-meta leading-snug text-muted">${CAPTIONS[k.kind]}</span></dd>
         </div>`)}
       </dl>
-      <h4 class="${LEDGER_TERM} mt-[22px] mb-2.5">top repositories</h4>
+      <h4 class="${LEDGER_TERM} mt-5 mb-2.5">top repositories</h4>
       ${repositoriesHtml(data, 5)}` : html`<p class="mt-4 text-muted">No public contributions this year.</p>`}
   </section>`;
 }
@@ -137,16 +137,16 @@ export function dayBreakdownHtml(
   const tags = measured
     ? html` data-cell-label="${measured.cell}" data-year-label="${measured.year}"`
     : null;
-  const close = html`<a data-day-close class="shrink-0 text-[0.72rem] text-secondary hover:text-accent" href="/u/${login}#year">close ×</a>`;
+  const close = html`<a data-day-close class="shrink-0 text-meta text-secondary transition-colors hover:text-accent" href="/u/${login}#year">close ×</a>`;
   if (!data || data.window.kind !== "day") {
-    return html`<section id="day-breakdown" data-date="${date}"${tags} class="${CARD_LEDGER} flex items-baseline justify-between gap-4 text-[0.75rem] text-muted"><p>Breakdown unavailable for this day right now.</p>${close}</section>`;
+    return html`<section id="day-breakdown" data-date="${date}"${tags} class="${CARD_LEDGER} flex items-baseline justify-between gap-4 text-body text-muted"><p>Breakdown unavailable for this day right now.</p>${close}</section>`;
   }
   const caption = formatDayLong(date).replace(",", "");
   const parts = publicSegments(data);
   const labels = parts.map((s) => ({ ...s, label: s.count === 1 ? (s.label === "pull requests" ? "pull request" : s.label === "repos created" ? "repo created" : s.label.slice(0, -1)) : s.label })).sort((a, b) => b.count - a.count);
-  return html`<section id="day-breakdown" data-date="${date}"${tags} class="${CARD_LEDGER} font-mono text-[0.75rem] leading-[1.7] text-secondary">
-    <header class="mb-3.5 flex items-baseline justify-between gap-4"><h3><strong class="mr-1.5 font-display text-xl leading-none font-extrabold tracking-[-0.03em] tabular-nums text-accent">${formatNumber(data.calendarTotal)}</strong> ${contributions(data.calendarTotal)} on ${Number(date.slice(0, 4)) === pageYear ? caption.replace(/ \d{4}$/, "") : caption}</h3>${close}</header>
-    ${barHtml([...parts, ...hiddenSegments(data)], "h-[10px]")}
+  return html`<section id="day-breakdown" data-date="${date}"${tags} class="${CARD_LEDGER} font-mono text-body leading-relaxed text-secondary">
+    <header class="mb-3.5 flex items-baseline justify-between gap-4"><h3><strong class="mr-1.5 type-figure text-accent">${formatNumber(data.calendarTotal)}</strong> ${contributions(data.calendarTotal)} on ${Number(date.slice(0, 4)) === pageYear ? caption.replace(/ \d{4}$/, "") : caption}</h3>${close}</header>
+    ${barHtml([...parts, ...hiddenSegments(data)], "h-2.5")}
     ${splitHtml([...labels, ...hiddenSegments(data)])}${discrepancyHtml(data)}
     ${parts.length > 0 ? html`<div class="mt-3">${repositoriesHtml(data, 4)}</div>` : null}
   </section>`;

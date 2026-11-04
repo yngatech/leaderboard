@@ -1,6 +1,19 @@
 import { insightsHtml } from "./insights.ts";
 import type { PrInsights } from "../insights.ts";
-import { CARD, CARD_LEDGER, LEDGER_TERM, LEDGER_VALUE } from "./card-styles.ts";
+import {
+  AVATAR,
+  BUTTON,
+  BUTTON_QUIET,
+  CARD,
+  CARD_LEDGER,
+  CARD_WELL,
+  LEAD_EDGE,
+  LEDGER_TERM,
+  LEDGER_VALUE,
+  NAME_LINK,
+  SURFACE,
+  sectionHeadingHtml,
+} from "./ui.ts";
 import type {
   AllTime,
   AllTimeUser,
@@ -46,12 +59,12 @@ const SITE_DESCRIPTION =
 function heroHtml(total: number, caption: string, extra: Html | null = null): Html {
   return html`<div>
     <p
-      class="bg-[linear-gradient(96deg,var(--color-heat-4)_12%,var(--color-heat-3)_58%,var(--color-heat-2)_96%)] bg-clip-text font-display text-[clamp(3.6rem,12vw,7.5rem)] leading-[0.8] font-extrabold tracking-[-0.055em] tabular-nums text-transparent"
+      class="bg-[linear-gradient(96deg,var(--color-heat-4)_12%,var(--color-heat-3)_58%,var(--color-heat-2)_96%)] bg-clip-text type-hero text-transparent"
     >
       ${formatNumber(total)}
     </p>
     <h2
-      class="mt-[0.9rem] max-w-[44ch] font-mono text-[0.8rem] leading-[1.6] font-normal text-secondary"
+      class="mt-3.5 max-w-[44ch] font-mono text-body leading-relaxed font-normal text-secondary"
       id="pulse-heading"
     >
       ${caption}
@@ -66,40 +79,31 @@ function legendHtml(withFuture: boolean): Html {
     .map(
       (level) =>
         html`<i
-          class="size-[11px] rounded-[3px] bg-heat-0 data-[level=1]:bg-heat-1 data-[level=2]:bg-heat-2 data-[level=3]:bg-heat-3 data-[level=4]:bg-heat-4"
+          class="size-[11px] rounded-cell bg-heat-0 data-[level=1]:bg-heat-1 data-[level=2]:bg-heat-2 data-[level=3]:bg-heat-3 data-[level=4]:bg-heat-4"
           data-level="${level}"
         ></i>`,
     );
   const future = withFuture
     ? html`<span class="w-2" aria-hidden="true"></span
         ><i
-          class="size-[11px] rounded-[3px] border border-future-line bg-transparent"
+          class="size-[11px] rounded-cell border border-future-line bg-transparent"
           data-state="future"
         ></i
         ><span>to come</span>`
     : null;
   return html`<div
-    class="flex items-center gap-[0.32rem] text-muted"
+    class="flex items-center gap-1.5 text-muted"
   >
     <span>less</span>${swatches}<span>more</span>${future}
   </div>`;
 }
 
-const PLOT_PANEL =
-  "overflow-x-auto rounded-2xl border border-line bg-[linear-gradient(180deg,#12162b_0%,#0d1122_100%)] px-[1.15rem] pt-4 pb-[0.9rem]";
+const PLOT_PANEL = `rounded-card border border-line-soft ${CARD_WELL}`;
 
-const SECTION_RULE =
-  "mt-[clamp(2.25rem,5vw,3.25rem)] mb-4 flex items-center gap-[0.85rem] text-[0.78rem] font-medium text-secondary";
-
-function sectionRuleHtml(label: string | number, id?: string): Html {
-  return html`<div${id ? html` id="${id}"` : null} class="${SECTION_RULE}${id ? " scroll-mt-3" : ""}">
-    <span>${label}</span><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span>
-  </div>`;
-}
 
 function missingNoteHtml(missing: string[]): Html | null {
   if (missing.length === 0) return null;
-  return html`<p class="mt-[1.1rem] text-[0.72rem] leading-[1.6] text-muted">
+  return html`<p class="mt-4.5 text-meta leading-relaxed text-muted">
     No GitHub data came back for ${missing.join(", ")}. The account may have been renamed or
     removed.
   </p>`;
@@ -108,14 +112,14 @@ function missingNoteHtml(missing: string[]): Html | null {
 /** The "Nothing here." card, shared by the 404 page and an unknown login. */
 function nothingHereHtml(detail: string, thisYear: number): Html {
   return html`<section
-    class="mt-[clamp(2.5rem,6vw,4rem)] rounded-2xl border border-line bg-panel p-[1.6rem]"
+    class="mt-page ${SURFACE} p-6"
   >
-    <p class="font-display text-[1.3rem] font-semibold tracking-[-0.02em] text-ink">
+    <p class="type-subhead text-ink">
       Nothing here.
     </p>
-    <p class="mt-2 max-w-[60ch] text-[0.78rem] leading-[1.6] text-secondary">${detail}</p>
+    <p class="mt-2 max-w-[60ch] text-body leading-relaxed text-secondary">${detail}</p>
     <a
-      class="mt-[1.1rem] inline-block cursor-pointer rounded-[9px] border border-accent/50 bg-transparent px-[1.1rem] py-[0.55rem] font-mono text-[0.75rem] tracking-[0.05em] text-accent no-underline transition-colors duration-200 hover:bg-accent/12"
+      class="mt-4.5 ${BUTTON}"
       href="/"
       >Show ${thisYear}</a
     >
@@ -193,10 +197,10 @@ export function yearPageHtml(options: YearPageOptions): string {
   );
 
   const main = html`<section
-      class="mt-[clamp(2.5rem,6vw,4rem)] animate-rise"
+      class="mt-page animate-rise"
       aria-labelledby="pulse-heading"
     >
-      ${hero}<div class="mt-[1.9rem] ${PLOT_PANEL}">${heatmapSvg(pulse, {
+      ${hero}<div class="mt-7.5 ${PLOT_PANEL}">${heatmapSvg(pulse, {
     cell: 17,
     gap: 3,
     months: true,
@@ -205,13 +209,13 @@ export function yearPageHtml(options: YearPageOptions): string {
     label: `All ${board.length} accounts combined, day by day, in ${year}`,
   })}</div>
       <div
-        class="mt-[0.9rem] flex flex-wrap items-center justify-between gap-x-6 gap-y-3 text-[0.72rem] text-secondary"
+        class="mt-3.5 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 text-meta text-secondary"
       >
         ${busiestLine}${legendHtml(live)}
       </div>
     </section>
-    ${sectionRuleHtml("the board")}
-    <main class="flex flex-col gap-[0.6rem]">${rowsHtml}</main>
+    ${sectionHeadingHtml("the board")}
+    <main class="flex flex-col gap-2.5">${rowsHtml}</main>
     ${missingNoteHtml(options.missing)}${chartHtml}
     ${options.achievements ? recentAchievementsHtml(options.achievements) : null}`;
 
@@ -276,10 +280,10 @@ export function allPageHtml(options: AllPageOptions): string {
   const hero = heroHtml(total, `contributions from ${users.length} accounts, ${span}`);
 
   const main = html`<section
-      class="mt-[clamp(2.5rem,6vw,4rem)] animate-rise"
+      class="mt-page animate-rise"
       aria-labelledby="pulse-heading"
     >
-      ${hero}<div class="mt-[1.9rem] ${PLOT_PANEL}">${yearStripSvg(pulse, {
+      ${hero}<div class="mt-7.5 ${PLOT_PANEL}">${yearStripSvg(pulse, {
     cell: 70,
     gap: 6,
     labels: true,
@@ -287,13 +291,13 @@ export function allPageHtml(options: AllPageOptions): string {
     hrefFor: (year) => hrefForYear(year, chrome.thisYear),
   })}</div>
       <div
-        class="mt-[0.9rem] flex flex-wrap items-center justify-between gap-x-6 gap-y-3 text-[0.72rem] text-secondary"
+        class="mt-3.5 flex flex-wrap items-center justify-between gap-x-6 gap-y-3 text-meta text-secondary"
       >
         ${bestLine}${legendHtml(false)}
       </div>
     </section>
-    ${sectionRuleHtml("the board")}
-    <main class="flex flex-col gap-[0.6rem]">${rowsHtml}</main>
+    ${sectionHeadingHtml("the board")}
+    <main class="flex flex-col gap-2.5">${rowsHtml}</main>
     ${missingNoteHtml(options.missing)}`;
 
   return pageHtml({
@@ -322,27 +326,19 @@ export function allPageHtml(options: AllPageOptions): string {
 --------------------------------------------------------------------------- */
 
 /** Register one: who this is, and the number the whole card is about. */
-const CARD_HEAD =
-  "flex flex-wrap items-center gap-x-5 gap-y-4 px-[1.3rem] py-[1.25rem] max-phone:gap-x-4 max-phone:px-4 max-phone:py-4";
-
-/** Register two: the plot, recessed into the card and still free to scroll.
- *  The hairline above it is added only where a head sits on top. */
-const CARD_WELL =
-  "overflow-x-auto bg-[linear-gradient(180deg,#12162b_0%,#0d1122_100%)] px-[1.3rem] pt-4 pb-[0.9rem] max-phone:px-4";
+const CARD_HEAD = "flex flex-wrap items-center gap-x-5 gap-y-4 px-card-x py-5 max-phone:gap-x-4 max-phone:py-4";
 
 
 /** The hairline between fields: vertical while they sit side by side, and
  *  horizontal once a phone stacks them. */
 const LEDGER_RULE =
-  "border-l border-line-soft pl-5 max-phone:border-t max-phone:border-l-0 max-phone:pt-[0.75rem] max-phone:pl-0";
+  "border-l border-line-soft pl-5 max-phone:border-t max-phone:border-l-0 max-phone:pt-3 max-phone:pl-0";
 
-const LEDGER_GRID = "grid gap-x-5 gap-y-[0.75rem] font-mono text-[0.74rem] leading-[1.55]";
+const LEDGER_GRID = "grid gap-x-5 gap-y-3 font-mono text-body leading-normal";
 
 /** One figure per ledger anchors it; the rest of the band stays sentence-sized. */
-const LEDGER_FIGURE =
-  "font-display text-[1.5rem] leading-none font-extrabold tracking-[-0.03em] tabular-nums text-ink max-phone:text-[1.35rem]";
-const LEDGER_FIGURE_LEAD =
-  "font-display text-[1.5rem] leading-none font-extrabold tracking-[-0.03em] tabular-nums text-accent max-phone:text-[1.35rem]";
+const LEDGER_FIGURE = "type-figure text-ink";
+const LEDGER_FIGURE_LEAD = "type-figure text-accent";
 
 /** Wide first column, because only that field carries a rail. */
 function ledgerColumns(count: number): string {
@@ -367,7 +363,7 @@ function ledgerHtml(fields: LedgerField[]): Html | null {
       (field, index) =>
         html`<div class="min-w-0${index > 0 ? ` ${LEDGER_RULE}` : ""}">
           <dt class="${LEDGER_TERM}">${field.term}</dt>
-          <dd class="mt-[0.45rem] min-w-0 break-words text-secondary">${field.body}</dd>
+          <dd class="mt-2 min-w-0 break-words text-secondary">${field.body}</dd>
         </div>`,
     );
   return html`<div class="${CARD_LEDGER}">
@@ -395,14 +391,14 @@ export interface UserPageOptions {
 
 /** A snippet to paste, and the button that appears once there is a clipboard. */
 function snippetRowHtml(id: string, snippet: string): Html {
-  return html`<div class="min-w-0 flex items-start gap-3 rounded-xl border border-line-soft bg-panel p-4 max-phone:flex-wrap">
+  return html`<div class="${SURFACE} flex min-w-0 items-start gap-3 p-4 max-phone:flex-wrap">
     <code
-      class="min-w-0 flex-1 overflow-x-auto font-mono text-[0.72rem] leading-[1.7] break-all whitespace-pre-wrap text-secondary"
+      class="min-w-0 flex-1 overflow-x-auto font-mono text-meta leading-relaxed break-all whitespace-pre-wrap text-secondary"
       id="${id}"
       >${snippet}</code
     >
     <button
-      class="shrink-0 cursor-pointer rounded-[9px] border border-line px-[0.8rem] py-[0.4rem] font-mono text-[0.72rem] font-medium text-secondary transition-colors duration-200 hover:border-accent/50 hover:text-accent"
+      class="${BUTTON_QUIET} shrink-0"
       data-copy="${id}"
       hidden
     >
@@ -439,9 +435,7 @@ function cardSectionHtml(login: string): Html {
   return html`<section class="animate-rise [animation-delay:180ms]"
     aria-labelledby="card-heading"
   >
-    <h2 class="${SECTION_RULE}" id="card-heading">
-      <span>for your readme</span><span class="h-px flex-1 bg-line-soft" aria-hidden="true"></span>
-    </h2>
+    ${sectionHeadingHtml("for your readme", { headingId: "card-heading" })}
     <div class="grid grid-cols-2 items-center gap-6 max-phone:grid-cols-1">
       <img
         class="block h-auto w-full max-w-[416px] rounded-[12px]"
@@ -460,7 +454,7 @@ function cardSectionHtml(login: string): Html {
       </div>
       ${snippetRowHtml("badge-snippet", badgeSnippet)}
     </div>
-    <p class="mt-4 text-[0.72rem] leading-[1.6] text-muted">
+    <p class="mt-4 text-meta leading-relaxed text-muted">
       GitHub proxies and caches README images, so a card or badge there can lag this page by a few
       hours.
     </p>
@@ -469,7 +463,7 @@ function cardSectionHtml(login: string): Html {
 
 function followingHtml(user: AllTimeUser): Html | null {
   if (user.followers === null) return null;
-  return html`<p class="mt-[0.4rem] wrap-sep text-[0.72rem] text-muted">
+  return html`<p class="mt-1.5 wrap-sep text-meta text-muted">
     <span>${formatNumber(user.followers ?? 0)} followers</span
     ><span>${formatNumber(user.following ?? 0)} following</span>
   </p>`;
@@ -532,9 +526,7 @@ interface IdentityCardOptions {
 function identityCardHtml(options: IdentityCardOptions): Html {
   const { chrome, user, cells, careerFields, leadsAllTime, sinceCaption } = options;
   return html`<section
-    class="mt-[clamp(2.5rem,6vw,4rem)] ${CARD} ${leadsAllTime
-      ? "border-accent/32"
-      : "border-line-soft"}"
+    class="mt-page ${CARD} ${leadsAllTime ? LEAD_EDGE : "border-line-soft"}"
     aria-labelledby="user-heading"
   >
     <div class="${CARD_HEAD}">
@@ -545,7 +537,7 @@ function identityCardHtml(options: IdentityCardOptions): Html {
         rel="noreferrer noopener"
         tabindex="-1"
         ><img
-          class="size-[72px] rounded-2xl border border-line bg-heat-0 saturate-[0.85] transition-[filter,border-color] duration-200 hover:border-accent/40 hover:saturate-100 max-phone:size-[56px]"
+          class="${AVATAR} size-[72px] hover:border-accent/40 hover:saturate-100 max-phone:size-[56px]"
           src="${user.avatarUrl}"
           alt=""
           width="72"
@@ -553,30 +545,30 @@ function identityCardHtml(options: IdentityCardOptions): Html {
       /></a>
       <div class="min-w-0 flex-1">
         <h2
-          class="font-display text-[clamp(1.6rem,4.5vw,2.2rem)] leading-[1.05] font-extrabold tracking-[-0.03em] break-words"
+          class="type-title break-words"
           id="user-heading"
         >
           <a
-            class="text-ink no-underline hover:text-accent hover:underline hover:underline-offset-[4px]"
+            class="${NAME_LINK}"
             href="${user.url}"
             target="_blank"
             rel="noreferrer noopener"
             >${user.login}</a
           >
         </h2>
-        <p class="mt-[0.35rem] text-[0.78rem] break-words text-secondary">${user.name ?? "—"}</p>
+        <p class="mt-1.5 text-body break-words text-secondary">${user.name ?? "—"}</p>
         ${followingHtml(user)}
       </div>
       <div
         class="ml-auto flex shrink-0 flex-col items-end text-right max-phone:ml-0 max-phone:w-full max-phone:items-start max-phone:text-left"
       >
         <span
-          class="font-display text-[clamp(2.2rem,7vw,3.2rem)] leading-none font-extrabold tracking-[-0.04em] tabular-nums${leadsAllTime
+          class="type-headline${leadsAllTime
             ? " text-accent"
             : ""}"
           >${formatNumber(user.total)}</span
         ><span
-          class="mt-[0.35rem] text-[0.72rem] text-muted"
+          class="mt-1.5 text-meta text-muted"
           >${sinceCaption}</span
         >
         ${allTimeMilestoneHtml(user.total)}
@@ -602,7 +594,7 @@ function allTimeMilestoneHtml(total: number): Html | null {
     role="group"
     aria-label="All-time contribution goal"
   >
-    <p class="text-[0.72rem] leading-[1.6] text-muted">
+    <p class="text-meta leading-relaxed text-muted">
       <strong class="font-medium text-ink tabular-nums">${formatNumber(target - total)}</strong>
       to <strong class="font-medium text-ink tabular-nums">${formatNumber(target)}</strong> all time
     </p>
@@ -619,9 +611,9 @@ function milestoneHtml(boardUser: BoardUser, goals: UserGoals | null): Html | nu
       ? null
       : html` <span class="opacity-60">·</span>
           <span class="tabular-nums">${formatNumber(goals.toMilestone)} to go</span>`;
-  return html`<div class="mt-[0.7rem] max-w-[24rem]">
+  return html`<div class="mt-3 max-w-[24rem]">
     ${goalRailHtml(boardUser.totalContributions, goals.nextMilestone)}
-    <p class="mt-[0.5rem] text-muted">
+    <p class="mt-2 text-muted">
       next milestone at
       <strong class="${LEDGER_VALUE}">${formatNumber(goals.nextMilestone)}</strong>${toGo}
     </p>
@@ -657,10 +649,10 @@ function liveYearSectionHtml(options: LiveYearSectionOptions): Html {
   const { user, boardUser, grid, peak, goals, boardRank, year, leadsYear } = options;
   if (!boardUser || !grid) {
     return html`<section
-      class="animate-rise rounded-2xl border border-line-soft bg-panel px-[1.3rem] py-[1.15rem] [animation-delay:90ms] max-phone:px-4"
+      class="animate-rise ${SURFACE} px-card-x py-card-y [animation-delay:90ms]"
       aria-label="${user.login} in ${year}"
     >
-      <p class="text-[0.78rem] leading-[1.6] text-secondary">
+      <p class="text-body leading-relaxed text-secondary">
         No GitHub data came back for ${user.login} in ${year}.
       </p>
       ${options.dayPanel}
@@ -699,7 +691,7 @@ function liveYearSectionHtml(options: LiveYearSectionOptions): Html {
   });
 
   return html`<section
-    class="${CARD} [animation-delay:90ms] ${leadsYear ? "border-accent/32" : "border-line-soft"}"
+    class="${CARD} [animation-delay:90ms] ${leadsYear ? LEAD_EDGE : "border-line-soft"}"
     aria-label="${user.login} in ${year}"
   >
     <div class="${CARD_WELL}" data-day-slot>
@@ -831,10 +823,10 @@ export function userPageHtml(options: UserPageOptions): string {
   });
 
   // Day links land on the year's heading, so the heatmap stays in view under it.
-  const main = html`${identityCard}${sectionRuleHtml(year, "year")}${liveSection}
+  const main = html`${identityCard}${sectionHeadingHtml(year, { id: "year" })}${liveSection}
     ${options.achievements ? recentAchievementsHtml(options.achievements) : null}
-    ${sectionRuleHtml("where contributions came from")}
-    ${yearBreakdown ? breakdownHtml(yearBreakdown) : html`<p class="text-[0.75rem] text-muted">Breakdown unavailable right now.</p>`}
+    ${sectionHeadingHtml("where contributions came from")}
+    ${yearBreakdown ? breakdownHtml(yearBreakdown) : html`<p class="text-body text-muted">Breakdown unavailable right now.</p>`}
     ${options.insights ? insightsHtml(options.insights) : null}
     ${cardSectionHtml(user.login)}`;
 
@@ -879,15 +871,15 @@ export function unknownUserPageHtml(chrome: SiteChrome, login: string): string {
 
 export function errorPageHtml(chrome: SiteChrome, message: string): string {
   const main = html`<section
-    class="mt-[clamp(2.5rem,6vw,4rem)] rounded-2xl border border-heat-3/45 bg-heat-3/8 p-[1.6rem]"
+    class="mt-page rounded-card border border-heat-3/45 bg-heat-3/8 p-6"
     role="alert"
   >
-    <p class="font-display text-[1.3rem] font-semibold tracking-[-0.02em] text-ink">
+    <p class="type-subhead text-ink">
       The board didn't load.
     </p>
-    <p class="mt-2 max-w-[60ch] text-[0.78rem] leading-[1.6] text-secondary">${message}</p>
+    <p class="mt-2 max-w-[60ch] text-body leading-relaxed text-secondary">${message}</p>
     <a
-      class="mt-[1.1rem] inline-block cursor-pointer rounded-[9px] border border-accent/50 bg-transparent px-[1.1rem] py-[0.55rem] font-mono text-[0.75rem] tracking-[0.05em] text-accent no-underline transition-colors duration-200 hover:bg-accent/12"
+      class="mt-4.5 ${BUTTON}"
       href=""
       >Try again</a
     >

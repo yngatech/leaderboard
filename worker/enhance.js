@@ -78,7 +78,7 @@ if (chart && dataBlock) {
 
     const svgNs = "http://www.w3.org/2000/svg";
     const crosshair = document.createElementNS(svgNs, "line");
-    crosshair.setAttribute("class", "stroke-[rgba(236,234,247,0.35)]");
+    crosshair.setAttribute("class", "stroke-guide");
     crosshair.setAttribute("y1", "18");
     crosshair.setAttribute("y2", String(chart.viewBox.baseVal.height - 22));
     crosshair.style.display = "none";
@@ -86,7 +86,7 @@ if (chart && dataBlock) {
 
     const panel = document.createElement("div");
     panel.className =
-      "pointer-events-none absolute z-10 rounded-[9px] border border-line bg-[rgba(8,10,22,0.95)] px-[0.7rem] py-[0.55rem] font-mono text-[0.72rem] leading-[1.5]";
+      "pointer-events-none absolute z-10 rounded-control border border-line bg-popover px-3 py-2 font-mono text-meta leading-normal";
     panel.style.display = "none";
     const holder = chart.parentElement;
     holder.appendChild(panel);
@@ -120,12 +120,12 @@ if (chart && dataBlock) {
 
       panel.replaceChildren();
       const heading = document.createElement("p");
-      heading.className = "mb-[0.35rem] text-secondary font-medium text-[0.72rem]";
+      heading.className = "mb-1.5 text-secondary font-medium text-meta";
       heading.textContent = date;
       panel.appendChild(heading);
       for (const row of rows) {
         const line = document.createElement("p");
-        line.className = "flex items-baseline gap-[0.55rem] whitespace-nowrap";
+        line.className = "flex items-baseline gap-2 whitespace-nowrap";
         const mark = document.createElement("span");
         mark.className = "inline-block h-[9px] w-[2px] flex-none rounded-full";
         mark.style.background = row.colour;
