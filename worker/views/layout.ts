@@ -48,12 +48,13 @@ export interface PageOptions {
 
 /**
  * The view switcher is a floating glass capsule: top right on a wide screen,
- * along the bottom edge on a phone, where a thumb can reach it. A browser
- * toolbar at the bottom pushes it up rather than covering it. The page
+ * along the bottom edge on a phone, where a thumb can reach it. On an iPhone
+ * it floats top centre instead, because iOS Safari keeps its own glass
+ * toolbar along the bottom and two stacked bars read as clutter. The page
  * scrolls underneath, so it stays one tap away from anywhere.
  */
 const NAV_CAPSULE =
-  "glass fixed top-4 right-[max(clamp(1.1rem,4vw,2.5rem),calc((100%-1180px)/2+clamp(1.1rem,4vw,2.5rem)))] z-40 flex items-center gap-0.5 rounded-full p-1 max-phone:top-auto max-phone:right-auto max-phone:bottom-[calc(0.9rem+env(safe-area-inset-bottom))] max-phone:left-1/2 max-phone:-translate-x-1/2";
+  "glass fixed top-4 right-[max(clamp(1.1rem,4vw,2.5rem),calc((100%-1180px)/2+clamp(1.1rem,4vw,2.5rem)))] z-40 flex items-center gap-0.5 rounded-full p-1 max-phone:top-auto max-phone:right-auto max-phone:bottom-[calc(0.9rem+env(safe-area-inset-bottom))] max-phone:left-1/2 max-phone:ios:top-[calc(0.6rem+env(safe-area-inset-top))] max-phone:ios:bottom-auto max-phone:-translate-x-1/2";
 const NAV_SEGMENT =
   "flex h-9 items-center rounded-full px-3.5 text-body font-medium whitespace-nowrap text-secondary no-underline transition-colors duration-200 hover:bg-glass-thumb hover:text-ink max-phone:px-3";
 const NAV_CURRENT =
@@ -282,7 +283,7 @@ export function pageHtml(options: PageOptions): string {
     <script type="module" src="${chrome.enhanceUrl}" defer></script>
   </head>
   <body${arrowAttributes}>
-    <div class="relative z-[1] mx-auto max-w-[1180px] px-[clamp(1.1rem,4vw,2.5rem)] pt-4 pb-10 max-phone:pb-24">
+    <div class="relative z-[1] mx-auto max-w-[1180px] px-[clamp(1.1rem,4vw,2.5rem)] pt-4 pb-10 max-phone:pb-24 max-phone:ios:pt-20 max-phone:ios:pb-10">
       <header class="flex h-[2.875rem] items-center">
         <h1>${BRAND}</h1>
         ${navHtml(options)}

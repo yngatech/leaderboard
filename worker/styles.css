@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* iOS and iPadOS WebKit, which every browser there uses. Only there does
+   -webkit-touch-callout exist, so this needs no script and no user-agent
+   sniffing. Used to keep the phone capsule clear of Safari's bottom toolbar. */
+@custom-variant ios {
+  @supports (-webkit-touch-callout: none) {
+    @slot;
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Theme
    Every value here is exposed to Tailwind as a utility: bg-panel, text-muted,
