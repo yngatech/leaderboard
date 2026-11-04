@@ -73,11 +73,14 @@
   --radius-avatar: 25%;
   --radius-card: 1rem;
 
-  /* Vertical rhythm: `page` opens the main column and the footer, `section`
-     separates sections inside it. `card-x` and `card-y` are every panel's
-     inset, wider than tall, and both narrow on a phone without a variant. */
-  --spacing-page: clamp(2.5rem, 6vw, 4rem);
+  /* Vertical rhythm: `page` separates the header from the first content,
+     `section` separates sections inside the main column, and `footer` sets
+     the footer apart from everything above it. `card-x` and `card-y` are
+     every panel's inset, wider than tall, and both narrow on a phone without
+     a variant. */
+  --spacing-page: clamp(1.5rem, 4vw, 2.25rem);
   --spacing-section: clamp(2.25rem, 5vw, 3.25rem);
+  --spacing-footer: clamp(2.5rem, 6vw, 4rem);
   --spacing-card-x: clamp(1rem, 2.6vw, 1.3rem);
   --spacing-card-y: clamp(0.875rem, 2vw, 1rem);
 
