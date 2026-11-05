@@ -33,46 +33,6 @@ if (stamps.length > 0) {
   setInterval(tick, 30_000);
 }
 
-/* A view can take a moment to load, so the capsule moves as soon as one is
-   chosen, into the state the page carries for that destination. The page load
-   then waits just long enough for the slide to land its first swing; once the
-   new page arrives, the capsule already matches it. A page restored from the
-   back/forward cache gets its own capsule back. */
-const navLabels = document.querySelector("[data-nav-labels]");
-const SLIDE_HEAD_START_MS = 180;
-let pendingView;
-function goToView(href) {
-  clearTimeout(pendingView);
-  const destination = document.querySelector(`template[data-nav-to="${CSS.escape(href)}"]`);
-  if (
-    !navLabels ||
-    !destination ||
-    !document.startViewTransition ||
-    matchMedia("(prefers-reduced-motion: reduce)").matches
-  ) {
-    location.assign(href);
-    return;
-  }
-  const original = [...navLabels.children];
-  document.startViewTransition(() => {
-    navLabels.replaceChildren(destination.content.cloneNode(true));
-  });
-  pendingView = setTimeout(() => location.assign(href), SLIDE_HEAD_START_MS);
-  addEventListener(
-    "pageshow",
-    (event) => {
-      if (event.persisted) navLabels.replaceChildren(...original);
-    },
-    { once: true },
-  );
-}
-navLabels?.addEventListener("click", (event) => {
-  const link = event.target instanceof Element ? event.target.closest("a") : null;
-  if (!link || !plainClick(event)) return;
-  event.preventDefault();
-  goToView(link.getAttribute("href"));
-});
-
 /* Arrow keys walk the years, using the targets the page carries as data
    attributes; the script never re-derives routing. */
 document.addEventListener("keydown", (event) => {
@@ -94,7 +54,7 @@ document.addEventListener("keydown", (event) => {
     event.key === "ArrowLeft" ? document.body.dataset.prevHref : document.body.dataset.nextHref;
   if (!href) return;
   event.preventDefault();
-  goToView(href);
+  window.location.assign(href);
 });
 
 /* Hover readout for the cumulative chart: a crosshair on the hovered day and
@@ -237,7 +197,7 @@ function closeDay(link) {
   clearSelectedDay();
   history.pushState({}, "", link.getAttribute("href"));
 }
-function plainClick(event) {
+function plainDayClick(event) {
   return (
     !event.defaultPrevented &&
     event.button === 0 &&
@@ -294,7 +254,7 @@ async function showDay(link, href, push) {
   }
 }
 document.addEventListener("click", (event) => {
-  if (!plainClick(event)) return;
+  if (!plainDayClick(event)) return;
   const link = event.target instanceof Element ? event.target.closest("a[data-day]") : null;
   const close = event.target instanceof Element ? event.target.closest("a[data-day-close]") : null;
   if (close) {

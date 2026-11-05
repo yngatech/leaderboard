@@ -73,26 +73,3 @@ test("JavaScript upgrades the timestamp and adds keyboard navigation", async ({ 
   await page.keyboard.press("ArrowRight");
   await expect(page).toHaveURL(`${ORIGIN}/all`);
 });
-
-test("the capsule moves to a chosen year before its page has loaded", async ({ page, context }) => {
-  await serveFixture(context, pageHtml);
-  let release!: () => void;
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await context.route(`${ORIGIN}/2025`, async (route) => {
-    await held;
-    await route.fallback();
-  });
-
-  await page.goto(ORIGIN);
-  const current = page.getByRole("navigation", { name: "View" }).locator("[aria-current=page]");
-  await expect(current).toHaveText("2026");
-
-  await page.getByRole("link", { name: "Show 2025" }).click();
-  await expect(current).toHaveText("2025");
-  await expect(page).toHaveURL(`${ORIGIN}/`);
-
-  release();
-  await expect(page).toHaveURL(`${ORIGIN}/2025`);
-});
