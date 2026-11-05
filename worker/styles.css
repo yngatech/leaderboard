@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* iOS and iPadOS WebKit, which every browser there uses. Only there does
+   -webkit-touch-callout exist, so this needs no script and no user-agent
+   sniffing. Used to keep the floating phone nav clear of Safari's bottom toolbar. */
+@custom-variant ios {
+  @supports (-webkit-touch-callout: none) {
+    @slot;
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Theme
    Every value here is exposed to Tailwind as a utility: bg-panel, text-muted,
@@ -17,14 +26,13 @@
   --color-accent: var(--color-heat-4);
 
   /* Surfaces, darkest first. A panel is any bordered card; a well is a plot
-     recessed into one; a scrim darkens whatever sits under it; a popover
-     floats above the page. */
+     recessed into one, or an instrument floating above the page; a scrim
+     darkens whatever sits under it. */
   --color-void: #0a0c18;
   --color-panel: #12162b;
   --color-panel-hover: #171c36;
   --color-well: #0d1122;
   --color-scrim: rgba(10, 12, 24, 0.4);
-  --color-popover: rgba(8, 10, 22, 0.95);
 
   /* Edges: `line-soft` for every resting border and hairline, `line` once
      something is interactive or hovered. A leader's gold edge is accent/40. */
@@ -64,11 +72,14 @@
   --radius-avatar: 25%;
   --radius-card: 1rem;
 
-  /* Vertical rhythm: `page` opens the main column and the footer, `section`
-     separates sections inside it. `card-x` and `card-y` are every panel's
-     inset, wider than tall, and both narrow on a phone without a variant. */
-  --spacing-page: clamp(2.5rem, 6vw, 4rem);
+  /* Vertical rhythm: `page` separates the header from the first content,
+     `section` separates sections inside the main column, and `footer` sets
+     the footer apart from everything above it. `card-x` and `card-y` are
+     every panel's inset, wider than tall, and both narrow on a phone without
+     a variant. */
+  --spacing-page: clamp(1.5rem, 4vw, 2.25rem);
   --spacing-section: clamp(2.25rem, 5vw, 3.25rem);
+  --spacing-footer: clamp(2.5rem, 6vw, 4rem);
   --spacing-card-x: clamp(1rem, 2.6vw, 1.3rem);
   --spacing-card-y: clamp(0.875rem, 2vw, 1rem);
 
@@ -132,6 +143,15 @@
     background:
       radial-gradient(ellipse 900px 480px at 42% -10%, rgba(155, 50, 115, 0.22), transparent 62%),
       radial-gradient(ellipse 700px 400px at 88% 2%, rgba(255, 194, 77, 0.08), transparent 60%);
+
+    /* An iPhone's status bar is a flat band above the page, which would cut the
+       glow off in a straight line, so there the glow fades in from nothing. */
+    @variant max-phone {
+      @variant ios {
+        -webkit-mask-image: linear-gradient(180deg, transparent, black 7rem);
+        mask-image: linear-gradient(180deg, transparent, black 7rem);
+      }
+    }
   }
 
   /* Includes summary so the goals disclosure ring matches, and rect so an
@@ -163,12 +183,13 @@
   font-variant-numeric: tabular-nums;
 }
 
-@utility type-masthead {
+/* The site's name in the header. */
+@utility type-brand {
   font-family: var(--font-display);
-  font-size: clamp(2.6rem, 7vw, 4.1rem);
+  font-size: 1.2rem;
   font-weight: 800;
-  line-height: 0.85;
-  letter-spacing: -0.045em;
+  line-height: 1;
+  letter-spacing: -0.035em;
 }
 
 /* The page's own heading or figure: the nav year, a page title, an account's
@@ -244,6 +265,22 @@
 /* A plot recessed into its panel: the panel colour falling away to the well. */
 @utility surface-well {
   background: linear-gradient(180deg, var(--color-panel) 0%, var(--color-well) 100%);
+}
+
+/* An instrument panel, for anything that floats above the page: flat and opaque,
+   so it stays legible over whatever scrolls beneath it, framed by a hairline and
+   lifted only by a small shadow. */
+@utility instrument {
+  background-color: var(--color-well);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
+  box-shadow: 0 10px 24px -16px rgba(0, 0, 0, 0.9);
+}
+
+/* The selected segment inside an instrument panel: an accent rule underneath. */
+@utility instrument-current {
+  color: var(--color-accent);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
 }
 
 /* ---------------------------------------------------------------------------

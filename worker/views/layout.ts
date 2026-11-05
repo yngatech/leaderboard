@@ -46,14 +46,20 @@ export interface PageOptions {
   main: Html;
 }
 
-const NAV_LINK =
-  "min-w-16 text-center text-body font-medium whitespace-nowrap text-secondary no-underline hover:text-accent max-phone:min-w-14";
-const NAV_CURRENT =
-  "type-headline";
-const NAV_SPACER = html`<span
-  class="min-w-16 max-phone:min-w-14"
-  aria-hidden="true"
-></span>`;
+/**
+ * The view switcher is a floating instrument panel: top right on a wide screen,
+ * along the bottom edge on a phone, where a thumb can reach it. On an iPhone
+ * it floats top centre instead, because iOS Safari keeps its own toolbar along
+ * the bottom and two stacked bars read as clutter. The page scrolls underneath,
+ * so it stays one tap away from anywhere.
+ */
+const NAV_PANEL =
+  "instrument fixed top-5 right-[max(clamp(1.1rem,4vw,2.5rem),calc((100%-1180px)/2+clamp(1.1rem,4vw,2.5rem)))] z-40 flex items-center divide-x divide-line-soft max-phone:top-auto max-phone:right-auto max-phone:bottom-[calc(0.9rem+env(safe-area-inset-bottom))] max-phone:left-1/2 max-phone:ios:top-[calc(0.6rem+env(safe-area-inset-top))] max-phone:ios:bottom-auto max-phone:-translate-x-1/2";
+/** Inside the panel's 1px frame, so a segment's fill meets its rounded corners. */
+const NAV_SEGMENT_SHAPE =
+  "flex h-9 items-center whitespace-nowrap first:rounded-l-[calc(var(--radius-control)-1px)] last:rounded-r-[calc(var(--radius-control)-1px)]";
+const NAV_SEGMENT = `${NAV_SEGMENT_SHAPE} px-3.5 text-body font-medium text-secondary no-underline transition-colors duration-200 hover:bg-panel hover:text-ink max-phone:px-3`;
+const NAV_CURRENT = `${NAV_SEGMENT_SHAPE} instrument-current px-4 type-rank`;
 
 function navHtml(options: PageOptions): Html | null {
   const nav = options.nav;
@@ -62,45 +68,61 @@ function navHtml(options: PageOptions): Html | null {
 
   let items: Html;
   if (nav.kind === "all") {
-    items = html`<a class="${NAV_LINK}" href="/" aria-label="Show ${thisYear}"
+    items = html`<a class="${NAV_SEGMENT}" href="/" aria-label="Show ${thisYear}"
         >← ${thisYear}</a
-      ><span class="${NAV_CURRENT}">all time</span>`;
+      ><span class="${NAV_CURRENT}" aria-current="page">all time</span>`;
   } else if (nav.kind === "user" || nav.kind === "achievements") {
-    items = html`<a class="${NAV_LINK}" href="/" aria-label="Show ${thisYear}">← board</a
-      ><a class="${NAV_LINK}" href="/all">all time</a>`;
+    items = html`<a class="${NAV_SEGMENT}" href="/" aria-label="Show ${thisYear}">← board</a
+      ><a class="${NAV_SEGMENT}" href="/all">all time</a>`;
   } else {
     const previous =
       nav.year - 1 >= MIN_PAGE_YEAR
         ? html`<a
-            class="${NAV_LINK}"
+            class="${NAV_SEGMENT}"
             href="${hrefForYear(nav.year - 1, thisYear)}"
             aria-label="Show ${nav.year - 1}"
             >← ${nav.year - 1}</a
           >`
-        : NAV_SPACER;
+        : null;
     const next =
       nav.year + 1 <= thisYear
         ? html`<a
-            class="${NAV_LINK}"
+            class="${NAV_SEGMENT}"
             href="${hrefForYear(nav.year + 1, thisYear)}"
             aria-label="Show ${nav.year + 1}"
             >${nav.year + 1} →</a
           >`
-        : NAV_SPACER;
-    items = html`${previous}<span class="${NAV_CURRENT}">${nav.year}</span>${next}<a
-        class="${NAV_LINK}"
-        href="/all"
-        >all time</a
-      >`;
+        : null;
+    items = html`${previous}<span class="${NAV_CURRENT}" aria-current="page">${nav.year}</span
+      >${next}<a class="${NAV_SEGMENT}" href="/all">all time</a>`;
   }
 
-  return html`<nav
-    class="flex items-baseline justify-self-end gap-[clamp(0.6rem,2vw,1.2rem)] max-phone:justify-self-start max-phone:gap-3.5"
-    aria-label="View"
-  >
-    ${items}
-  </nav>`;
+  return html`<nav class="${NAV_PANEL}" aria-label="View">${items}</nav>`;
 }
+
+/** The favicon's 3×3 heat grid, drawn in the theme's ramp. */
+const BRAND_MARK = html`<svg class="size-[1.375rem] shrink-0" viewBox="0 0 22 22" aria-hidden="true">
+  <rect class="fill-heat-0" x="0" y="0" width="6" height="6" rx="1.5" />
+  <rect class="fill-heat-1" x="8" y="0" width="6" height="6" rx="1.5" />
+  <rect class="fill-heat-2" x="16" y="0" width="6" height="6" rx="1.5" />
+  <rect class="fill-heat-2" x="0" y="8" width="6" height="6" rx="1.5" />
+  <rect class="fill-heat-3" x="8" y="8" width="6" height="6" rx="1.5" />
+  <rect class="fill-heat-4" x="16" y="8" width="6" height="6" rx="1.5" />
+  <rect class="fill-heat-1" x="0" y="16" width="6" height="6" rx="1.5" />
+  <rect class="fill-heat-4" x="8" y="16" width="6" height="6" rx="1.5" />
+  <rect class="fill-heat-3" x="16" y="16" width="6" height="6" rx="1.5" />
+</svg>`;
+
+/**
+ * The site's name, set small: the page's own number is the headline, so the
+ * brand only has to say where you are and take you home. It sits level with
+ * the desktop panel, which floats at the same height.
+ */
+const BRAND = html`<a
+  class="flex items-center gap-2.5 text-ink no-underline transition-colors hover:text-accent"
+  href="/"
+  >${BRAND_MARK}<span class="type-brand">git board</span></a
+>`;
 
 /**
  * Where the arrow keys go from here, carried as data attributes so the
@@ -150,7 +172,7 @@ const SOURCE_SUMMARY = `${FOOTER_LINK} inline-flex list-none cursor-pointer item
  * `wrap-sep` line, so the separator clip never reaches it.
  */
 const SOURCE_PANEL =
-  "absolute bottom-[calc(100%+0.5rem)] left-0 z-20 w-[min(26rem,100%)] rounded-control border border-line bg-popover px-3.5 py-3 text-secondary shadow-[0_14px_30px_-20px_rgba(0,0,0,0.95)]";
+  "absolute bottom-[calc(100%+0.5rem)] left-0 z-20 w-[min(26rem,100%)] instrument px-3.5 py-3 text-secondary";
 
 /**
  * One line of visible copy, everything else folded away: the provenance and
@@ -205,7 +227,7 @@ function footerHtml(options: PageOptions): Html {
   const shortBuildSha = buildSha.slice(0, 7);
 
   return html`<footer
-    class="mt-page grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-[clamp(1.5rem,4vw,3rem)] gap-y-3.5 border-t border-line-soft pt-4.5 text-meta leading-relaxed text-muted max-phone:grid-cols-[minmax(0,1fr)]"
+    class="mt-footer grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-[clamp(1.5rem,4vw,3rem)] gap-y-3.5 border-t border-line-soft pt-4.5 text-meta leading-relaxed text-muted max-phone:grid-cols-[minmax(0,1fr)]"
   >
     <div class="relative min-w-0">
       <div class="wrap-sep">${sourceNoteHtml(options)}${updated}</div>
@@ -258,16 +280,14 @@ export function pageHtml(options: PageOptions): string {
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&amp;family=DM+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+    <style>html { background: #0a0c18; }</style>
     <link rel="stylesheet" href="${chrome.stylesUrl}">
     <script type="module" src="${chrome.enhanceUrl}" defer></script>
   </head>
   <body${arrowAttributes}>
-    <div class="relative z-[1] mx-auto max-w-[1180px] px-[clamp(1.1rem,4vw,2.5rem)] pt-[clamp(1.75rem,5vw,3.5rem)] pb-10">
-      <header class="grid grid-cols-[auto_minmax(0,1fr)] items-end gap-[clamp(1rem,4vw,3rem)] max-phone:grid-cols-[minmax(0,1fr)] max-phone:items-start">
-        <div>
-          <span class="block text-meta text-muted">leaderboard.ynga.tech</span>
-          <h1 class="mt-2 type-masthead">git board</h1>
-        </div>
+    <div class="relative z-[1] mx-auto max-w-[1180px] px-[clamp(1.1rem,4vw,2.5rem)] pt-4 pb-10 max-phone:pb-24 max-phone:ios:pt-15 max-phone:ios:pb-10">
+      <header class="flex h-[2.875rem] items-center">
+        <h1>${BRAND}</h1>
         ${navHtml(options)}
       </header>
       ${options.main}
