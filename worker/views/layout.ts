@@ -47,18 +47,19 @@ export interface PageOptions {
 }
 
 /**
- * The view switcher is a floating glass capsule: top right on a wide screen,
+ * The view switcher is a floating instrument panel: top right on a wide screen,
  * along the bottom edge on a phone, where a thumb can reach it. On an iPhone
- * it floats top centre instead, because iOS Safari keeps its own glass
- * toolbar along the bottom and two stacked bars read as clutter. The page
- * scrolls underneath, so it stays one tap away from anywhere.
+ * it floats top centre instead, because iOS Safari keeps its own toolbar along
+ * the bottom and two stacked bars read as clutter. The page scrolls underneath,
+ * so it stays one tap away from anywhere.
  */
-const NAV_CAPSULE =
-  "glass fixed top-4 right-[max(clamp(1.1rem,4vw,2.5rem),calc((100%-1180px)/2+clamp(1.1rem,4vw,2.5rem)))] z-40 flex items-center gap-0.5 rounded-full p-1 max-phone:top-auto max-phone:right-auto max-phone:bottom-[calc(0.9rem+env(safe-area-inset-bottom))] max-phone:left-1/2 max-phone:ios:top-[calc(0.6rem+env(safe-area-inset-top))] max-phone:ios:bottom-auto max-phone:-translate-x-1/2";
-const NAV_SEGMENT =
-  "flex h-9 items-center rounded-full px-3.5 text-body font-medium whitespace-nowrap text-secondary no-underline transition-colors duration-200 hover:bg-glass-thumb hover:text-ink max-phone:px-3";
-const NAV_CURRENT =
-  "glass-thumb flex h-9 items-center rounded-full px-4 type-rank whitespace-nowrap text-ink";
+const NAV_PANEL =
+  "instrument fixed top-5 right-[max(clamp(1.1rem,4vw,2.5rem),calc((100%-1180px)/2+clamp(1.1rem,4vw,2.5rem)))] z-40 flex items-center divide-x divide-line-soft max-phone:top-auto max-phone:right-auto max-phone:bottom-[calc(0.9rem+env(safe-area-inset-bottom))] max-phone:left-1/2 max-phone:ios:top-[calc(0.6rem+env(safe-area-inset-top))] max-phone:ios:bottom-auto max-phone:-translate-x-1/2";
+/** Inside the panel's 1px frame, so a segment's fill meets its rounded corners. */
+const NAV_SEGMENT_SHAPE =
+  "flex h-9 items-center whitespace-nowrap first:rounded-l-[calc(var(--radius-control)-1px)] last:rounded-r-[calc(var(--radius-control)-1px)]";
+const NAV_SEGMENT = `${NAV_SEGMENT_SHAPE} px-3.5 text-body font-medium text-secondary no-underline transition-colors duration-200 hover:bg-panel hover:text-ink max-phone:px-3`;
+const NAV_CURRENT = `${NAV_SEGMENT_SHAPE} instrument-current px-4 type-rank`;
 
 function navHtml(options: PageOptions): Html | null {
   const nav = options.nav;
@@ -96,7 +97,7 @@ function navHtml(options: PageOptions): Html | null {
       >${next}<a class="${NAV_SEGMENT}" href="/all">all time</a>`;
   }
 
-  return html`<nav class="${NAV_CAPSULE}" aria-label="View">${items}</nav>`;
+  return html`<nav class="${NAV_PANEL}" aria-label="View">${items}</nav>`;
 }
 
 /** The favicon's 3×3 heat grid, drawn in the theme's ramp. */
@@ -115,7 +116,7 @@ const BRAND_MARK = html`<svg class="size-[1.375rem] shrink-0" viewBox="0 0 22 22
 /**
  * The site's name, set small: the page's own number is the headline, so the
  * brand only has to say where you are and take you home. It sits level with
- * the desktop capsule, which floats at the same height.
+ * the desktop panel, which floats at the same height.
  */
 const BRAND = html`<a
   class="flex items-center gap-2.5 text-ink no-underline transition-colors hover:text-accent"
@@ -171,7 +172,7 @@ const SOURCE_SUMMARY = `${FOOTER_LINK} inline-flex list-none cursor-pointer item
  * `wrap-sep` line, so the separator clip never reaches it.
  */
 const SOURCE_PANEL =
-  "absolute bottom-[calc(100%+0.5rem)] left-0 z-20 w-[min(26rem,100%)] glass rounded-control px-3.5 py-3 text-secondary";
+  "absolute bottom-[calc(100%+0.5rem)] left-0 z-20 w-[min(26rem,100%)] instrument px-3.5 py-3 text-secondary";
 
 /**
  * One line of visible copy, everything else folded away: the provenance and

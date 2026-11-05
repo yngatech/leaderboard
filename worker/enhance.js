@@ -86,7 +86,7 @@ if (chart && dataBlock) {
 
     const panel = document.createElement("div");
     panel.className =
-      "pointer-events-none absolute z-10 glass rounded-control px-3 py-2 font-mono text-meta leading-normal";
+      "pointer-events-none absolute z-10 instrument px-3 py-2 font-mono text-meta leading-normal";
     panel.style.display = "none";
     const holder = chart.parentElement;
     holder.appendChild(panel);

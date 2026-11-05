@@ -2,7 +2,7 @@
 
 /* iOS and iPadOS WebKit, which every browser there uses. Only there does
    -webkit-touch-callout exist, so this needs no script and no user-agent
-   sniffing. Used to keep the phone capsule clear of Safari's bottom toolbar. */
+   sniffing. Used to keep the floating phone nav clear of Safari's bottom toolbar. */
 @custom-variant ios {
   @supports (-webkit-touch-callout: none) {
     @slot;
@@ -26,23 +26,13 @@
   --color-accent: var(--color-heat-4);
 
   /* Surfaces, darkest first. A panel is any bordered card; a well is a plot
-     recessed into one; a scrim darkens whatever sits under it; a popover
-     floats above the page. */
+     recessed into one, or an instrument floating above the page; a scrim
+     darkens whatever sits under it. */
   --color-void: #0a0c18;
   --color-panel: #12162b;
   --color-panel-hover: #171c36;
   --color-well: #0d1122;
   --color-scrim: rgba(10, 12, 24, 0.4);
-  --color-popover: rgba(8, 10, 22, 0.95);
-
-  /* Glass: the floating layer only (navigation, popovers, readouts), never
-     the content under it. `glass` is the tinted body, `glass-edge` its
-     hairline, `glass-rim` the specular light along the top, and
-     `glass-thumb` the brighter lozenge marking a selected segment. */
-  --color-glass: rgba(26, 31, 62, 0.58);
-  --color-glass-edge: rgba(236, 234, 247, 0.13);
-  --color-glass-rim: rgba(255, 255, 255, 0.16);
-  --color-glass-thumb: rgba(236, 234, 247, 0.11);
 
   /* Edges: `line-soft` for every resting border and hairline, `line` once
      something is interactive or hovered. A leader's gold edge is accent/40. */
@@ -268,43 +258,20 @@
   background: linear-gradient(180deg, var(--color-panel) 0%, var(--color-well) 100%);
 }
 
-/* Liquid glass, for anything that floats above the page. The body blurs and
-   saturates what scrolls beneath it, a light falloff from the top edge reads
-   as curvature, and the rim catches light like a bevel. Where the backdrop
-   cannot be blurred, or the reader asks for less transparency, it settles
-   into the opaque popover surface rather than a muddy see-through one. */
-@utility glass {
-  background-color: var(--color-glass);
-  background-image: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.09) 0%,
-    rgba(255, 255, 255, 0.02) 42%,
-    rgba(255, 255, 255, 0) 100%
-  );
-  border: 1px solid var(--color-glass-edge);
-  box-shadow:
-    inset 0 1px 0 var(--color-glass-rim),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.22),
-    0 18px 40px -18px rgba(0, 0, 0, 0.9),
-    0 2px 6px -2px rgba(0, 0, 0, 0.5);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
-
-  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    background-color: var(--color-popover);
-  }
-
-  @media (prefers-reduced-transparency: reduce) {
-    background-color: var(--color-popover);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
+/* An instrument panel, for anything that floats above the page: flat and opaque,
+   so it stays legible over whatever scrolls beneath it, framed by a hairline and
+   lifted only by a small shadow. */
+@utility instrument {
+  background-color: var(--color-well);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
+  box-shadow: 0 10px 24px -16px rgba(0, 0, 0, 0.9);
 }
 
-/* The selected segment inside a glass control. */
-@utility glass-thumb {
-  background-color: var(--color-glass-thumb);
-  box-shadow: inset 0 1px 0 var(--color-glass-rim);
+/* The selected segment inside an instrument panel: an accent rule underneath. */
+@utility instrument-current {
+  color: var(--color-accent);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
 }
 
 /* ---------------------------------------------------------------------------
