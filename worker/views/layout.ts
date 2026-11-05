@@ -279,6 +279,7 @@ export function pageHtml(options: PageOptions): string {
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&amp;family=DM+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+    <style>html { background: #0a0c18; }</style>
     <link rel="stylesheet" href="${chrome.stylesUrl}">
     <script type="module" src="${chrome.enhanceUrl}" defer></script>
   </head>
