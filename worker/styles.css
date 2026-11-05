@@ -143,6 +143,15 @@
     background:
       radial-gradient(ellipse 900px 480px at 42% -10%, rgba(155, 50, 115, 0.22), transparent 62%),
       radial-gradient(ellipse 700px 400px at 88% 2%, rgba(255, 194, 77, 0.08), transparent 60%);
+
+    /* An iPhone's status bar is a flat band above the page, which would cut the
+       glow off in a straight line, so there the glow fades in from nothing. */
+    @variant max-phone {
+      @variant ios {
+        -webkit-mask-image: linear-gradient(180deg, transparent, black 7rem);
+        mask-image: linear-gradient(180deg, transparent, black 7rem);
+      }
+    }
   }
 
   /* Includes summary so the goals disclosure ring matches, and rect so an

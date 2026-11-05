@@ -285,7 +285,7 @@ export function pageHtml(options: PageOptions): string {
     <script type="module" src="${chrome.enhanceUrl}" defer></script>
   </head>
   <body${arrowAttributes}>
-    <div class="relative z-[1] mx-auto max-w-[1180px] px-[clamp(1.1rem,4vw,2.5rem)] pt-4 pb-10 max-phone:pb-24 max-phone:ios:pt-20 max-phone:ios:pb-10">
+    <div class="relative z-[1] mx-auto max-w-[1180px] px-[clamp(1.1rem,4vw,2.5rem)] pt-4 pb-10 max-phone:pb-24 max-phone:ios:pt-15 max-phone:ios:pb-10">
       <header class="flex h-[2.875rem] items-center">
         <h1>${BRAND}</h1>
         ${navHtml(options)}
