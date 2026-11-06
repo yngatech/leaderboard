@@ -4,5 +4,8 @@
     "github>incognitojam/renovate-config",
     "github>incognitojam/renovate-config:automerge",
     "github>incognitojam/renovate-config:scoped"
+  ],
+  "postUpdateOptions": [
+    "npmInstallTwice"
   ]
 }
