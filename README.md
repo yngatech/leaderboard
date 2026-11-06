@@ -354,11 +354,7 @@ Prepare these settings on `leaderboard` when adopting this change:
    `npm run build`. Set the Preview command to `npm run deploy:preview` and keep
    the production deploy command as `npm run deploy`, then complete **Switch to
    Worker Previews**. Cloudflare documents this switch as irreversible.
-3. Add a GitHub Actions repository secret named `CLOUDFLARE_PREVIEW_API_TOKEN`
-   for the `preview-cleanup.yml` workflow. Use an API token scoped to managing
-   previews on `leaderboard`; it needs Workers Scripts edit access.
-   There is no need to grant access to production routes.
-4. Once previews through `leaderboard` are verified, disable the old
+3. Once previews through `leaderboard` are verified, disable the old
    `leaderboard-preview` Builds connection to avoid duplicate branch builds.
    The old Worker can be retired separately after its remaining previews are
    no longer needed.
@@ -373,11 +369,11 @@ Set Preview Base credentials before creating previews. Later Base secret
 changes affect newly created previews; update an existing preview's secrets
 explicitly when needed. Keep secret values out of the repository.
 
-The cleanup workflow runs trusted default-branch code when a same-repository
-PR closes, then deletes that branch's preview, deployments, and DO storage.
-It requires the cleanup token above. For manual cleanup with a local Wrangler
-login, run `npm run delete:preview -- --name <branch>`. Deleting preview state
-is permanent; a reopened PR starts with fresh storage.
+Workers Builds deletes a branch's preview, deployments, and DO storage when the
+branch is deleted. A preview deployed by hand with `wrangler preview` is not
+tracked by Builds; delete it with a local Wrangler login using
+`npm run delete:preview -- --name <branch>`. Deleting preview state is
+permanent; a restored branch starts with fresh storage.
 
 Preview URLs are public unless Cloudflare Access is enabled, so branch builds
 must remain limited to trusted contributors. Each preview provides a stable
