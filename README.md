@@ -133,6 +133,10 @@ milestone, it posts a rich message to Discord. Daily records and yearly mileston
 restart each calendar year. Durable state prevents duplicate messages; the
 first run records a baseline without sending one.
 
+When the same account, date and contribution count earns both a personal best
+and a board record, Discord sends only the board record and checkpoints both.
+Matching end-of-day wrap-ups are combined the same way; unrelated PBs still post.
+
 Yearly personal milestones run from 100 through 100,000, with intermediate
 steps including 750, 1,500, 2,000, 13,000, and 14,000. Goal displays and Discord
 use the same ladder. When expanding the ladder, pending notifications from

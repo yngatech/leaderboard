@@ -407,6 +407,10 @@ function stateSnapshot(state: DailyRecordState): DailyRecordState {
   return structuredClone(state);
 }
 
+function sameRecord(left: DailyPeak, right: DailyPeak): boolean {
+  return left.login === right.login && left.date === right.date && left.count === right.count;
+}
+
 /**
  * Sends a plan and checkpoints each successful notification. On retry, a new
  * plan built from the last saved snapshot resumes at the first failed event.
@@ -425,12 +429,14 @@ export async function deliverDailyRecords(
   if (plan.needsPreparation) await save(stateSnapshot(progress));
 
   for (const event of plan.personalWrapUps) {
+    if (plan.boardWrapUps.some((record) => sameRecord(event, record))) continue;
     await notify({ type: "personal-best-wrap-up", event });
     applyPersonalWrapUp(progress, event);
     await save(stateSnapshot(progress));
   }
 
   for (const event of plan.personalBests) {
+    if (plan.boardRecord && sameRecord(event, plan.boardRecord.peak)) continue;
     await notify({ type: "personal-best", event });
     applyPersonalBest(progress, event);
     await save(stateSnapshot(progress));
@@ -438,12 +444,20 @@ export async function deliverDailyRecords(
 
   if (plan.boardRecord) {
     await notify({ type: "board-record", event: plan.boardRecord });
+    // The board alert also celebrates this PB. Checkpoint both only after
+    // delivery succeeds, so a failed board post cannot lose the personal record.
+    for (const event of plan.personalBests) {
+      if (sameRecord(event, plan.boardRecord.peak)) applyPersonalBest(progress, event);
+    }
     applyBoardRecord(progress, plan.boardRecord);
     await save(stateSnapshot(progress));
   }
 
   for (const event of plan.boardWrapUps) {
     await notify({ type: "board-record-wrap-up", event });
+    for (const personal of plan.personalWrapUps) {
+      if (sameRecord(personal, event)) applyPersonalWrapUp(progress, personal);
+    }
     applyBoardWrapUp(progress, event);
     await save(stateSnapshot(progress));
   }
