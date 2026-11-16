@@ -77,8 +77,11 @@ export function classifyIntent(pr: InsightPullRequest): { intent: Intent; source
 
 export type EvidenceKind = "bodyFooter" | "commitTrailer" | "commitAuthor" | "prAuthor";
 export const EVIDENCE_KINDS: EvidenceKind[] = ["bodyFooter", "commitTrailer", "commitAuthor", "prAuthor"];
-export const UNKNOWN_MODEL = "unknown model";
-export const UNKNOWN_HARNESS = "unknown harness";
+/** Declared roles. `unspecified` is a credit that names an agent without saying what it did. */
+export type CreditRole = "writing" | "review" | "other" | "unspecified";
+export const CREDIT_ROLES: CreditRole[] = ["writing", "review", "other", "unspecified"];
+/** Where agents ran. Hosts are not harnesses, and a host never implies one. */
+export const HOSTS = ["styal", "T3 Code"] as const;
 const BOT_HARNESSES = new Map<string, string>(Object.entries({
   "copilot-swe-agent[bot]": "Copilot", copilot: "Copilot",
   "chatgpt-codex-connector[bot]": "Codex", "cursor[bot]": "Cursor", cursoragent: "Cursor",
@@ -94,10 +97,9 @@ const AGENT_EMAILS = new Map<string, string>(Object.entries({
   "cursoragent@cursor.com": "Cursor", "copilot@github.com": "Copilot",
   "aider@aider.chat": "Aider", "amp@ampcode.com": "Amp",
 }));
-const VENDOR_EMAILS = new Map([
-  ["noreply@anthropic.com", { provider: "Anthropic", harness: "Claude Code" }],
-  ["noreply@openai.com", { provider: "OpenAI", harness: "Codex" }],
-]);
+// Vendor addresses establish a provider only; they do not say which client or model was used.
+const VENDOR_EMAILS = new Map([["noreply@anthropic.com", "Anthropic"], ["noreply@openai.com", "OpenAI"]]);
+/** Clients that only run one vendor's models, so name the provider when no model is stated. */
 const SINGLE_VENDOR = new Map([
   ["Claude Code", "Anthropic"], ["Codex", "OpenAI"], ["Jules", "Google"], ["Gemini CLI", "Google"],
 ]);
@@ -108,7 +110,12 @@ const HARNESS_ALIASES = new Map(Object.entries({
   jules: "Jules", "google jules": "Jules", aider: "Aider", amp: "Amp",
   "gemini cli": "Gemini CLI", "t3 code": "T3 Code", styal: "styal", sweep: "Sweep", antigravity: "Antigravity",
 }));
+// Command names that are unambiguous inside a structured credit, never in prose.
+const CREDIT_COMMANDS = new Map([["claude", "Claude Code"], ["pi", "Pi"]]);
 const CLIENT_LABELS = [...HARNESS_ALIASES.keys()].sort((a, b) => b.length - a.length);
+const isHost = (name: string) => (HOSTS as readonly string[]).includes(name);
+export const KNOWN_HARNESSES: ReadonlySet<string> = new Set([...HARNESS_ALIASES.values(), ...CREDIT_COMMANDS.values(),
+  ...BOT_HARNESSES.values(), ...AGENT_EMAILS.values()].filter((name) => !isHost(name)));
 // Whole model identifiers, not arbitrary leading tokens in prose or dependency names.
 // Numeric GPT/o-series syntax deliberately excludes gpt-tokenizer, gpt-next, etc.
 const MODEL_PROVIDERS: [string, RegExp][] = [
@@ -123,20 +130,33 @@ const MODEL_PROVIDERS: [string, RegExp][] = [
   ["Zhipu/GLM", /^glm-\d+(?:[.-][a-z0-9]+)*/i],
   ["Meta", /^llama-?\d+(?:[.-][a-z0-9]+)*/i],
 ];
-interface Marker { providers: string[]; harnesses: string[]; namedClient?: boolean; inferredHarness?: string }
-function harnessMarker(harness: string): Marker {
-  return { providers: [SINGLE_VENDOR.get(harness) ?? UNKNOWN_MODEL], harnesses: [harness] };
+export const KNOWN_PROVIDERS: ReadonlySet<string> = new Set([...MODEL_PROVIDERS.map(([name]) => name), ...SINGLE_VENDOR.values(), ...VENDOR_EMAILS.values()]);
+/** Stored model identifiers: lowercase, bounded, with optional registry segments. */
+export const MODEL_ID = /^(?=.{1,80}$)[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/;
+export function providerForModel(model: string): string | null {
+  return MODEL_PROVIDERS.find(([, rule]) => rule.exec(model)?.[0] === model)?.[0] ?? null;
 }
 const label = (value: string) => value.trim().replace(/^\[([^\]]+)\]$/, "$1");
-function modelProvider(value: string): string | undefined {
+/**
+ * An exact model identifier. Known spellings normalize ("GPT-6.1 Sol", "Claude Opus 4.6",
+ * registry prefixes); versions and variants are kept. Unrecognized identifiers are models
+ * only where the surrounding grammar says so (`structured`).
+ */
+function modelId(value: string, structured: boolean): { model: string; provider: string | null } | null {
+  const model = label(value).replace(/^(gpt-\d+(?:\.\d+)?) (sol|astra|terra)$/i, "$1-$2")
+    .replace(/^claude (opus|sonnet|haiku) (\d+(?:[.-]\d+)*)$/i, "claude-$1-$2").toLowerCase();
+  if (!MODEL_ID.test(model)) return null;
   // Identifier-shaped registry prefixes only; never URLs or Markdown targets.
-  const model = label(value).replace(/^(?:[a-z0-9][a-z0-9._-]*\/)+/i, "")
-    .replace(/^(gpt-\d+(?:\.\d+)?) (sol|astra|terra)$/i, "$1-$2")
-    .replace(/^claude (opus|sonnet|haiku) (\d+(?:[.-]\d+)*)$/i, "claude-$1-$2");
-  return MODEL_PROVIDERS.find(([, rule]) => rule.exec(model)?.[0] === model)?.[0];
+  const bare = model.replace(/^(?:[a-z0-9][a-z0-9._-]*\/)+/, "");
+  const provider = providerForModel(bare);
+  // Normalize numeric Claude version aliases without rewriting variant punctuation.
+  if (provider) return { model: provider === "Anthropic"
+    ? bare.replace(/^(claude-(?:[a-z]+-)?)(\d+(?:\.\d+)+)/, (_match, prefix: string, version: string) => prefix + version.replaceAll(".", "-"))
+    : bare, provider };
+  return structured ? { model, provider: null } : null;
 }
 /** At most four client labels, joined by explicit connectors or adjacent exact aliases. */
-function clientHarnesses(value: string): string[] | null {
+function clientNames(value: string): string[] | null {
   const parts = label(value).toLowerCase().split(/\s+(?:in|through|via|using)\s+|\s*[/+]\s*/);
   if (parts.length > 4) return null;
   const names = new Set<string>();
@@ -154,153 +174,267 @@ function clientHarnesses(value: string): string[] | null {
   }
   return [...names];
 }
-/** Each comma-delimited group has its own named-model precedence and fallback. */
-function disclosureMarker(fields: string[]): Marker {
-  const providers = new Set<string>(), harnesses = new Set<string>();
-  for (const raw of fields) {
-    const clause = modelClientClause(raw.trim());
-    if (clause) {
-      clause.providers.forEach((provider) => providers.add(provider));
-      clause.harnesses.forEach((harness) => harnesses.add(harness));
-      continue;
-    }
-    clientHarnesses(raw)?.forEach((harness) => harnesses.add(harness));
-    const provider = modelProvider(raw);
-    if (provider) providers.add(provider);
-  }
-  // A named model takes precedence over a single-vendor client inference in this marker.
-  if (!providers.size) for (const harness of harnesses) {
-    const provider = SINGLE_VENDOR.get(harness);
-    if (provider) providers.add(provider);
-  }
-  return { providers: providers.size ? [...providers] : [UNKNOWN_MODEL], harnesses: harnesses.size ? [...harnesses] : [UNKNOWN_HARNESS],
-    namedClient: harnesses.size > 0 || fields.some((field) => field.trim() && !modelProvider(field)) };
+
+/** One credited agent as stated in one marker. Null means not stated or not recognized. */
+interface Observation { provider: string | null; model: string | null; harness: string | null; roles: CreditRole[] }
+interface Parsed { observations: Observation[]; hosts: string[]; limited?: true }
+const MAX_CREDIT_LINE = 1024;
+const MAX_MARKER_CREDITS = 8;
+const MAX_PR_CREDITS = 16;
+interface Fragment { models: { model: string; provider: string | null }[]; harnesses: string[]; hosts: string[] }
+function fragment(models: Fragment["models"], clients: string[]): Fragment {
+  return { models, harnesses: clients.filter((name) => !isHost(name)), hosts: clients.filter(isHost) };
 }
-function modelClientClause(value: string): Marker | null {
+function observation(model: { model: string; provider: string | null } | null, harness: string | null, roles: CreditRole[]): Observation {
+  // A stated model decides the provider; only an unnamed model falls back to a single-vendor client.
+  return { model: model?.model ?? null, provider: model ? model.provider : SINGLE_VENDOR.get(harness ?? "") ?? null, harness, roles };
+}
+/** `model via|using|in|through client`; unknown clients may be named, prose may not. */
+function modelClientClause(value: string): Fragment | null {
   const clause = /^(.+?)\s+(?:via|using|in|through)\s+(.+)$/i.exec(value);
-  if (clause) {
-    const provider = modelProvider(clause[1]);
-    if (!provider) return null;
-    const clients = clientHarnesses(clause[2]);
-    // Unknown clients may be named, but arbitrary prose after a client is not a label.
-    if (!clients && !/^(?:the )?[a-z][a-z0-9-]*(?: (?:harness|agent))?$/i.test(clause[2])) return null;
-    return { providers: [provider], harnesses: clients ?? [UNKNOWN_HARNESS], namedClient: true };
-  }
-  return null;
+  if (!clause) return null;
+  const model = modelId(clause[1], false);
+  if (!model) return null;
+  const clients = clientNames(clause[2]);
+  if (!clients && !/^(?:the )?[a-z][a-z0-9-]*(?: (?:harness|agent))?$/i.test(clause[2])) return null;
+  return fragment([model], clients ?? []);
+}
+/**
+ * A comma-delimited disclosure group describes one agent. A single model and a single
+ * harness pair up; anything more is ambiguous and each stays unpaired.
+ */
+function disclosure(fields: string[], roles: CreditRole[]): Parsed {
+  const parts = fields.map((raw) => {
+    const value = raw.trim();
+    const clients = clientNames(value);
+    const model = clients ? null : modelId(value, false);
+    return modelClientClause(value) ?? fragment(model ? [model] : [], clients ?? []);
+  });
+  const models = [...new Map(parts.flatMap((part) => part.models).map((model) => [model.model, model])).values()];
+  const harnesses = [...new Set(parts.flatMap((part) => part.harnesses))];
+  const hosts = [...new Set(parts.flatMap((part) => part.hosts))];
+  if (models.length <= 1 && harnesses.length <= 1) return { observations: [observation(models[0] ?? null, harnesses[0] ?? null, roles)], hosts };
+  return { observations: [...models.map((model) => observation(model, null, roles)), ...harnesses.map((harness) =>
+    models.length ? { provider: null, model: null, harness, roles } : observation(null, harness, roles))], hosts };
 }
 /** Generated lines must consist entirely of a label and an optional bounded client clause. */
-function generatedMarker(subject: string): Marker | null {
+function generatedCredit(subject: string): Parsed | null {
   const value = subject.trim().replace(/[.!?]$/, "");
-  const clause = modelClientClause(value);
-  if (clause) return clause;
-  if (!modelProvider(value) && !clientHarnesses(value)) return null;
-  return disclosureMarker([value]);
+  if (!modelClientClause(value) && !modelId(value, false) && !clientNames(value)) return null;
+  return disclosure([value], ["unspecified"]);
 }
-const CREDIT_VERB = "(?:written|reviewed|re-checked|rechecked|revised|fixed|designed|diagnosed|planned|tested|verified|audited|implemented)";
-const CREDIT_CLAUSE = new RegExp(`^(?:,\\s+(?:and\\s+)?|\\s+and\\s+)(?:with (?:the [a-z]+ )?)?${CREDIT_VERB}(?: and ${CREDIT_VERB})* by\\s+`, "i");
+const VERB_ROLES = new Map<string, CreditRole>([
+  ["written", "writing"], ["implemented", "writing"], ["fixed", "writing"], ["revised", "writing"],
+  ["reviewed", "review"], ["re-checked", "review"], ["rechecked", "review"],
+  ["designed", "other"], ["diagnosed", "other"], ["planned", "other"], ["tested", "other"], ["verified", "other"], ["audited", "other"],
+]);
+function verbRoles(verbs: string): CreditRole[] {
+  const roles = new Set(verbs.toLowerCase().split(/\s+and\s+/).map((verb) => VERB_ROLES.get(verb.trim()) ?? "unspecified"));
+  if (roles.size > 1) roles.delete("unspecified");
+  return [...roles];
+}
+const CREDIT_VERB = `(?:${[...VERB_ROLES.keys()].join("|")})`;
+const CREDIT_CLAUSE = new RegExp(`^(?:,\\s+(?:and\\s+)?|\\s+and\\s+)(?:with (?:the [a-z]+ )?)?(${CREDIT_VERB}(?: and ${CREDIT_VERB})*) by\\s+`, "i");
+/** One backticked `client/model` label at the start of `text`. */
+function creditParticipant(text: string, roles: CreditRole[]): Parsed & { length: number; recognized: boolean } | null {
+  const participant = /^`([a-z0-9][a-z0-9._-]*)\/([a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*)`/i.exec(text);
+  const model = participant && modelId(participant[2], true);
+  if (!participant || !model) return null;
+  const client = participant[1].toLowerCase();
+  const name = CREDIT_COMMANDS.get(client) ?? HARNESS_ALIASES.get(client) ?? null;
+  const host = name !== null && isHost(name);
+  const recognized = name !== null || model.provider !== null;
+  return { length: participant[0].length, recognized, hosts: host ? [name] : [],
+    observations: recognized ? [observation(model, host ? null : name, roles)] : [] };
+}
 /** Consume a whole footer, keeping backticked harness/model labels distinct from prose. */
-function creditMarkers(line: string): Marker[] {
-  if (!/^Written by\s+`/i.test(line)) return [];
+function creditFooter(line: string): Parsed | null {
+  if (!/^Written by\s+`/i.test(line)) return null;
   let rest = line.replace(/^Written by\s+/i, "").trimEnd().replace(/\.$/, "");
   // Bounded whitespace avoids rescanning long runs quadratically at each position.
   const host = /,?[ \t]{1,3}in[ \t]{1,3}(styal(?:[ \t]{0,3}🧵)?|T3 Code)$/iu.exec(rest);
   if (host) rest = rest.slice(0, host.index);
-  const markers: Marker[] = [];
+  const hosts = new Set(host ? [/^styal/i.test(host[1]) ? "styal" : "T3 Code"] : []);
+  const observations: Observation[] = [];
+  let roles: CreditRole[] = ["writing"], recognized = false, participants = 0;
   while (rest) {
-    const participant = /^`([a-z0-9][a-z0-9._-]*)\/([a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*)`/i.exec(rest);
-    if (!participant) return [];
-    const [, client, model] = participant;
-    // These command names are unambiguous inside a structured credit, not in prose.
-    const harness = client.toLowerCase() === "claude" ? "Claude Code" : client.toLowerCase() === "pi" ? "Pi" : HARNESS_ALIASES.get(client.toLowerCase());
-    markers.push({ providers: [modelProvider(model) ?? (harness ? SINGLE_VENDOR.get(harness) : undefined) ?? UNKNOWN_MODEL],
-      harnesses: [harness ?? UNKNOWN_HARNESS], namedClient: true });
-    rest = rest.slice(participant[0].length);
+    if (++participants > MAX_MARKER_CREDITS) return { observations: [], hosts: [], limited: true };
+    const participant = creditParticipant(rest, roles);
+    if (!participant) return null;
+    recognized ||= participant.recognized;
+    participant.hosts.forEach((name) => hosts.add(name));
+    observations.push(...participant.observations);
+    rest = rest.slice(participant.length);
     if (!rest) break;
-    const connector = /^(?:,\s*(?:and\s+)?|\s+and\s+)(?=`)/i.exec(rest) ?? CREDIT_CLAUSE.exec(rest);
-    if (!connector) return [];
-    rest = rest.slice(connector[0].length);
-    if (!rest) return [];
+    const list = /^(?:,\s*(?:and\s+)?|\s+and\s+)(?=`)/i.exec(rest);
+    const clause = list ? null : CREDIT_CLAUSE.exec(rest);
+    if (!list && !clause) return null;
+    if (clause) roles = verbRoles(clause[1]);
+    rest = rest.slice((list ?? clause)![0].length);
+    if (!rest) return null;
   }
-  // A path-shaped code span alone (e.g. scripts/generate.ts) is not an agent marker.
-  if (!markers.some((marker) => marker.providers[0] !== UNKNOWN_MODEL || marker.harnesses[0] !== UNKNOWN_HARNESS)) return [];
-  // Hosts still share the existing harness dimension until the role-aware redesign.
-  if (host && markers.length) markers[0].harnesses.push(/^styal/i.test(host[1]) ? "styal" : "T3 Code");
-  return markers;
+  // A path-shaped code span alone (e.g. scripts/generate.ts) is not an agent credit.
+  return recognized ? { observations, hosts: [...hosts] } : null;
 }
 /** Ignore fenced examples, block quotes and indented code before anchored marker matching. */
 function prose(text: string): string {
   return text.replace(/(^|\n)[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n[ \t]*\2[^\n]*(?=\n|$)|$)/g, "$1")
     .split("\n").filter((line) => !/^\s*>|^(?: {4}|\t)/.test(line)).join("\n");
 }
-function authorMarker(author: { name: string | null; email: string | null; user: { login: string } | null }): Marker | null {
+function harnessIdentity(harness: string): Observation {
+  return observation(null, harness, ["unspecified"]);
+}
+function authorIdentity(author: { name: string | null; email: string | null; user: { login: string } | null }): Observation | null {
   const bot = BOT_HARNESSES.get(author.user?.login.toLowerCase() ?? "");
-  if (bot) return harnessMarker(bot);
+  if (bot) return harnessIdentity(bot);
   const email = author.email?.trim().toLowerCase() ?? "";
   const vendor = VENDOR_EMAILS.get(email);
-  if (vendor) return { providers: [vendor.provider], harnesses: [], inferredHarness: vendor.harness };
+  if (vendor) return { provider: vendor, model: null, harness: null, roles: ["unspecified"] };
   const known = AGENT_EMAILS.get(email);
-  if (known) return harnessMarker(known);
+  if (known) return harnessIdentity(known);
   const githubEmail = /^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/.exec(email);
   const githubBot = BOT_HARNESSES.get(githubEmail?.[1] ?? "");
-  return githubBot ? harnessMarker(githubBot) : null;
+  return githubBot ? harnessIdentity(githubBot) : null;
 }
 
-export type DimensionEvidence = Record<EvidenceKind, string[]>;
-const emptyEvidence = (): Record<EvidenceKind, number> => ({ bodyFooter: 0, commitTrailer: 0, commitAuthor: 0, prAuthor: 0 });
-export function agentEvidence(pr: InsightPullRequest): { providers: DimensionEvidence; harnesses: DimensionEvidence } {
-  const sets = () => ({ bodyFooter: new Set<string>(), commitTrailer: new Set<string>(), commitAuthor: new Set<string>(), prAuthor: new Set<string>() });
-  const providers = sets(), harnesses = sets();
-  const inferred: { kind: EvidenceKind; marker: Marker }[] = [];
-  let namedClient = false;
-  const add = (kind: EvidenceKind, marker: Marker | null) => {
-    if (marker?.inferredHarness) {
-      inferred.push({ kind, marker });
-      return;
+/** One PR's credit for one model/provider/harness combination, after deduplication. */
+export interface PrCredit { provider: string | null; model: string | null; harness: string | null; roles: CreditRole[]; evidence: EvidenceKind[] }
+interface Cell { provider: string | null; model: string | null; harness: string | null; roles: Set<CreditRole>; evidence: Set<EvidenceKind>; markers: Set<number> }
+const FIELDS = ["provider", "model", "harness"] as const;
+const cellKey = (cell: Pick<Cell, (typeof FIELDS)[number]>) => JSON.stringify(FIELDS.map((field) => cell[field]));
+/** Every field `general` states, `specific` states identically. */
+const inferredProvider = (cell: Cell) => cell.model === null && cell.harness !== null && cell.provider === SINGLE_VENDOR.get(cell.harness);
+const within = (general: Cell, specific: Cell) => general !== specific && FIELDS.every((field) => general[field] === null ||
+  (field === "provider" && inferredProvider(general)) || general[field] === specific[field]);
+/** Separate agents named by one marker are distinct; only repeats from other markers fold. */
+const elsewhere = (cell: Cell, other: Cell) => [...cell.markers].every((marker) => !other.markers.has(marker));
+const stated = (cell: Cell) => FIELDS.filter((field) => cell[field] !== null && (field !== "provider" || !inferredProvider(cell))).length;
+function settleRoles(roles: Set<CreditRole>): void {
+  if (roles.size > 1) roles.delete("unspecified");
+}
+/**
+ * Fold less specific credits from other markers into the one credit they could only describe. A vague
+ * credit that fits several stays separate if it declares a role, and is otherwise
+ * already represented. Roles are never moved onto a credit that did not declare them.
+ */
+function settle(observations: { kind: EvidenceKind; marker: number; observation: Observation }[]): PrCredit[] {
+  const exact = new Map<string, Cell>();
+  for (const { kind, marker, observation: { provider, model, harness, roles } } of observations) {
+    const key = cellKey({ provider, model, harness });
+    const cell = exact.get(key) ?? { provider, model, harness, roles: new Set(), evidence: new Set(), markers: new Set() };
+    cell.markers.add(marker);
+    roles.forEach((role) => cell.roles.add(role));
+    cell.evidence.add(kind);
+    settleRoles(cell.roles);
+    exact.set(key, cell);
+  }
+  const kept: Cell[] = [];
+  for (const cell of [...exact.values()].sort((a, b) => stated(b) - stated(a))) {
+    const candidates = kept.filter((other) => within(cell, other) && elsewhere(cell, other));
+    const targets = candidates.filter((other) => !candidates.some((wider) => within(other, wider)));
+    const declared = [...cell.roles].filter((role) => role !== "unspecified");
+    if (targets.length === 1 && declared.every((role) => targets[0].roles.has(role))) {
+      cell.evidence.forEach((kind) => targets[0].evidence.add(kind));
+    } else if (!(targets.length > 1 && !declared.length)) kept.push(cell);
+  }
+  return kept.map((cell) => ({ provider: cell.provider, model: cell.model, harness: cell.harness,
+    roles: CREDIT_ROLES.filter((role) => cell.roles.has(role)), evidence: EVIDENCE_KINDS.filter((kind) => cell.evidence.has(kind)) }))
+    .sort((a, b) => cellKey(a).localeCompare(cellKey(b)));
+}
+
+/** Legacy groups share one credit line, with a declared verb before each clause. */
+function legacyCredits(text: string): Parsed {
+  const groups: Parsed[] = [];
+  for (const match of text.matchAll(/\bby an agent\s*\(([^()\n]+)\)/gi)) {
+    const before = text.slice(Math.max(0, match.index - 48), match.index);
+    const verbs = /([a-z][a-z-]*(?:\s+and\s+[a-z][a-z-]*)*)\s+$/i.exec(before);
+    // A negated clause names an agent that did not do the work, not a credit.
+    const qualifier = before.slice(0, verbs?.index ?? before.length);
+    if (/\b(?:not|never|no|without|wasn['’]t|isn['’]t|weren['’]t|aren['’]t|didn['’]t|hasn['’]t|haven['’]t|hadn['’]t)\s+(?:[a-z-]+\s+){0,2}$/i.test(qualifier)) continue;
+    const roles = verbRoles(verbs?.[1] ?? "");
+    for (const group of match[1].split(";")) if (group.trim()) groups.push(disclosure(group.split(","), roles));
+  }
+  return { observations: groups.flatMap((group) => group.observations), hosts: [...new Set(groups.flatMap((group) => group.hosts))] };
+}
+
+/** Transient per-PR credits. Raw text and identities never leave this function. */
+export function agentCredits(pr: InsightPullRequest): { credits: PrCredit[]; hosts: string[]; evidence: EvidenceKind[]; limited?: true } {
+  const found: { kind: EvidenceKind; marker: number; observation: Observation }[] = [];
+  const hosts = new Set<string>();
+  const identities = new Set<string>();
+  let limited = false;
+  let marker = 0; // Which line, trailer or identity an observation came from.
+  const add = (kind: EvidenceKind, parsed: Parsed | null) => {
+    if (!parsed) return;
+    if (parsed.limited || parsed.observations.length > MAX_MARKER_CREDITS) { limited = true; return; }
+    let accepted = false;
+    for (const observation of parsed.observations) {
+      const key = cellKey(observation);
+      if (!identities.has(key) && identities.size >= MAX_PR_CREDITS) { limited = true; continue; }
+      identities.add(key);
+      found.push({ kind, marker, observation });
+      accepted = true;
     }
-    if (marker?.namedClient) namedClient = true;
-    marker?.providers.forEach((name) => providers[kind].add(name));
-    marker?.harnesses.forEach((name) => harnesses[kind].add(name));
+    if (accepted) parsed.hosts.forEach((host) => hosts.add(host));
   };
   for (const line of prose(pr.body).split("\n")) {
+    marker += 1;
+    // Limit work before link/model/client regexes, including malformed disclosure lines.
+    if (line.length > MAX_CREDIT_LINE) {
+      if (/^\s*(?:[🤖✨]\s*)?(?:Written by\b|(?:Generated|Created|Made) (?:with|by)\b)/iu.test(line)) limited = true;
+      continue;
+    }
     // Keep link labels, discard targets before parsing any disclosure fields.
-    const marker = line.replace(/\[([^\]\n]+)\]\([^\n)]*\)/g, "$1")
-      .replace(/^\s*(?:[🤖✨]\s*)?/u, "");
-    if (/^Written by an agent\s*\(/i.test(marker)) {
-      for (const match of marker.matchAll(/\bby an agent\s*\(([^()\n]+)\)/gi)) {
-        for (const group of match[1].split(";")) if (group.trim()) add("bodyFooter", disclosureMarker(group.split(",")));
-      }
+    const text = line.replace(/\[([^\]\n]+)\]\([^\n)]*\)/g, "$1").replace(/^\s*(?:[🤖✨]\s*)?/u, "");
+    if (/^Written by an agent\s*\(/i.test(text)) {
+      add("bodyFooter", legacyCredits(text));
     } else {
-      creditMarkers(marker).forEach((credit) => add("bodyFooter", credit));
-      const generated = /^(?:Generated|Created|Made) (?:with|by)\s+([^\n]+)$/i.exec(marker);
-      if (generated) add("bodyFooter", generatedMarker(generated[1]));
+      add("bodyFooter", creditFooter(text));
+      const generated = /^(?:Generated|Created|Made) (?:with|by)\s+([^\n]+)$/i.exec(text);
+      if (generated) add("bodyFooter", generatedCredit(generated[1]));
     }
   }
+  const single = (observation: Observation | null): Parsed | null => observation && { observations: [observation], hosts: [] };
   const bot = BOT_HARNESSES.get(pr.author?.login.toLowerCase() ?? "");
-  if (bot) add("prAuthor", harnessMarker(bot));
+  marker += 1;
+  if (bot) add("prAuthor", single(harnessIdentity(bot)));
   for (const { commit } of pr.commits.nodes) {
     const trailerBlock = prose(commit.message).trim().split(/\n\s*\n/).at(-1) ?? "";
     for (const match of trailerBlock.matchAll(/^co-authored-by:\s*(.+)$/gim)) {
+      if (match[1].length > MAX_CREDIT_LINE) { limited = true; continue; }
       const identity = /^([^<>]+?)\s*<([^<>\s]+@[^<>\s]+)>\s*$/.exec(match[1]);
-      if (identity) add("commitTrailer", authorMarker({ name: identity[1].trim(), email: identity[2], user: null }));
+      marker += 1;
+      if (identity) add("commitTrailer", single(authorIdentity({ name: identity[1].trim(), email: identity[2], user: null })));
     }
-    for (const author of commit.authors.nodes) add("commitAuthor", authorMarker(author));
+    for (const author of commit.authors.nodes) {
+      marker += 1;
+      add("commitAuthor", single(authorIdentity(author)));
+    }
   }
-  // Vendor addresses establish providers. Infer their usual client only when no
-  // explicit client is named anywhere on the PR, independent of evidence order.
-  const explicitHarness = namedClient || Object.values(harnesses).some((names) => [...names].some((name) => name !== UNKNOWN_HARNESS));
-  for (const { kind, marker } of inferred) {
-    marker.providers.forEach((name) => providers[kind].add(name));
-    if (!explicitHarness) harnesses[kind].add(marker.inferredHarness!);
-  }
-  const lists = (dimension: ReturnType<typeof sets>) => Object.fromEntries(EVIDENCE_KINDS.map((kind) => [kind, [...dimension[kind]].sort()])) as DimensionEvidence;
-  return { providers: lists(providers), harnesses: lists(harnesses) };
+  return { credits: settle(found), hosts: [...hosts].sort(), evidence: EVIDENCE_KINDS.filter((kind) => found.some((entry) => entry.kind === kind)),
+    ...(limited ? { limited: true as const } : {}) };
 }
 
+const emptyEvidence = (): Record<EvidenceKind, number> => ({ bodyFooter: 0, commitTrailer: 0, commitAuthor: 0, prAuthor: 0 });
+const emptyRoles = (): Record<CreditRole, number> => ({ writing: 0, review: 0, other: 0, unspecified: 0 });
+
+/** PRs naming a provider, harness or host. Unnamed values stay out; credit rows keep them visible. */
 export interface AttributionCount {
   name: string;
   count: number;
   evidence: Record<EvidenceKind, number>;
 }
+/** PRs crediting one exact model/harness combination, once per PR per role. */
+export interface CreditRow {
+  model: string | null;
+  provider: string | null;
+  harness: string | null;
+  prs: number;
+  roles: Record<CreditRole, number>;
+  evidence: Record<EvidenceKind, number>;
+}
+/** PRs on which a declared writer model and a declared reviewer model both appear. */
+export interface CreditPair { writer: string; reviewer: string; prs: number }
 
 export interface PrInsights {
   login: string;
@@ -315,9 +449,60 @@ export interface PrInsights {
   };
   intent: { mix: Record<Intent, number>; sources: Record<string, number> };
   agents: {
-    attributed: number; share: number | null; providers: AttributionCount[]; harnesses: AttributionCount[];
-    evidence: Record<EvidenceKind, number>; incompleteCommits: number;
+    attributed: number; credits: CreditRow[]; pairs: CreditPair[];
+    providers: AttributionCount[]; harnesses: AttributionCount[]; hosts: AttributionCount[];
+    evidence: Record<EvidenceKind, number>; incompleteCommits: number; incompleteCredits: number;
   };
+}
+
+const byName = (a: string | null, b: string | null) => a === b ? 0 : a === null ? 1 : b === null ? -1 : a.localeCompare(b);
+export function compareCredits(a: CreditRow, b: CreditRow): number {
+  return b.prs - a.prs || byName(a.model, b.model) || byName(a.provider, b.provider) || byName(a.harness, b.harness);
+}
+
+/** Persistent credit aggregates: PR counts only, never per-PR observations. */
+function creditTally() {
+  const evidence = emptyEvidence();
+  const rows = new Map<string, CreditRow>(), pairs = new Map<string, CreditPair>();
+  const named = { providers: new Map<string, AttributionCount>(), harnesses: new Map<string, AttributionCount>(), hosts: new Map<string, AttributionCount>() };
+  const tally = (counts: Map<string, AttributionCount>, name: string, kinds: Iterable<EvidenceKind>) => {
+    const entry = counts.get(name) ?? { name, count: 0, evidence: emptyEvidence() };
+    entry.count += 1;
+    for (const kind of kinds) entry.evidence[kind] += 1;
+    counts.set(name, entry);
+  };
+  let attributed = 0;
+  const add = (found: ReturnType<typeof agentCredits>) => {
+    if (found.credits.length) attributed += 1;
+    for (const kind of found.evidence) evidence[kind] += 1;
+    for (const credit of found.credits) {
+      const key = cellKey(credit);
+      const row = rows.get(key) ?? { model: credit.model, provider: credit.provider, harness: credit.harness, prs: 0, roles: emptyRoles(), evidence: emptyEvidence() };
+      row.prs += 1;
+      for (const role of credit.roles) row.roles[role] += 1;
+      for (const kind of credit.evidence) row.evidence[kind] += 1;
+      rows.set(key, row);
+    }
+    for (const [field, counts] of [["provider", named.providers], ["harness", named.harnesses]] as const) {
+      const names = new Set(found.credits.map((credit) => credit[field]).filter((name) => name !== null));
+      for (const name of names) tally(counts, name, new Set(found.credits.filter((credit) => credit[field] === name).flatMap((credit) => credit.evidence)));
+    }
+    for (const host of found.hosts) tally(named.hosts, host, ["bodyFooter"]);
+    // Only credits that state both a model and a role pair up, once per PR.
+    const declared = (role: CreditRole) => new Set(found.credits.filter((credit) => credit.model && credit.roles.includes(role)).map((credit) => credit.model!));
+    const reviewers = declared("review");
+    for (const writer of declared("writing")) for (const reviewer of reviewers) {
+      const key = JSON.stringify([writer, reviewer]);
+      const pair = pairs.get(key) ?? { writer, reviewer, prs: 0 };
+      pair.prs += 1;
+      pairs.set(key, pair);
+    }
+  };
+  const sorted = (counts: Map<string, AttributionCount>) => [...counts.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  const summary = () => ({ attributed, credits: [...rows.values()].sort(compareCredits),
+    pairs: [...pairs.values()].sort((a, b) => b.prs - a.prs || a.writer.localeCompare(b.writer) || a.reviewer.localeCompare(b.reviewer)),
+    providers: sorted(named.providers), harnesses: sorted(named.harnesses), hosts: sorted(named.hosts), evidence });
+  return { add, summary };
 }
 
 export function aggregateInsights(login: string, accounts: readonly string[], year: number, prs: readonly InsightPullRequest[], generatedAt: string): PrInsights {
@@ -329,9 +514,8 @@ export function aggregateInsights(login: string, accounts: readonly string[], ye
   let biggestNetDeletion: PrInsights["size"]["biggestNetDeletion"] = null;
   const mix = Object.fromEntries(INTENTS.map((kind) => [kind, 0])) as Record<Intent, number>;
   const sources: Record<string, number> = { title: 0, branch: 0, paths: 0, unknown: 0 };
-  const evidence = emptyEvidence();
-  const providers = new Map<string, AttributionCount>(), harnesses = new Map<string, AttributionCount>();
-  let attributed = 0, incompleteCommits = 0;
+  const credits = creditTally();
+  let incompleteCommits = 0, incompleteCredits = 0;
   for (const pr of eligible) {
     if (completeFiles(pr)) {
       const files = pr.files!.nodes.filter((file) => !excludedPath(file.path));
@@ -346,20 +530,11 @@ export function aggregateInsights(login: string, accounts: readonly string[], ye
     const intent = classifyIntent(pr);
     mix[intent.intent] += 1;
     sources[intent.source] += 1;
-    const found = agentEvidence(pr);
-    for (const kind of EVIDENCE_KINDS) if (found.providers[kind].length) evidence[kind] += 1;
-    if (Object.values(found.providers).some((names) => names.length)) attributed += 1;
-    for (const [dimension, counts] of [[found.providers, providers], [found.harnesses, harnesses]] as const) {
-      for (const name of new Set(Object.values(dimension).flat())) {
-        const entry = counts.get(name) ?? { name, count: 0, evidence: emptyEvidence() };
-        entry.count += 1;
-        for (const kind of EVIDENCE_KINDS) if (dimension[kind].includes(name)) entry.evidence[kind] += 1;
-        counts.set(name, entry);
-      }
-    }
+    const found = agentCredits(pr);
+    credits.add(found);
+    if (found.limited) incompleteCredits += 1;
     if (pr.commits.nodes.length < pr.commits.totalCount || pr.commits.nodes.some(({ commit }) => commit.authors.nodes.length < commit.authors.totalCount)) incompleteCommits += 1;
   }
-  const sorted = (counts: Map<string, AttributionCount>) => [...counts.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   sizes.sort((a, b) => a - b);
   const middle = Math.floor(sizes.length / 2);
   return {
@@ -369,8 +544,6 @@ export function aggregateInsights(login: string, accounts: readonly string[], ye
       smallShare: sizes.length ? sizes.filter((n) => n < 100).length / sizes.length : null,
       buckets, biggestNetDeletion },
     intent: { mix, sources },
-    agents: { attributed, share: eligible.length ? attributed / eligible.length : null,
-      providers: sorted(providers), harnesses: sorted(harnesses),
-      evidence, incompleteCommits },
+    agents: { ...credits.summary(), incompleteCommits, incompleteCredits },
   };
 }
