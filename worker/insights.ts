@@ -196,6 +196,37 @@ function generatedMarker(subject: string): Marker | null {
   if (!modelProvider(value) && !clientHarnesses(value)) return null;
   return disclosureMarker([value]);
 }
+const CREDIT_VERB = "(?:written|reviewed|re-checked|rechecked|revised|fixed|designed|diagnosed|planned|tested|verified|audited|implemented)";
+const CREDIT_CLAUSE = new RegExp(`^(?:,\\s+(?:and\\s+)?|\\s+and\\s+)(?:with (?:the [a-z]+ )?)?${CREDIT_VERB}(?: and ${CREDIT_VERB})* by\\s+`, "i");
+/** Consume a whole footer, keeping backticked harness/model labels distinct from prose. */
+function creditMarkers(line: string): Marker[] {
+  if (!/^Written by\s+`/i.test(line)) return [];
+  let rest = line.replace(/^Written by\s+/i, "").trimEnd().replace(/\.$/, "");
+  // Bounded whitespace avoids rescanning long runs quadratically at each position.
+  const host = /,?[ \t]{1,3}in[ \t]{1,3}(styal(?:[ \t]{0,3}🧵)?|T3 Code)$/iu.exec(rest);
+  if (host) rest = rest.slice(0, host.index);
+  const markers: Marker[] = [];
+  while (rest) {
+    const participant = /^`([a-z0-9][a-z0-9._-]*)\/([a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*)`/i.exec(rest);
+    if (!participant) return [];
+    const [, client, model] = participant;
+    // These command names are unambiguous inside a structured credit, not in prose.
+    const harness = client.toLowerCase() === "claude" ? "Claude Code" : client.toLowerCase() === "pi" ? "Pi" : HARNESS_ALIASES.get(client.toLowerCase());
+    markers.push({ providers: [modelProvider(model) ?? (harness ? SINGLE_VENDOR.get(harness) : undefined) ?? UNKNOWN_MODEL],
+      harnesses: [harness ?? UNKNOWN_HARNESS], namedClient: true });
+    rest = rest.slice(participant[0].length);
+    if (!rest) break;
+    const connector = /^(?:,\s*(?:and\s+)?|\s+and\s+)(?=`)/i.exec(rest) ?? CREDIT_CLAUSE.exec(rest);
+    if (!connector) return [];
+    rest = rest.slice(connector[0].length);
+    if (!rest) return [];
+  }
+  // A path-shaped code span alone (e.g. scripts/generate.ts) is not an agent marker.
+  if (!markers.some((marker) => marker.providers[0] !== UNKNOWN_MODEL || marker.harnesses[0] !== UNKNOWN_HARNESS)) return [];
+  // Hosts still share the existing harness dimension until the role-aware redesign.
+  if (host && markers.length) markers[0].harnesses.push(/^styal/i.test(host[1]) ? "styal" : "T3 Code");
+  return markers;
+}
 /** Ignore fenced examples, block quotes and indented code before anchored marker matching. */
 function prose(text: string): string {
   return text.replace(/(^|\n)[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n[ \t]*\2[^\n]*(?=\n|$)|$)/g, "$1")
@@ -239,6 +270,7 @@ export function agentEvidence(pr: InsightPullRequest): { providers: DimensionEvi
         for (const group of match[1].split(";")) if (group.trim()) add("bodyFooter", disclosureMarker(group.split(",")));
       }
     } else {
+      creditMarkers(marker).forEach((credit) => add("bodyFooter", credit));
       const generated = /^(?:Generated|Created|Made) (?:with|by)\s+([^\n]+)$/i.exec(marker);
       if (generated) add("bodyFooter", generatedMarker(generated[1]));
     }

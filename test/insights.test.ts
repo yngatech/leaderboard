@@ -125,6 +125,66 @@ test("ordinary agent mentions, quoted/fenced examples and dependency bots are no
   assert.deepEqual(agentEvidence(input).harnesses.commitTrailer, []);
 });
 
+test("structured credits include writers, reviewers, other contributors and an optional host", () => {
+  for (const [body, providers, harnesses] of [
+    ["Written by `claude/claude-opus-x`, reviewed by `claude/claude-fable-x`, in [styal 🧵](https://example.test/styal).", ["Anthropic"], ["Claude Code", "styal"]],
+    ["Written by `claude/claude-opus-x`, reviewed by `codex/gpt-6-example`.", ["Anthropic", "OpenAI"], ["Claude Code", "Codex"]],
+    ["Written by `claude/claude-opus-x`, and reviewed by `codex/gpt-6-example`.", ["Anthropic", "OpenAI"], ["Claude Code", "Codex"]],
+    ["Written by `claude/claude-opus-x` and reviewed by `codex/gpt-6-example`.", ["Anthropic", "OpenAI"], ["Claude Code", "Codex"]],
+    ["Written by `codex/gpt-6-example`, reviewed by `codex/gpt-6-example` and `claude/claude-fable-x`, in styal.", ["Anthropic", "OpenAI"], ["Claude Code", "Codex", "styal"]],
+    ["Written by `codex/gpt-6-example`, reviewed and fixed by `claude/claude-opus-x`, in styal.", ["Anthropic", "OpenAI"], ["Claude Code", "Codex", "styal"]],
+    ["Written by `codex/gpt-6-example`, designed and reviewed by `claude/claude-opus-x`, in styal.", ["Anthropic", "OpenAI"], ["Claude Code", "Codex", "styal"]],
+    ["Written by `claude/claude-opus-x`, with the leak diagnosed by `codex/gpt-6-example`, in styal.", ["Anthropic", "OpenAI"], ["Claude Code", "Codex", "styal"]],
+    ["Written by `opencode/anthropic/claude-opus-x`, `pi/deepseek-v3`, and `cursor/gpt-6-example` in T3 Code.", ["Anthropic", "DeepSeek", "OpenAI"], ["Cursor", "OpenCode", "Pi", "T3 Code"]],
+    ["Written by `codex/claude-opus-x`", ["Anthropic"], ["Codex"]],
+    ["Written by `example-client/gpt-6-example`.", ["OpenAI"], ["unknown harness"]],
+    ["Written by `example-client/example-model`, reviewed by `codex/gpt-6-example`.", ["OpenAI", "unknown model"], ["Codex", "unknown harness"]],
+  ] as const) {
+    const found = agentEvidence(pr({ body }));
+    assert.deepEqual(found.providers.bodyFooter, providers, body);
+    assert.deepEqual(found.harnesses.bodyFooter, harnesses, body);
+  }
+});
+
+test("structured credits must consume the entire footer and never read examples or link targets", () => {
+  const footer = "Written by `codex/gpt-6-example`.";
+  for (const body of [
+    `For example: ${footer}`, `> ${footer}`, `    ${footer}`, `\t${footer}`, `\`\`\`text\n${footer}\n\`\`\``, `~~~text\n${footer}\n~~~`,
+    "Written by `claude`.", "Written by `https://example.test/gpt-6`.", "Written by `<harness>/<model id>`.",
+    "Written by `scripts/generate.ts`.", "Written by `example/project`.", "Written by `tools/codegen` in styal.",
+    "Written by `" + " ".repeat(60_000) + "x",
+    "Written by `codex/gpt-6-example` fixtures; no model was used.",
+    "Written by `codex/gpt-6-example`, not reviewed by `claude/claude-opus-x`.",
+    "Written by `codex/gpt-6-example`, reviewed by a person.",
+    "Written by `codex/gpt-6-example`, reviewed by ",
+    "Written by `codex/gpt-6-example`, ",
+    "Written by `codex/gpt-6-example` in production.",
+    "Written by [a person](https://example.test/codex/gpt-6-example).",
+    "Written by `codex/gpt-6-example`, in [Example fixtures](https://example.test/styal).",
+  ]) {
+    const found = agentEvidence(pr({ body }));
+    assert.deepEqual(found.providers.bodyFooter, [], body);
+    assert.deepEqual(found.harnesses.bodyFooter, [], body);
+  }
+  const linked = agentEvidence(pr({ body: "Written by [`example-client/claude-opus-x`](https://example.test/codex/gpt-6-example)." }));
+  assert.deepEqual(linked.providers.bodyFooter, ["Anthropic"]);
+  assert.deepEqual(linked.harnesses.bodyFooter, ["unknown harness"]);
+});
+
+test("structured credits deduplicate with legacy disclosures and suppress inferred harnesses", () => {
+  const body = "Written by `opencode/claude-opus-x`, reviewed by `opencode/claude-fable-x`, in styal.\nWritten by an agent (OpenCode, claude-opus-x).\nGenerated with claude-opus-x via OpenCode.";
+  const input = pr({ body });
+  input.commits.nodes[0].commit.message += "\n\nCo-authored-by: Example Agent <noreply@anthropic.com>";
+  const found = agentEvidence(input);
+  assert.deepEqual(found.providers.commitTrailer, ["Anthropic"]);
+  assert.deepEqual(found.harnesses.commitTrailer, []);
+  const summary = summarize([input]);
+  assert.equal(summary.agents.attributed, 1);
+  assert.deepEqual(summary.agents.providers.map(({ name, count }) => [name, count]), [["Anthropic", 1]]);
+  assert.deepEqual(summary.agents.harnesses.map(({ name, count }) => [name, count]), [["OpenCode", 1], ["styal", 1]]);
+  assert.equal(summary.agents.evidence.bodyFooter, 1);
+});
+
 test("month windows include leap days and exclude future months", () => {
   assert.deepEqual(insightMonths(new Date("2024-03-02T10:00:00Z")), [
     { from: "2024-01-01", to: "2024-01-31" }, { from: "2024-02-01", to: "2024-02-29" }, { from: "2024-03-01", to: "2024-03-02" },
@@ -167,6 +227,20 @@ function memoryStorage() {
   };
   return { entries, storage };
 }
+
+test("collected structured credits survive aggregation and storage without retaining the footer", async (t) => {
+  const input = pr({ body: "Written by `claude/claude-opus-x`, reviewed by `codex/gpt-6-example`, in [styal 🧵](https://example.test/styal)." });
+  t.mock.method(globalThis, "fetch", async () => searchResponse([input]));
+  const summary = await fetchInsights("synthetic-token", "example-user", ["example-user"], new Date("2026-02-28T00:00:00Z"));
+  const { storage } = memoryStorage();
+  await storeInsights(storage, summary);
+  const stored = await storedInsights(storage, "example-user", 2026);
+  assert.equal(stored?.agents.attributed, 1);
+  assert.deepEqual(stored?.agents.providers.map(({ name, count }) => [name, count]), [["Anthropic", 1], ["OpenAI", 1]]);
+  assert.deepEqual(stored?.agents.harnesses.map(({ name, count }) => [name, count]), [["Claude Code", 1], ["Codex", 1], ["styal", 1]]);
+  assert.ok(!JSON.stringify(stored).includes("claude-opus-x"));
+  assert.ok(!JSON.stringify(stored).includes("Written by"));
+});
 
 function readSummary(value: unknown) {
   const { entries, storage } = memoryStorage();
