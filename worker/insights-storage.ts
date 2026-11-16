@@ -3,7 +3,7 @@ import { fetchInsights } from "./insights-fetch.ts";
 import { EVIDENCE_KINDS, INTENTS, SIZE_BUCKETS, type PrInsights } from "./insights.ts";
 
 // Bump when the summary shape or classification rules change.
-export const INSIGHTS_SCHEMA_VERSION = 1;
+export const INSIGHTS_SCHEMA_VERSION = 2;
 const DAY_MS = 86400_000;
 const COOLDOWN_MS = 3600_000;
 export interface InsightsStorage {
