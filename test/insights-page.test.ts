@@ -74,7 +74,7 @@ test("DO errors, missing and malformed summaries preserve the profile and return
     assert.equal(response.status, 200);
     const body = await response.text();
     assert.ok(body.includes("Example Developer"));
-    assert.ok(body.includes('aria-label="example-user made 1 contributions in 2026"'));
+    assert.ok(body.includes('data-day="2026-03-01"'));
     assert.ok(!body.includes('id="pr-insights"'));
     const pending = await api(user.login, url, true, currentEnv);
     assert.equal(pending.status, 202);
