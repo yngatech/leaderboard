@@ -167,11 +167,13 @@ export function heatmapSvg(weeks: Grid, options: HeatmapOptions): Html {
     );
   }
 
+  // A full-year calendar shrunk to a phone's width leaves its labels a few
+  // pixels tall, so there it keeps its own size and its well scrolls instead.
   return html`<svg
-    class="block h-auto w-full overflow-visible"
+    class="block h-auto w-full overflow-visible${options.months ? " max-phone:w-auto" : ""}"
     viewBox="0 0 ${width} ${height}"
     width="${width}"
-    height="${height}"
+    height="${height}"${options.months ? html` data-calendar` : null}
     role="${options.dayHref ? "group" : "img"}"
     aria-label="${options.label}"
     style="max-width:${width}px"

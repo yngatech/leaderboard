@@ -282,3 +282,17 @@ window.addEventListener("popstate", () => {
   if (link) showDay(link, location.href, false);
   else location.reload();
 });
+
+/* A calendar wider than its well opens on the end that matters: the chosen
+   day, or else the latest day drawn, rather than on January. */
+for (const calendar of document.querySelectorAll("svg[data-calendar]")) {
+  const well = calendar.parentElement;
+  if (!well || well.scrollWidth <= well.clientWidth) continue;
+  const cells = calendar.querySelectorAll('.heat-cell[data-state="day"]');
+  const target = calendar.querySelector('.heat-cell[data-selected="true"]') ?? cells[cells.length - 1];
+  if (!target) continue;
+  const cell = target.getBoundingClientRect();
+  const box = well.getBoundingClientRect();
+  // Leave a little of the following weeks in view, so the edge reads as more to come.
+  well.scrollLeft += cell.right - box.right + Math.min(box.width / 4, 80);
+}
