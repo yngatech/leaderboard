@@ -168,7 +168,7 @@ export function heatmapSvg(weeks: Grid, options: HeatmapOptions): Html {
   }
 
   return html`<svg
-    class="block h-auto w-full"
+    class="block h-auto w-full overflow-visible"
     viewBox="0 0 ${width} ${height}"
     width="${width}"
     height="${height}"
@@ -279,7 +279,7 @@ export function yearStripSvg(cells: YearCell[], options: YearStripOptions): Html
 
   const role = options.hrefFor ? "group" : "img";
   return html`<svg
-    class="block h-auto w-full"
+    class="block h-auto w-full overflow-visible"
     viewBox="0 0 ${width} ${height}"
     width="${width}"
     height="${height}"
