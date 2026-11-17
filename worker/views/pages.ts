@@ -49,7 +49,7 @@ import { html, type Html } from "../html.ts";
 import { cumulativeChartHtml } from "./chart.ts";
 import { MIN_PAGE_YEAR, SITE, hrefForYear, pageHtml, type SiteChrome } from "./layout.ts";
 import { allTimeRowHtml, boardGoalLineHtml, goalRailHtml, rowGapHtml, userRowHtml } from "./rows.ts";
-import { dayTitle, heatmapSvg, yearStripSvg } from "./svg.ts";
+import { dayTitle, heatmapSvg, yearGridHtml } from "./svg.ts";
 import { recentAchievementsHtml, type RecentAchievementsOptions } from "./achievements.ts";
 
 const SITE_DESCRIPTION =
@@ -283,10 +283,7 @@ export function allPageHtml(options: AllPageOptions): string {
       class="mt-page animate-rise"
       aria-labelledby="pulse-heading"
     >
-      ${hero}<div class="mt-7.5 ${PLOT_PANEL}">${yearStripSvg(pulse, {
-    cell: 70,
-    gap: 6,
-    labels: true,
+      ${hero}<div class="mt-7.5 ${PLOT_PANEL}">${yearGridHtml(pulse, {
     label: `All ${users.length} accounts combined, year by year, ${span}`,
     hrefFor: (year) => hrefForYear(year, chrome.thisYear),
   })}</div>
@@ -574,10 +571,7 @@ function identityCardHtml(options: IdentityCardOptions): Html {
         ${allTimeMilestoneHtml(user.total)}
       </div>
     </div>
-    <div class="border-t border-line-soft ${CARD_WELL}">${yearStripSvg(cells, {
-    cell: 70,
-    gap: 6,
-    labels: true,
+    <div class="border-t border-line-soft ${CARD_WELL}">${yearGridHtml(cells, {
     podium: true,
     label: `${user.login}, year by year`,
     hrefFor: (year) => hrefForYear(year, chrome.thisYear),

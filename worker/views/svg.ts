@@ -186,17 +186,12 @@ export interface YearStripOptions {
   /** Square edge in px at 1:1. The SVG scales down below that. */
   cell?: number;
   gap?: number;
-  /** Print the year above each cell. */
-  labels?: boolean;
   /** Print 1, 2, 3 inside the cells that placed that year. */
   podium?: boolean;
   /** Accessible summary of the strip. */
   label: string;
-  /** Wrap each cell in a link to that year's board page. */
-  hrefFor?: (year: number) => string;
 }
 
-const LABEL_BAND = 17;
 const PODIUM = 3;
 
 function yearTooltip(item: YearCell): string {
@@ -205,57 +200,31 @@ function yearTooltip(item: YearCell): string {
   return `${count} in ${item.year}${placing}`;
 }
 
-/** The all-time counterpart to the heatmap: one row, one cell per year. */
+/** The all-time counterpart to a board row's heatmap: one row, one cell per
+ *  year, scaled to fit like the heatmap it stands in for. */
 export function yearStripSvg(cells: YearCell[], options: YearStripOptions): Html {
   const cell = options.cell ?? 30;
   const gap = options.gap ?? 4;
   const pitch = cell + gap;
-  const top = options.labels ? LABEL_BAND : 0;
 
   const width = Math.max(0, cells.length * pitch - gap);
-  const height = cell + top;
+  const height = cell;
   const rx = Math.max(1, Math.round(cell * 0.22));
 
   const parts: Html[] = [];
 
-  if (options.labels) {
-    cells.forEach((item, index) => {
-      parts.push(
-        html`<text
-          class="fill-muted font-mono text-axis"
-          x="${index * pitch}"
-          y="${LABEL_BAND - 6}"
-          >${item.year}</text
-        >`,
-      );
-    });
-  }
-
   cells.forEach((item, index) => {
-    const tooltip = yearTooltip(item);
-    const rect = html`<rect
-      class="heat-cell${options.hrefFor
-        ? " cursor-pointer"
-        : ""}"
+    parts.push(html`<rect
+      class="heat-cell"
       data-state="day"
       data-level="${item.level}"
       x="${index * pitch}"
-      y="${top}"
+      y="0"
       width="${cell}"
       height="${cell}"
       rx="${rx}"
-      ><title>${tooltip}</title></rect
-    >`;
-    // A native SVG link, so keyboard access and new-tab clicks come for free.
-    parts.push(
-      options.hrefFor
-        ? html`<a
-            href="${options.hrefFor(item.year)}"
-            aria-label="Show ${item.year}: ${tooltip}"
-            >${rect}</a
-          >`
-        : rect,
-    );
+      ><title>${yearTooltip(item)}</title></rect
+    >`);
   });
 
   // Drawn after the squares so the digits sit on top of their own cell.
@@ -269,7 +238,7 @@ export function yearStripSvg(cells: YearCell[], options: YearStripOptions): Html
           class="pointer-events-none fill-ink font-mono font-medium data-[level=3]:fill-void data-[level=4]:fill-void"
           data-level="${item.level}"
           x="${index * pitch + cell / 2}"
-          y="${top + cell / 2}"
+          y="${cell / 2}"
           font-size="${Math.round(cell * 0.46)}"
           text-anchor="middle"
           dominant-baseline="central"
@@ -279,16 +248,67 @@ export function yearStripSvg(cells: YearCell[], options: YearStripOptions): Html
     });
   }
 
-  const role = options.hrefFor ? "group" : "img";
   return html`<svg
     class="block h-auto w-full overflow-visible"
     viewBox="0 0 ${width} ${height}"
     width="${width}"
     height="${height}"
-    role="${role}"
+    role="img"
     aria-label="${options.label}"
     style="max-width:${width}px"
   >
     ${parts}
   </svg>`;
+}
+
+/** Square fill and podium digit per level. The two brightest steps of the
+ *  ramp need a dark digit to read. Literal strings for the Tailwind scanner. */
+const YEAR_TONE = [
+  "bg-heat-0 text-ink",
+  "bg-heat-1 text-ink",
+  "bg-heat-2 text-ink",
+  "bg-heat-3 text-void",
+  "bg-heat-4 text-void",
+];
+
+export interface YearGridOptions {
+  /** Print 1, 2, 3 inside the squares that placed that year. */
+  podium?: boolean;
+  /** Accessible summary of the grid. */
+  label: string;
+  /** Each square links to that year's board page. */
+  hrefFor: (year: number) => string;
+}
+
+/**
+ * The labelled year-by-year plot of the all-time and account pages. Markup
+ * rather than SVG, so the years stay legible text at any width: squares
+ * shrink to a floor and then wrap onto more rows instead of scaling away.
+ */
+export function yearGridHtml(cells: YearCell[], options: YearGridOptions): Html {
+  // Columns stretch to share each row, so cap the whole grid at 70px a year.
+  return html`<ol
+    class="grid grid-cols-[repeat(auto-fit,minmax(2.75rem,1fr))] gap-x-1.5 gap-y-3"
+    aria-label="${options.label}"
+    style="max-width:calc(${cells.length} * 4.375rem + ${Math.max(0, cells.length - 1)} * 0.375rem)"
+  >
+    ${cells.map((item) => {
+      const tooltip = yearTooltip(item);
+      const rank = options.podium && item.rank && item.rank <= PODIUM ? item.rank : null;
+      return html`<li>
+        <a
+          href="${options.hrefFor(item.year)}"
+          class="group/year block no-underline"
+          aria-label="Show ${item.year}: ${tooltip}"
+          title="${tooltip}"
+          ><span class="block text-fine text-muted" aria-hidden="true">${item.year}</span
+          ><span
+            class="mt-1 grid aspect-square place-items-center rounded-[22%] font-mono font-medium transition-[outline-color] duration-150 [container-type:inline-size] outline outline-1 -outline-offset-1 outline-transparent group-hover/year:outline-white/70 ${YEAR_TONE[item.level] ?? YEAR_TONE[0]}"
+            aria-hidden="true"
+            ><span class="text-[46cqi] leading-none">${rank}</span></span
+          ></a
+        >
+      </li>`;
+    })}
+  </ol>`;
 }
