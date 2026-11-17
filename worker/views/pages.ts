@@ -769,16 +769,21 @@ export function userPageHtml(options: UserPageOptions): string {
   const boardUser = boardIndex >= 0 ? board[boardIndex] : null;
   const boardRank = boardIndex >= 0 ? boardIndex + 1 : null;
 
+  const firstActive = years.find((y) => (user.byYear[String(y)] ?? 0) > 0) ?? null;
+  // The strip opens on this account's first active year, not the board's:
+  // years before they contributed anything are not part of their record.
+  // Quiet years after that stay, since a gap is part of the story.
+  const ownYears = firstActive === null ? years : years.filter((y) => y >= firstActive);
+
   const thresholds = boardYearThresholds(allUsers);
-  const ranks = boardYearRanks(allUsers, years);
-  const cells = userYearStrip(user, years, thresholds, ranks);
+  const ranks = boardYearRanks(allUsers, ownYears);
+  const cells = userYearStrip(user, ownYears, thresholds, ranks);
   const best = peakYear(cells);
 
   const grid = boardUser ? userGrid(boardUser.weeks, year, today) : null;
   const peak = grid ? peakDay(grid) : null;
   const goals = boardIndex >= 0 ? userGoals(board, boardIndex) : null;
 
-  const firstActive = years.find((y) => (user.byYear[String(y)] ?? 0) > 0) ?? null;
   /** Competition ranking across every account's all-time total. */
   const allRank =
     user.total > 0 ? allUsers.filter((other) => other.total > user.total).length + 1 : null;
