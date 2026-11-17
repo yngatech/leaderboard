@@ -29,6 +29,10 @@ export function formatNumber(value: number): string {
   return numberFmt.format(value);
 }
 
+export function contributionUnit(count: number): string {
+  return count === 1 ? "contribution" : "contributions";
+}
+
 /**
  * A place on the board, marked as one. The hash is what makes a rank read as a
  * rank rather than as a second quantity, which matters most where a rank sits

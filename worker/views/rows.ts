@@ -1,7 +1,7 @@
 import type { AllTimeUser, BoardUser } from "../../shared/types.ts";
 import type { BoardGoal, Thresholds, YearRanks } from "../../shared/board.ts";
 import { peakDay, peakYear, userGrid, userYearStrip } from "../../shared/board.ts";
-import { formatDayShort, formatNumber, formatRank } from "../../shared/format.ts";
+import { contributionUnit, formatDayShort, formatNumber, formatRank } from "../../shared/format.ts";
 import { html, type Html } from "../html.ts";
 import { heatmapSvg, yearStripSvg } from "./svg.ts";
 import { AVATAR, LEAD_EDGE, NAME_LINK } from "./ui.ts";
@@ -174,7 +174,7 @@ function userRowBody(options: UserRowOptions): Html {
     gap: 2,
     // Stars the busiest day. An all-zero year has no peak, so no star.
     peakDate: peak?.date,
-    label: `${user.login} made ${formatNumber(user.totalContributions)} contributions in ${year}`,
+    label: `${user.login} made ${formatNumber(user.totalContributions)} ${contributionUnit(user.totalContributions)} in ${year}`,
   })}</div>
     <div class="flex flex-col items-end text-right [grid-area:score] max-phone:flex-row max-phone:flex-wrap max-phone:items-baseline max-phone:gap-x-2 max-phone:gap-y-1 max-phone:text-left max-phone:[&>span]:mt-0 max-phone:[&>span:last-child]:ml-auto">
       <span
@@ -185,7 +185,7 @@ function userRowBody(options: UserRowOptions): Html {
           ? html`<span class="sr-only"> — highest total on the board</span>`
           : null}</span
       ><span class="mt-1 text-meta text-muted"
-        >contributions</span
+        >${contributionUnit(user.totalContributions)}</span
       >${score}
     </div>`;
 }
@@ -287,7 +287,7 @@ export function allTimeRowHtml(options: AllTimeRowOptions): Html {
     cell: 34,
     gap: 5,
     podium: true,
-    label: `${user.login} made ${formatNumber(user.total)} contributions from ${years[0]} to ${years[years.length - 1]}`,
+    label: `${user.login} made ${formatNumber(user.total)} ${contributionUnit(user.total)} from ${years[0]} to ${years[years.length - 1]}`,
   })}</div>
     <div class="flex flex-col items-end text-right [grid-area:score] max-phone:flex-row max-phone:flex-wrap max-phone:items-baseline max-phone:gap-x-2 max-phone:gap-y-1 max-phone:text-left max-phone:[&>span]:mt-0 max-phone:[&>span:last-child]:ml-auto">
       <span
@@ -298,7 +298,7 @@ export function allTimeRowHtml(options: AllTimeRowOptions): Html {
           ? html`<span class="sr-only"> — highest total on the board</span>`
           : null}</span
       ><span class="mt-1 text-meta text-muted"
-        >contributions</span
+        >${contributionUnit(user.total)}</span
       >${score}
     </div>
   </article>`;

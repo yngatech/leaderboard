@@ -44,7 +44,7 @@ import {
 } from "../../shared/board.ts";
 import { cakeDayYears, joinDay, yearsOnGitHub } from "../../shared/cakeday.ts";
 import { ALL_TIME_PERSONAL_MILESTONES, nextMilestone } from "../../shared/milestones.ts";
-import { formatDayShort, formatDayYear, formatNumber, formatOrdinal } from "../../shared/format.ts";
+import { contributionUnit, formatDayShort, formatDayYear, formatNumber, formatOrdinal } from "../../shared/format.ts";
 import { html, type Html } from "../html.ts";
 import { cumulativeChartHtml } from "./chart.ts";
 import { MIN_PAGE_YEAR, SITE, hrefForYear, pageHtml, type SiteChrome } from "./layout.ts";
@@ -168,7 +168,7 @@ export function yearPageHtml(options: YearPageOptions): string {
     ? html`<p>
         Busiest day:
         <strong class="font-medium text-ink">${formatNumber(busiest.count)}</strong>
-        contributions on ${formatDayShort(busiest.date)}
+        ${contributionUnit(busiest.count)} on ${formatDayShort(busiest.date)}
       </p>`
     : null;
 
@@ -192,7 +192,7 @@ export function yearPageHtml(options: YearPageOptions): string {
   const chartHtml = climb.length > 0 ? cumulativeChartHtml({ series: climb, year, today }) : null;
   const hero = heroHtml(
     total,
-    `contributions from ${board.length} accounts in ${year}`,
+    `${contributionUnit(total)} from ${board.length} accounts in ${year}`,
     goal ? boardGoalLineHtml(goal) : null,
   );
 
@@ -261,7 +261,7 @@ export function allPageHtml(options: AllPageOptions): string {
   const bestLine = best
     ? html`<p>
         Biggest year: <strong class="font-medium text-ink">${formatNumber(best.count)}</strong>
-        contributions in ${best.year}
+        ${contributionUnit(best.count)} in ${best.year}
       </p>`
     : null;
 
@@ -277,7 +277,7 @@ export function allPageHtml(options: AllPageOptions): string {
         highestYearTotal,
       }),
     );
-  const hero = heroHtml(total, `contributions from ${users.length} accounts, ${span}`);
+  const hero = heroHtml(total, `${contributionUnit(total)} from ${users.length} accounts, ${span}`);
 
   const main = html`<section
       class="mt-page animate-rise"
@@ -477,7 +477,7 @@ function careerLedgerFields(
     fields.push({
       term: "best year",
       body: html`<p>
-        <strong class="${LEDGER_FIGURE}">${formatNumber(best.count)}</strong> contributions in
+        <strong class="${LEDGER_FIGURE}">${formatNumber(best.count)}</strong> ${contributionUnit(best.count)} in
         ${best.year}
       </p>`,
     });
@@ -540,7 +540,7 @@ function identityCardHtml(options: IdentityCardOptions): Html {
           width="72"
           height="72"
       /></a>
-      <div class="min-w-0 flex-1">
+      <div class="min-w-0 flex-1 max-phone:basis-[min-content]">
         <h2
           class="type-title break-words"
           id="user-heading"
@@ -658,7 +658,7 @@ function liveYearSectionHtml(options: LiveYearSectionOptions): Html {
       <strong class="${leadsYear ? LEDGER_FIGURE_LEAD : LEDGER_FIGURE}"
         >${formatNumber(boardUser.totalContributions)}</strong
       >
-      contributions
+      ${contributionUnit(boardUser.totalContributions)}
     </p>
     ${milestoneHtml(boardUser, goals)}`;
   fields.push({ term: `${year} so far`, body: running });
@@ -678,7 +678,7 @@ function liveYearSectionHtml(options: LiveYearSectionOptions): Html {
     term: "busiest day",
     body: peak
       ? html`<p>
-          <strong class="${LEDGER_VALUE}">${formatNumber(peak.count)}</strong> contributions on
+          <strong class="${LEDGER_VALUE}">${formatNumber(peak.count)}</strong> ${contributionUnit(peak.count)} on
           ${formatDayShort(peak.date)}
         </p>`
       : html`<p class="text-muted">no activity yet</p>`,
@@ -705,7 +705,7 @@ function liveYearSectionHtml(options: LiveYearSectionOptions): Html {
 }
 
 function heatmapLabel(login: string, total: number, year: number): string {
-  return `${login} made ${formatNumber(total)} contributions in ${year}`;
+  return `${login} made ${formatNumber(total)} ${contributionUnit(total)} in ${year}`;
 }
 
 /** The day panel, measured against the heatmap cell and year total it sits
@@ -782,7 +782,7 @@ export function userPageHtml(options: UserPageOptions): string {
   const allRank =
     user.total > 0 ? allUsers.filter((other) => other.total > user.total).length + 1 : null;
 
-  const sinceCaption = firstActive ? `contributions since ${firstActive}` : "contributions";
+  const sinceCaption = firstActive ? `${contributionUnit(user.total)} since ${firstActive}` : contributionUnit(user.total);
 
   /** Leading the board is worth exactly the marks a rank-1 row wears: a gold
    *  edge on the card and a gold total. The sentences stay quiet. */
