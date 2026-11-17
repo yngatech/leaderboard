@@ -285,6 +285,27 @@ test("user page reads from both feeds and links its year strip", () => {
   assertScriptBudget(page, false);
 });
 
+test("user page's year strip opens on that account's first active year", () => {
+  const data = makeAllTime();
+  const options = {
+    chrome,
+    board: makeBoard(),
+    allUsers: data.users,
+    years: data.years,
+    year: 2026,
+    today: "2026-08-10",
+    generatedAt: GENERATED,
+  };
+  // bob first contributed in 2025, a year after the board's first.
+  const bob = userPageHtml({ ...options, user: data.users[1] });
+  assert.doesNotMatch(bob, /<a\s+href="\/2024"/);
+  assert.match(bob, /<a\s+href="\/2025"/);
+  // An account with nothing at all still gets the board's whole range.
+  const quiet = { ...data.users[1], login: "quiet", byYear: {}, total: 0 };
+  const page = userPageHtml({ ...options, user: quiet, allUsers: [...data.users, quiet] });
+  assert.match(page, /<a\s+href="\/2024"/);
+});
+
 test("user page shows the gap to the account directly above", () => {
   const data = makeAllTime();
   const page = userPageHtml({
