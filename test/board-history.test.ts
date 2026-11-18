@@ -80,7 +80,7 @@ test("diffDays reports moved days for known people only, and ignores last year's
   ]);
 });
 
-test("classifyChange measures a change's date against the check's UTC date", () => {
+test("classifyChange measures a change's date against the check's date", () => {
   const change = (date: string) => ({ login: "ada", date, previous: 2, count: 5 });
   assert.deepEqual(classifyChange(change("2026-11-04"), "2026-11-04"), {
     ...change("2026-11-04"), delta: 3, kind: "same-day", daysBack: 0,
@@ -199,6 +199,15 @@ test("the new year compares only its own days, and a decrease to zero is recorde
     [["2027-01-01", 2, 0, "same-day"]],
   ]);
   assert.equal(count("board_history_days"), 0);
+});
+
+test("a summer check after London midnight files the new day's commits as same-day", () => {
+  const { store } = sqliteStore();
+  store.record([user("ada", { "2026-07-01": 4 })], 2026, at("2026-07-01T22:50:00Z"));
+  store.record([user("ada", { "2026-07-01": 4, "2026-07-02": 1 })], 2026, at("2026-07-01T23:10:00Z"));
+  const [, check] = store.read({ from: at("2026-07-01T22:00:00Z"), to: at("2026-07-02T00:00:00Z") }).checks;
+  assert.equal(check.checkDate, "2026-07-02");
+  assert.deepEqual(check.changes.map(({ date, kind }) => ({ date, kind })), [{ date: "2026-07-02", kind: "same-day" }]);
 });
 
 test("checks older than the retention window are pruned as new ones land", () => {

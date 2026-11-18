@@ -3,6 +3,7 @@ import type {
   ContributionKind,
   BreakdownRepository,
 } from "../shared/types.ts";
+import { todayIso } from "../shared/board.ts";
 import { yearRange } from "./github.ts";
 
 export type BreakdownWindow = ContributionBreakdown["window"];
@@ -120,7 +121,7 @@ export function parseBreakdownDate(raw: string | null, now: Date): string | null
   )
     return "invalid";
   const normalized = date.toISOString().slice(0, 10);
-  return normalized <= now.toISOString().slice(0, 10) ? normalized : "invalid";
+  return normalized <= todayIso(now) ? normalized : "invalid";
 }
 export function yearWindow(year: number, now: Date): BreakdownWindow {
   return { kind: "year", year, ...yearRange(year, now) };

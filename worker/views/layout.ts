@@ -39,7 +39,7 @@ export interface PageOptions {
   generatedAt?: string | null;
   /** Live pages refresh every ten minutes; archived years sit still. */
   liveCopy?: boolean;
-  /** The page includes the current UTC day, which GitHub may still revise. */
+  /** The page includes the current day, which GitHub may still revise. */
   provisionalToday?: boolean;
   /** Machine-readable representation of this page's data. */
   alternate?: string;
@@ -145,7 +145,8 @@ const timeFmt = new Intl.DateTimeFormat("en-GB", {
   minute: "2-digit",
   day: "numeric",
   month: "short",
-  timeZone: "UTC",
+  timeZone: "Europe/London",
+  timeZoneName: "short",
 });
 
 /**
@@ -154,7 +155,7 @@ const timeFmt = new Intl.DateTimeFormat("en-GB", {
  * lie; the enhancement script upgrades this to a live relative time.
  */
 function formatUpdatedAt(iso: string): string {
-  return `${timeFmt.format(new Date(iso))} UTC`;
+  return timeFmt.format(new Date(iso));
 }
 
 const FOOTER_LINK = LINK_QUIET;
