@@ -1,3 +1,4 @@
+import { todayIso } from "../shared/board.ts";
 import { cakeDayYears } from "../shared/cakeday.ts";
 import {
   ALL_TIME_PERSONAL_MILESTONES,
@@ -182,6 +183,18 @@ export function finishedYearToFollow(today: string): number | null {
   return day < FINISHED_YEAR_DAYS * 24 * 60 * 60 * 1000 ? year - 1 : null;
 }
 
+const WRAP_UP_HOUR = 8;
+const londonClock = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23",
+});
+
+/** The earliest day not yet wrapped up: each day closes at 08:00 London the morning after. */
+export function openDay(now: Date): string {
+  const part = Object.fromEntries(londonClock.formatToParts(now).map(({ type, value }) => [type, value]));
+  const date = Date.UTC(Number(part.year), Number(part.month) - 1, Number(part.day));
+  return todayIso(new Date(Number(part.hour) < WRAP_UP_HOUR ? date - 86_400_000 : date));
+}
+
 function announcedDay(peak: DailyPeak): AnnouncedDay {
   const { login, url, avatarUrl, date, count } = peak;
   return { peak: { login, url, avatarUrl, date, count }, latest: count, wrapped: false };
@@ -195,15 +208,15 @@ function dayCounts(user: BoardUser): Map<string, number> {
   return new Map(user.weeks.flatMap((week) => week.days.map((day) => [day.date, day.count])));
 }
 
-function personalWrapUp(day: AnnouncedDay, today: string): DailyWrapUpEvent | null {
-  if (day.wrapped || day.peak.date >= today || day.latest <= day.peak.count) return null;
+function personalWrapUp(day: AnnouncedDay, open: string): DailyWrapUpEvent | null {
+  if (day.wrapped || day.peak.date >= open || day.latest <= day.peak.count) return null;
   return { ...day.peak, count: day.latest, announcedCount: day.peak.count };
 }
 
-function personalWrapUps(state: DailyRecordState, today: string): DailyWrapUpEvent[] {
+function personalWrapUps(state: DailyRecordState, open: string): DailyWrapUpEvent[] {
   return Object.values(state.personalDays).flatMap((days) =>
     Object.values(days).flatMap((day) => {
-      const wrapUp = personalWrapUp(day, today);
+      const wrapUp = personalWrapUp(day, open);
       return wrapUp ? [wrapUp] : [];
     }),
   );
@@ -213,10 +226,10 @@ function personalWrapUps(state: DailyRecordState, today: string): DailyWrapUpEve
  * At most one per finished date: the day's highest board record, when it
  * rose past every record announced that day and still is the record.
  */
-function boardWrapUps(state: DailyRecordState, today: string): DailyWrapUpEvent[] {
+function boardWrapUps(state: DailyRecordState, open: string): DailyWrapUpEvent[] {
   const byDate = new Map<string, AnnouncedDay[]>();
   for (const day of Object.values(state.boardDays)) {
-    if (day.peak.date >= today) continue;
+    if (day.peak.date >= open) continue;
     byDate.set(day.peak.date, [...(byDate.get(day.peak.date) ?? []), day]);
   }
   return [...byDate.entries()]
@@ -319,14 +332,14 @@ function startingState(
 /**
  * Compares a fresh board with durable record state. Each day is announced
  * as a record at most once per account: further rises only update state, and
- * the first check after the day ends (UTC, like the board's dates) wraps up
+ * the first check after `open` (see `openDay`) moves past the day wraps up
  * where it finished. A year rollover starts the new year's records from zero
  * (the caller follows the finished year separately); a brand-new Durable
  * Object starts silently.
  */
 export function planDailyRecords(
   year: number,
-  today: string,
+  open: string,
   board: Board,
   previous?: DailyRecordState | LegacyDailyRecordState,
 ): DailyRecordPlan {
@@ -380,7 +393,7 @@ export function planDailyRecords(
     boardPeak && boardPeak.count > stateBeforeEvents.boardBest
       ? { peak: boardPeak, previousCount: stateBeforeEvents.boardBest }
       : null;
-  const personal = personalWrapUps(stateBeforeEvents, today);
+  const personal = personalWrapUps(stateBeforeEvents, open);
 
   const nextState = stateSnapshot(stateBeforeEvents);
   for (const event of personal) applyPersonalWrapUp(nextState, event);
@@ -388,7 +401,7 @@ export function planDailyRecords(
   if (boardRecord) applyBoardRecord(nextState, boardRecord);
   // Chosen after the new record joins its day, so a record set on a day that
   // has already ended is that day's holder and not wrapped up from under it.
-  const boardDays = boardWrapUps(nextState, today);
+  const boardDays = boardWrapUps(nextState, open);
   for (const event of boardDays) applyBoardWrapUp(nextState, event);
 
   return {
@@ -491,14 +504,14 @@ export interface DailyRecordStorage {
  */
 export async function updateDailyRecordYears(
   live: YearBoard,
-  today: string,
+  now: Date,
   storage: DailyRecordStorage,
   loadFinished: (year: number) => Promise<Board | null>,
   notify: (year: number, notification: DailyRecordNotification) => Promise<void>,
 ): Promise<void> {
   const deliverYear = async (key: string, { year, board }: YearBoard, previous?: StoredDailyRecords) =>
     deliverDailyRecords(
-      planDailyRecords(year, today, board, previous),
+      planDailyRecords(year, openDay(now), board, previous),
       (notification) => notify(year, notification),
       (state) => storage.put(key, state),
     );
@@ -513,7 +526,7 @@ export async function updateDailyRecordYears(
 
   const held = await storage.get(FINISHED_DAILY_RECORDS_KEY);
   if (!held) return;
-  if (held.year !== finishedYearToFollow(today)) {
+  if (held.year !== finishedYearToFollow(todayIso(now))) {
     await storage.delete(FINISHED_DAILY_RECORDS_KEY);
     return;
   }

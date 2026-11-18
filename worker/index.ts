@@ -1815,15 +1815,15 @@ export class LeaderState extends DurableObject<Env> {
   private async refreshBoard(): Promise<void> {
     if (!hasGitHubCredentials(this.env, GITHUB_AUTH)) throw new Error(TOKEN_MISSING);
 
-    const year = currentYear();
-    const generatedAt = new Date().toISOString();
+    const now = new Date();
+    const year = currentYear(now);
+    const generatedAt = now.toISOString();
     const { board, missing } = await fetchBoard(await githubToken(this.env, GITHUB_AUTH), year);
     // A partial fetch leaves the last complete board and checkpoints intact.
     if (!shouldUpdateNotifications(missing)) {
       console.warn("board refresh skipped for incomplete board", { year, missing });
       return;
     }
-    const today = todayIso();
     await this.ctx.storage.put(BOARD_SNAPSHOT_KEY, { year, board, generatedAt });
     // After the snapshot and before notifications, and never throws: history
     // is a diagnostic record, so it cannot hold back either of them.
@@ -1834,7 +1834,7 @@ export class LeaderState extends DurableObject<Env> {
     // slow or failed webhook does not hold back the site's snapshot.
     // Wait for both groups even when one fails, preserving each checkpoint.
     const results = await Promise.allSettled([
-      this.updateYearlyNotifications(year, board, today),
+      this.updateYearlyNotifications(year, board, now),
       this.updateAllTimeMilestones(year, board),
     ]);
     for (const result of results) {
@@ -1914,10 +1914,10 @@ export class LeaderState extends DurableObject<Env> {
     );
   }
 
-  private async updateDailyRecords(live: YearBoard, today: string): Promise<void> {
+  private async updateDailyRecords(live: YearBoard, now: Date): Promise<void> {
     await updateDailyRecordYears(
       live,
-      today,
+      now,
       {
         get: (key) => this.ctx.storage.get<StoredDailyRecords>(key),
         put: (key, state) => this.ctx.storage.put(key, state),
@@ -1959,11 +1959,11 @@ export class LeaderState extends DurableObject<Env> {
     );
   }
 
-  private async updateYearlyNotifications(year: number, board: Board, today: string): Promise<void> {
+  private async updateYearlyNotifications(year: number, board: Board, now: Date): Promise<void> {
     await this.updateStandings(year, board);
-    await this.updateDailyRecords({ year, board }, today);
+    await this.updateDailyRecords({ year, board }, now);
     await this.updateMilestones(year, board);
-    await this.updateCakeDays(today, board);
+    await this.updateCakeDays(todayIso(now), board);
   }
 
   private async updateAllTimeMilestones(year: number, board: Board): Promise<void> {

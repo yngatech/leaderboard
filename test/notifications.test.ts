@@ -9,6 +9,7 @@ import {
   DAILY_RECORDS_KEY,
   FINISHED_DAILY_RECORDS_KEY,
   finishedYearToFollow,
+  openDay,
   ordinal,
   planCakeDays,
   planDailyRecords,
@@ -691,18 +692,19 @@ function memoryStorage(entries: Record<string, StoredDailyRecords> = {}) {
 /**
  * Runs notification checks across a year end, returning `year:post` for each
  * post and the years the finished board was loaded for. A check's finished
- * board of null stands for a failed or incomplete fetch.
+ * board of null stands for a failed or incomplete fetch. A check at a bare
+ * date runs at 09:00 UTC, after that morning's wrap-ups are due.
  */
 async function runYears(
-  checks: Array<[today: string, live: Board, finished?: Board | null]>,
+  checks: Array<[at: string, live: Board, finished?: Board | null]>,
   entries: Record<string, StoredDailyRecords>,
   fail?: (post: string) => boolean,
 ) {
   const { map, storage } = memoryStorage(entries);
   const posts: string[] = [];
   const loaded: number[] = [];
-  for (const [today, live, finished] of checks) {
-    const year = Number(today.slice(0, 4));
+  for (const [at, live, finished] of checks) {
+    const year = Number(at.slice(0, 4));
     const notify = async (postYear: number, notification: DailyRecordNotification) => {
       const post = `${postYear}:${notificationId(notification)}`;
       if (fail?.(post)) throw new Error("Discord unavailable");
@@ -712,7 +714,8 @@ async function runYears(
       loaded.push(finishedYear);
       return finished ?? null;
     };
-    await updateDailyRecordYears({ year, board: live }, today, storage, loadFinished, notify)
+    const now = new Date(at.includes("T") ? at : `${at}T09:00:00Z`);
+    await updateDailyRecordYears({ year, board: live }, now, storage, loadFinished, notify)
       .catch(() => undefined);
   }
   return { posts, map, loaded };
@@ -752,6 +755,33 @@ test("pushes landing on 31 December after midnight are wrapped up from that year
   assert.deepEqual(posts, [
     "2025:record:alice",
     "2025:record-wrap-up:alice:13",
+  ]);
+});
+
+test("a day stays open for wrap-ups until 08:00 London the next morning", () => {
+  assert.equal(openDay(new Date("2026-03-02T07:59:00Z")), "2026-03-01");
+  assert.equal(openDay(new Date("2026-03-02T08:00:00Z")), "2026-03-02");
+  // British Summer Time: 08:00 London is 07:00 UTC.
+  assert.equal(openDay(new Date("2026-07-02T06:59:00Z")), "2026-07-01");
+  assert.equal(openDay(new Date("2026-07-02T07:00:00Z")), "2026-07-02");
+  assert.equal(openDay(new Date("2026-07-01T23:30:00Z")), "2026-07-01");
+});
+
+test("31 December's late pushes land before its wrap-up on New Year's morning", async () => {
+  const empty = () => [user("alice", []), user("bob", [])];
+  const { posts } = await runYears(
+    [
+      ["2025-12-31", lastDay(["alice", 11], ["bob", 0])],
+      ["2026-01-01T00:10:00Z", empty(), lastDay(["alice", 13], ["bob", 0])],
+      ["2026-01-01T07:50:00Z", empty(), lastDay(["alice", 15], ["bob", 0])],
+      ["2026-01-01T08:00:00Z", empty(), lastDay(["alice", 15], ["bob", 0])],
+    ],
+    twentyFive(),
+  );
+
+  assert.deepEqual(posts, [
+    "2025:record:alice",
+    "2025:record-wrap-up:alice:15",
   ]);
 });
 

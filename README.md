@@ -168,8 +168,11 @@ cache behavior. Serving that build or running dev also stops any persisted
 local alarm before it can fetch or post.
 
 A daily PB or board record is announced at most once per account and day. If
-that day keeps climbing, the rises are saved quietly, and the first check after
-the UTC day ends posts one wrap-up with where the day finished: one per account
+that day keeps climbing, the rises are saved quietly, and the first check from
+08:00 Europe/London the next morning posts one wrap-up with where the day
+finished. GitHub dates commits by their author time but counts them only once
+they are pushed or merged, so waiting for the morning lets late-night work
+pushed first thing land on its day before the wrap-up. There is one per account
 for PBs, and one for the board from whoever finished the day on top while it
 is still the record (a newer record already says what it beat). A day is never
 announced again, and contributions landing on it after its wrap-up stay quiet.
