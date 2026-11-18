@@ -6,10 +6,14 @@ reads each account's public contributions page for its totals, GraphQL for the
 profile around them, and renders every page as static HTML at the edge; a small script layers on live timestamps, arrow-key navigation and
 the chart hover, and every page works without it.
 
+The board's day runs on Europe/London time. GitHub files commits under the date
+in their author timestamp, which for this group is London's, so "today", the
+calendars, streaks, cake days and footer times all follow London rather than UTC.
+
 ## Routes
 
 `GET /api/users/{login}/breakdown` returns the current year contribution split;
-`?date=YYYY-MM-DD` selects a single UTC day. User pages accept `?day=YYYY-MM-DD`
+`?date=YYYY-MM-DD` selects a single day. User pages accept `?day=YYYY-MM-DD`
 and link each heatmap day to its breakdown.
 
 | Path | What it serves |
@@ -253,7 +257,7 @@ pruned as new ones land, about 1,450 rows a day at steady state.
 `from` and `to` take a UTC date (a `to` date covers that day) or an ISO 8601
 time with an offset; the default is the last 24 hours, and a range covers at
 most 7 days. Each change carries its `delta` and a `kind`: `same-day` when it
-landed on the check's own UTC date, `backfill` when GitHub's calendar caught up
+landed on the board's date at that check, `backfill` when GitHub's calendar caught up
 on an earlier date (`daysBack` says how far), and `ahead` for a later date.
 `previousCheckedAt` bounds when the change appeared. The live board only covers
 the year in progress, so late changes to last year after 1 January are not

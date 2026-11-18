@@ -5,6 +5,7 @@ import {
   boardGoal,
   cumulativeSeries,
   featuredYear,
+  todayIso,
   userGoals,
   userGrid,
   userProfile,
@@ -326,4 +327,11 @@ test("holds the finished year until the second Monday of January", () => {
 
   assert.equal(featuredYear("2025-01-12"), 2024);
   assert.equal(featuredYear("2025-01-13"), 2025);
+});
+
+test("the board's day turns over at London midnight", () => {
+  assert.equal(todayIso(new Date("2026-07-01T22:59:59Z")), "2026-07-01");
+  assert.equal(todayIso(new Date("2026-07-01T23:00:00Z")), "2026-07-02");
+  assert.equal(todayIso(new Date("2026-11-18T23:59:59Z")), "2026-11-18");
+  assert.equal(todayIso(new Date("2026-11-19T00:00:00Z")), "2026-11-19");
 });

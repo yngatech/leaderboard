@@ -1,4 +1,4 @@
-import { todayIso } from "../shared/board.ts";
+import { londonClock, todayIso } from "../shared/board.ts";
 import { cakeDayYears } from "../shared/cakeday.ts";
 import {
   ALL_TIME_PERSONAL_MILESTONES,
@@ -184,15 +184,11 @@ export function finishedYearToFollow(today: string): number | null {
 }
 
 const WRAP_UP_HOUR = 8;
-const londonClock = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23",
-});
 
 /** The earliest day not yet wrapped up: each day closes at 08:00 London the morning after. */
 export function openDay(now: Date): string {
-  const part = Object.fromEntries(londonClock.formatToParts(now).map(({ type, value }) => [type, value]));
-  const date = Date.UTC(Number(part.year), Number(part.month) - 1, Number(part.day));
-  return todayIso(new Date(Number(part.hour) < WRAP_UP_HOUR ? date - 86_400_000 : date));
+  const { date, hour } = londonClock(now);
+  return hour < WRAP_UP_HOUR ? new Date(Date.parse(date) - 86_400_000).toISOString().slice(0, 10) : date;
 }
 
 function announcedDay(peak: DailyPeak): AnnouncedDay {

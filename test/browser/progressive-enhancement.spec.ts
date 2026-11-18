@@ -57,7 +57,7 @@ test.describe("without JavaScript", () => {
     await expect(page.getByRole("heading", { name: "git board" })).toBeVisible();
     await expect(page.getByText("contributions from 2 accounts in 2026")).toBeVisible();
     await expect(page.getByRole("link", { name: "alice", exact: true })).toBeVisible();
-    await expect(page.locator("time[data-ago]")).toContainText("UTC");
+    await expect(page.locator("time[data-ago]")).toContainText(/GMT|BST/);
 
     await page.getByRole("link", { name: "Show 2025" }).click();
     await expect(page).toHaveURL(`${ORIGIN}/2025`);

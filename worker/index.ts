@@ -1156,7 +1156,7 @@ async function handleBreakdownApi(
   const date = parseBreakdownDate(url.searchParams.get("date"), now);
   if (date === "invalid")
     return json(
-      { error: "Date must be a real day from 2008-01-01 to today (UTC), as YYYY-MM-DD.", status: 400 },
+      { error: "Date must be a real day from 2008-01-01 to today (London time), as YYYY-MM-DD.", status: 400 },
       { status: 400, headers: { "Cache-Control": "no-store" } },
     );
   const window = date ? dayWindow(date) : yearWindow(currentYear(now), now);

@@ -127,7 +127,7 @@ test("merges accounts and case-insensitive repositories, sorts ties, preserves u
   );
 });
 
-test("validates real UTC dates, bounds and exact format", () => {
+test("validates real dates, bounds and exact format", () => {
   for (const raw of [
     "2026-02-30",
     "2025-02-29",
@@ -143,6 +143,8 @@ test("validates real UTC dates, bounds and exact format", () => {
   for (const raw of ["2008-01-01", "2024-02-29", "2026-10-19"])
     assert.equal(parseBreakdownDate(raw, now), raw);
   assert.equal(parseBreakdownDate(null, now), null);
+  // The new London day can be opened before UTC reaches it.
+  assert.equal(parseBreakdownDate("2026-07-02", new Date("2026-07-01T23:30:00Z")), "2026-07-02");
 });
 
 test("windows and TTL use today UTC, including a finished day in this year", () => {

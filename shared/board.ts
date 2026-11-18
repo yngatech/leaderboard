@@ -63,8 +63,18 @@ function isoDate(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
+const londonClockFmt = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23",
+});
+
+/** The date and hour in London, where the board's people are and so where GitHub dates their commits. */
+export function londonClock(now: Date): { date: string; hour: number } {
+  const part = Object.fromEntries(londonClockFmt.formatToParts(now).map(({ type, value }) => [type, value]));
+  return { date: `${part.year}-${part.month}-${part.day}`, hour: Number(part.hour) };
+}
+
 export function todayIso(now: Date = new Date()): string {
-  return now.toISOString().slice(0, 10);
+  return londonClock(now).date;
 }
 
 export function currentYear(now: Date = new Date()): number {

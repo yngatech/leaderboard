@@ -1,3 +1,4 @@
+import { todayIso } from "../shared/board.ts";
 import type { Board } from "../shared/types";
 
 /**
@@ -56,10 +57,10 @@ export interface DayChange {
 }
 
 /**
- * Where a change landed relative to the UTC date of the check that saw it.
- * `same-day` is activity on the check's own date, `backfill` is GitHub
- * catching up on an earlier date, and `ahead` a date after the check's,
- * which the calendar's UTC days should never produce.
+ * Where a change landed relative to the board's date (`todayIso`) at the
+ * check that saw it. `same-day` is activity on the check's own date,
+ * `backfill` is GitHub catching up on an earlier date, and `ahead` a date
+ * after the check's, which should only come from a clock set ahead of London.
  */
 export type ChangeKind = "same-day" | "backfill" | "ahead";
 
@@ -74,7 +75,7 @@ export interface HistoryCheck {
   checkedAt: string;
   /** The recorded check before this one: anything new appeared between the two. */
   previousCheckedAt: string | null;
-  /** The check's UTC date, which `kind` is measured against. */
+  /** The board's date at the check, which `kind` is measured against. */
   checkDate: string;
   /** The first recorded check, which seeds the baseline and lists no changes. */
   baseline: boolean;
@@ -348,7 +349,7 @@ export class BoardHistoryStore {
 
     const checks = new Map<number, HistoryCheck>();
     for (const row of rows) {
-      const checkDate = iso(row.checked_at).slice(0, 10);
+      const checkDate = todayIso(new Date(row.checked_at));
       checks.set(row.id, {
         checkedAt: iso(row.checked_at),
         previousCheckedAt: row.previous_checked_at === null ? null : iso(row.previous_checked_at),
